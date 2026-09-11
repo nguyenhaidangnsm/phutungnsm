@@ -459,13 +459,7 @@
         .stat-card h3 { font-size: 1.35rem; }
     }
 
-    /* Khung nội dung chính (header + footer) - trước đây cố định cứng
-       max-width: 1400px nên trên màn hình to (21 inch, 1920px+...) web bị
-       "lọt thỏm" giữa màn hình, 2 bên thừa rất nhiều khoảng trắng, không
-       tận dụng được không gian để hiện thêm cột/dữ liệu. Từ 1400px trở
-       xuống (laptop 13-15 inch) giữ nguyên bề rộng như cũ; vượt mốc đó,
-       cho khung giãn theo % chiều rộng màn hình (vw) để tự động lớn dần
-       theo màn hình, không cần chỉnh tay. */
+
     .app-container { max-width: 1400px; }
     @media (min-width: 1400px) {
         .app-container { max-width: 95vw; }
