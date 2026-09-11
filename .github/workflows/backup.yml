@@ -1,0 +1,16 @@
+- name: Dump Database & Compress
+        env:
+          DB_URL: ${{ secrets.DB_URL }}
+        run: |
+          FILENAME="backup_$(date +%Y%m%d_%H%M%S).sql.gz"
+          pg_dump "$DB_URL" | gzip > "$FILENAME"
+          echo "BACKUP_FILE=$FILENAME" >> $GITHUB_ENV
+
+      - name: Send Backup File to Telegram
+        env:
+          BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          curl -F document=@"${BACKUP_FILE}" \
+               -F caption="📦 Backup Supabase $(date +%Y-%m-%d %H:%M:%S)" \
+               "https://api.telegram.org/bot${BOT_TOKEN}/sendDocument?chat_id=${CHAT_ID}"
