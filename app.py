@@ -14,6 +14,7 @@ import psycopg2
 from psycopg2 import pool as pg_pool
 from psycopg2.extras import RealDictCursor, execute_values
 from werkzeug.security import generate_password_hash, check_password_hash
+from werkzeug.middleware.proxy_fix import ProxyFix
 from flask_compress import Compress
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
@@ -120,6 +121,14 @@ if not _secret_key:
     )
 app.secret_key = _secret_key
 
+# Render (và hầu hết các nền tảng hosting) chạy app đứng sau 1 reverse proxy,
+# nên request.remote_addr mặc định sẽ trả về IP nội bộ của proxy chứ KHÔNG
+# PHẢI IP thật của người dùng. ProxyFix đọc header "X-Forwarded-For" (do
+# proxy của Render tự thêm, đáng tin cậy - không phải do client tự gửi giả
+# được) để request.remote_addr trả về đúng IP thật. x_for=1 nghĩa là chỉ tin
+# 1 lớp proxy phía trước (đúng với hạ tầng của Render).
+app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1)
+
 # Server host (Render...) thường chạy theo giờ UTC, không phải giờ Việt Nam.
 # Nếu dùng datetime.now() thẳng thì các mốc "Cập nhật lần cuối" sẽ bị lệch
 # -7 giờ so với giờ admin thực tế bấm nút. Hàm này luôn trả về giờ VN (naive,
@@ -130,6 +139,33 @@ VN_TZ = ZoneInfo('Asia/Ho_Chi_Minh')
 
 def vn_now():
     return datetime.now(VN_TZ).replace(tzinfo=None)
+
+
+# Theo dõi "đang online" TRONG RAM (không ghi DB mỗi request để khỏi tốn tài
+# nguyên) - dict: username -> {'ip', 'last_seen' (datetime), 'user_agent'}.
+# Mất dữ liệu khi restart app, nhưng chấp nhận được vì đây chỉ là thông tin
+# tức thời ("ai đang online ngay lúc này"), không phải lịch sử cần lưu lâu
+# dài (lịch sử đăng nhập thật đã có bảng login_log ở trên).
+_online_users = {}
+_online_users_lock = threading.Lock()
+ONLINE_THRESHOLD_SECONDS = 120  # không thấy hoạt động > 2 phút -> coi là offline
+
+
+@app.before_request
+def _track_online_user():
+    # Bỏ qua request tài nguyên tĩnh (ảnh, font, css/js) - không phải hoạt
+    # động thật của user, chỉ tốn thêm 1 lần lock/ghi dict không cần thiết.
+    if request.path.startswith('/static/'):
+        return
+    username = session.get('user')
+    if not username:
+        return
+    with _online_users_lock:
+        _online_users[username] = {
+            'ip': request.remote_addr,
+            'last_seen': vn_now(),
+            'user_agent': request.headers.get('User-Agent', ''),
+        }
 
 
 # Tên thứ trong tuần bằng tiếng Việt (dùng cho phần Lịch Sử Tải Lên) -
@@ -238,6 +274,12 @@ PO_DETAIL_RETENTION_DAYS = 120
 # đè riêng của chúng).
 UPLOAD_LOG_RETENTION_DAYS = 7
 
+# Số ngày lưu trữ "Lịch Sử Đăng Nhập" (bảng login_log) trước khi tự động dọn
+# dẹp - giống lý do với upload_log: đây chỉ là log hiển thị, không phải dữ
+# liệu nghiệp vụ, nếu không dọn sẽ phình to vô hạn theo thời gian (mỗi lượt
+# đăng nhập của mọi user đều ghi 1 dòng).
+LOGIN_LOG_RETENTION_DAYS = 90
+
 # Nhân viên phụ tùng theo cửa hàng — dùng khi tạo phiếu luân chuyển nội bộ
 # (nhân viên xin) và khi đồng ý phiếu (nhân viên xác nhận).
 STORE_EMPLOYEES = {
@@ -300,6 +342,89 @@ def _to_log_value(v):
         return float(v)
     except (TypeError, ValueError):
         return str(v)
+
+
+_ip_location_cache = {}
+_ip_location_cache_lock = threading.Lock()
+
+
+def _is_private_ip(ip):
+    """IP nội bộ/localhost (VD: chạy local, hoặc Render gọi nhau qua mạng
+    private) - không có ý nghĩa địa lý thật, tra cứu chỉ tốn thời gian vô ích."""
+    if not ip:
+        return True
+    return (
+        ip.startswith('127.') or ip.startswith('10.') or ip.startswith('192.168.')
+        or ip == '::1' or ip.startswith('172.16.') or ip.startswith('172.17.')
+        or ip.startswith('172.18.') or ip.startswith('172.19.')
+        or ip.startswith('172.2') or ip.startswith('172.30.') or ip.startswith('172.31.')
+    )
+
+
+def get_ip_location(ip):
+    """Tra cứu thành phố/tỉnh/quốc gia từ địa chỉ IP bằng API miễn phí
+    ip-api.com (không cần API key). Có cache theo IP trong RAM để: (1) IP
+    trùng lặp (VD: cùng 1 văn phòng/wifi) không gọi API lại nhiều lần, (2)
+    tránh chạm giới hạn tần suất miễn phí (45 request/phút) của ip-api.com.
+    KHÔNG BAO GIỜ raise lỗi ra ngoài - trả về dict rỗng nếu có bất kỳ vấn đề
+    gì (mất mạng, IP lạ, hết hạn mức...), để việc này chỉ là "có thì hay,
+    không có cũng không sao", không ảnh hưởng chức năng đăng nhập."""
+    if _is_private_ip(ip):
+        return {'city': 'Mạng nội bộ', 'region': '', 'country': ''}
+
+    with _ip_location_cache_lock:
+        cached = _ip_location_cache.get(ip)
+    if cached is not None:
+        return cached
+
+    result = {'city': '', 'region': '', 'country': ''}
+    try:
+        # ip-api.com bản miễn phí chỉ hỗ trợ HTTP (không phải HTTPS) - việc
+        # này chấp nhận được vì đây là request server-to-server (không phải
+        # trình duyệt người dùng), không phát sinh cảnh báo "mixed content".
+        url = f"http://ip-api.com/json/{ip}?fields=status,city,regionName,country"
+        with urllib.request.urlopen(url, timeout=5) as resp:
+            data = json.loads(resp.read().decode('utf-8'))
+        if data.get('status') == 'success':
+            result = {
+                'city': data.get('city') or '',
+                'region': data.get('regionName') or '',
+                'country': data.get('country') or '',
+            }
+    except Exception as e:
+        app.logger.warning("Không tra được vị trí địa lý cho IP %s: %s", ip, e)
+
+    with _ip_location_cache_lock:
+        _ip_location_cache[ip] = result
+    return result
+
+
+def resolve_login_location_async(login_log_id, ip):
+    """Tra cứu vị trí địa lý và UPDATE lại dòng login_log tương ứng - chạy
+    trong THREAD RIÊNG (không chặn response đăng nhập, vì gọi API bên ngoài
+    ip-api.com có thể mất 1-2 giây hoặc hơn). Thread nền không dùng chung
+    connection với request chính (Flask `g` không tồn tại ở đây), nên tự
+    mượn 1 connection riêng từ pool rồi trả lại ngay khi xong."""
+    def _run():
+        location = get_ip_location(ip)
+        if not location.get('city') and not location.get('country'):
+            return  # không tra được gì thì khỏi UPDATE, đỡ 1 lần ghi DB
+        pool = _get_pool()
+        conn = pool.getconn()
+        try:
+            cur = conn.cursor()
+            cur.execute(
+                "UPDATE login_log SET city = %s, region = %s, country = %s WHERE id = %s",
+                (location['city'], location['region'], location['country'], login_log_id)
+            )
+            conn.commit()
+        except Exception as e:
+            conn.rollback()
+            app.logger.warning("Không lưu được vị trí địa lý cho login_log id=%s: %s", login_log_id, e)
+        finally:
+            pool.putconn(conn)
+
+    threading.Thread(target=_run, daemon=True).start()
 
 
 def _post_transfer_log_rows(rows):
@@ -437,6 +562,51 @@ def init_db():
                 role VARCHAR(20) NOT NULL,
                 store_code VARCHAR(20) NOT NULL
             )
+        ''')
+
+        # 1b. Bảng nhật ký đăng nhập - để admin biết mỗi tài khoản đã đăng
+        #     nhập từ đâu (IP) và lúc nào, phục vụ theo dõi/bảo mật.
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS login_log (
+                id SERIAL PRIMARY KEY,
+                username VARCHAR(50) NOT NULL,
+                ip_address VARCHAR(64),
+                user_agent TEXT,
+                login_time TIMESTAMP NOT NULL
+            )
+        ''')
+        cursor.execute('''
+            CREATE INDEX IF NOT EXISTS idx_login_log_username_time
+            ON login_log (username, login_time DESC)
+        ''')
+        # Cột địa điểm (thành phố/tỉnh) suy ra từ IP - điền SAU KHI đăng nhập
+        # xong (chạy nền, xem resolve_login_location_async), nên phải cho
+        # phép NULL để không chặn việc ghi log ngay lúc đăng nhập.
+        cursor.execute('ALTER TABLE login_log ADD COLUMN IF NOT EXISTS city VARCHAR(100)')
+        cursor.execute('ALTER TABLE login_log ADD COLUMN IF NOT EXISTS region VARCHAR(100)')
+        cursor.execute('ALTER TABLE login_log ADD COLUMN IF NOT EXISTS country VARCHAR(100)')
+
+        # 1c. Bảng "IP đã biết" của từng cửa hàng - admin đăng ký thủ công
+        # (đánh dấu 1 lượt đăng nhập trong lịch sử là "đúng IP cửa hàng"),
+        # dùng để SO SÁNH CHÍNH XÁC (không phải suy đoán theo thành phố/tỉnh
+        # như city/region ở trên) xem 1 lượt đăng nhập có đúng là từ mạng
+        # của cửa hàng hay không. 1 cửa hàng có thể có NHIỀU IP đã biết (VD:
+        # đổi nhà mạng, có thêm đường truyền dự phòng, IP động đổi theo thời
+        # gian...).
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS store_known_ips (
+                id SERIAL PRIMARY KEY,
+                store_code VARCHAR(20) NOT NULL,
+                ip_address VARCHAR(64) NOT NULL,
+                label VARCHAR(100),
+                added_by VARCHAR(50),
+                added_at TIMESTAMP NOT NULL,
+                UNIQUE (store_code, ip_address)
+            )
+        ''')
+        cursor.execute('''
+            CREATE INDEX IF NOT EXISTS idx_store_known_ips_store
+            ON store_known_ips (store_code)
         ''')
 
         # 2. Bảng nhật ký các lượt tải file (chỉ để hiển thị lịch sử, không dùng để tính toán)
@@ -1762,6 +1932,16 @@ def cleanup_old_upload_log(cursor):
     )
 
 
+def cleanup_old_login_log(cursor):
+    """Xoá các dòng 'Lịch Sử Đăng Nhập' (login_log) đã quá
+    LOGIN_LOG_RETENTION_DAYS (90) ngày. Chỉ ảnh hưởng lịch sử hiển thị cho
+    admin xem lại - không liên quan gì tới việc đăng nhập/tài khoản hiện tại."""
+    cursor.execute(
+        "DELETE FROM login_log WHERE login_time < NOW() - (%s || ' days')::interval",
+        (LOGIN_LOG_RETENTION_DAYS,)
+    )
+
+
 def save_ds_po(cursor, store_code, ds_po_file, ds_po_df, upload_time):
     """Danh sách PO: XOÁ SẠCH dữ liệu cũ của cửa hàng này và THAY THẾ hoàn
     toàn bằng dữ liệu mới. Không đụng tới dữ liệu Chi tiết nhận hàng đang có,
@@ -2150,6 +2330,33 @@ def login():
         # So sánh mật khẩu (tự hỗ trợ nâng cấp tài khoản cũ còn plain text
         # lên hash ngay khi đăng nhập thành công - xem verify_and_upgrade_password).
         if user and verify_and_upgrade_password(cursor, db, user, password):
+            # Ghi lại IP thật (đã qua ProxyFix) + trình duyệt/thiết bị của lượt
+            # đăng nhập này, để admin xem lại được "tài khoản này đăng nhập từ
+            # đâu, lúc nào" trong /api/admin/login-log.
+            #
+            # CỐ TÌNH bọc riêng trong try/except: đây chỉ là tính năng phụ để
+            # xem lịch sử, KHÔNG được phép làm hỏng việc đăng nhập của user
+            # nếu vì lý do gì đó (VD: DB tạm thời chậm/lỗi) mà ghi log thất
+            # bại - user vẫn phải đăng nhập được bình thường.
+            try:
+                cursor.execute(
+                    "INSERT INTO login_log (username, ip_address, user_agent, login_time) VALUES (%s, %s, %s, %s) RETURNING id",
+                    (user['username'], request.remote_addr, request.headers.get('User-Agent', ''), vn_now())
+                )
+                new_login_log_id = cursor.fetchone()['id']
+                # Tự dọn log cũ ngay trong lượt đăng nhập này (giống cách
+                # cleanup_old_upload_log được gọi khi có upload) - không cần
+                # thêm cron/job riêng, và DELETE theo index thời gian rất nhẹ
+                # ngay cả khi không có dòng nào quá hạn để xoá.
+                cleanup_old_login_log(cursor)
+                db.commit()
+                # Tra vị trí địa lý (thành phố/tỉnh) TRONG THREAD NỀN - gọi
+                # API bên ngoài có thể mất 1-2s, không được để user phải chờ
+                # thêm chừng đó khi đăng nhập.
+                resolve_login_location_async(new_login_log_id, request.remote_addr)
+            except Exception:
+                db.rollback()
+
             cursor.close()
             session.clear()
             session['user'] = user['username']
@@ -3495,8 +3702,158 @@ def admin_users():
 
     cursor.execute("SELECT username, role, store_code FROM users")
     users = [dict(row) for row in cursor.fetchall()]
+
+    # Lấy lượt đăng nhập GẦN NHẤT của mỗi user (DISTINCT ON theo username,
+    # sắp theo login_time mới nhất) trong 1 truy vấn duy nhất, ghép vào kết
+    # quả trên thay vì query riêng cho từng user (tránh N+1).
+    cursor.execute('''
+        SELECT DISTINCT ON (username) username, ip_address, login_time, city, region, country
+        FROM login_log
+        ORDER BY username, login_time DESC
+    ''')
+    last_login_by_user = {r['username']: r for r in cursor.fetchall()}
+    store_ips = get_store_known_ips_map(cursor)
     cursor.close()
+
+    with _online_users_lock:
+        now = vn_now()
+        for u in users:
+            last = last_login_by_user.get(u['username'])
+            u['last_login_time'] = last['login_time'].isoformat() if last else None
+            u['last_login_ip'] = last['ip_address'] if last else None
+            u['last_login_location'] = ', '.join(filter(None, [last['city'], last['region']])) if last else None
+
+            known_ips = store_ips.get(u['store_code'])
+            u['is_store_ip'] = (last['ip_address'] in known_ips) if (last and known_ips) else None
+
+            online_info = _online_users.get(u['username'])
+            u['online'] = bool(
+                online_info and (now - online_info['last_seen']).total_seconds() <= ONLINE_THRESHOLD_SECONDS
+            )
+            u['current_ip'] = online_info['ip'] if online_info else None
+
     return jsonify({'success': True, 'users': users})
+
+
+def get_store_known_ips_map(cursor):
+    """Trả về dict store_code -> set(ip_address) đã được admin đăng ký là
+    'IP của cửa hàng này'. Dùng để so khớp CHÍNH XÁC (không suy đoán theo
+    thành phố như city/region) xem 1 lượt đăng nhập có đúng từ mạng cửa
+    hàng hay không."""
+    cursor.execute("SELECT store_code, ip_address FROM store_known_ips")
+    result = {}
+    for row in cursor.fetchall():
+        result.setdefault(row['store_code'], set()).add(row['ip_address'])
+    return result
+
+
+@app.route('/api/admin/login-log', methods=['GET'])
+def admin_login_log():
+    """Lịch sử đăng nhập chi tiết (nhiều lượt) của 1 user cụ thể, hoặc toàn
+    bộ hệ thống nếu không truyền ?username=. Giới hạn 200 dòng gần nhất để
+    tránh trả về quá nhiều dữ liệu nếu 1 tài khoản đăng nhập rất thường
+    xuyên trong thời gian dài."""
+    if 'user' not in session or session['role'] != 'admin':
+        return jsonify({'error': 'Forbidden'}), 403
+
+    username = request.args.get('username')
+    db = get_db()
+    cursor = db.cursor()
+    if username:
+        cursor.execute('''
+            SELECT l.username, l.ip_address, l.user_agent, l.login_time, l.city, l.region, l.country,
+                   u.store_code
+            FROM login_log l LEFT JOIN users u ON u.username = l.username
+            WHERE l.username = %s
+            ORDER BY l.login_time DESC LIMIT 200
+        ''', (username,))
+    else:
+        cursor.execute('''
+            SELECT l.username, l.ip_address, l.user_agent, l.login_time, l.city, l.region, l.country,
+                   u.store_code
+            FROM login_log l LEFT JOIN users u ON u.username = l.username
+            ORDER BY l.login_time DESC LIMIT 200
+        ''')
+    logs = [dict(row) for row in cursor.fetchall()]
+
+    store_ips = get_store_known_ips_map(cursor)
+    cursor.close()
+
+    for row in logs:
+        row['login_time'] = row['login_time'].isoformat()
+        # city/region có thể vẫn NULL nếu thread tra cứu vị trí chưa xong
+        # (hoặc lượt đăng nhập rất mới, vừa xảy ra vài giây trước) hoặc IP
+        # nội bộ (được gán sẵn 'Mạng nội bộ' ngay khi ghi log).
+        row['location'] = ', '.join(filter(None, [row.get('city'), row.get('region')])) or None
+
+        # is_store_ip: True/False nếu cửa hàng NÀY đã đăng ký ít nhất 1 IP,
+        # None nếu chưa đăng ký IP nào (chưa có dữ liệu để so sánh, không
+        # phải "sai") - để giao diện phân biệt rõ 3 trạng thái này.
+        known_ips = store_ips.get(row['store_code'])
+        row['is_store_ip'] = (row['ip_address'] in known_ips) if known_ips else None
+    return jsonify({'success': True, 'logs': logs})
+
+
+@app.route('/api/admin/store-ips', methods=['GET', 'POST'])
+def admin_store_ips():
+    """Quản lý danh sách 'IP đã biết' của từng cửa hàng.
+    GET: liệt kê (lọc theo ?store_code= nếu có).
+    POST: đăng ký 1 IP mới cho 1 cửa hàng - body {store_code, ip_address, label}.
+    Dùng ON CONFLICT DO NOTHING vì (store_code, ip_address) là UNIQUE - đăng
+    ký trùng sẽ không báo lỗi, chỉ đơn giản là không thêm dòng mới."""
+    if 'user' not in session or session['role'] != 'admin':
+        return jsonify({'error': 'Forbidden'}), 403
+
+    db = get_db()
+    cursor = db.cursor()
+
+    if request.method == 'POST':
+        data = request.json or {}
+        store_code = (data.get('store_code') or '').strip()
+        ip_address = (data.get('ip_address') or '').strip()
+        label = (data.get('label') or '').strip() or None
+        if not store_code or not ip_address:
+            cursor.close()
+            return jsonify({'error': 'Thiếu store_code hoặc ip_address'}), 400
+
+        cursor.execute('''
+            INSERT INTO store_known_ips (store_code, ip_address, label, added_by, added_at)
+            VALUES (%s, %s, %s, %s, %s)
+            ON CONFLICT (store_code, ip_address) DO NOTHING
+        ''', (store_code, ip_address, label, session['user'], vn_now()))
+        db.commit()
+        cursor.close()
+        return jsonify({'success': True})
+
+    store_code = request.args.get('store_code')
+    if store_code:
+        cursor.execute(
+            "SELECT id, store_code, ip_address, label, added_by, added_at FROM store_known_ips WHERE store_code = %s ORDER BY added_at DESC",
+            (store_code,)
+        )
+    else:
+        cursor.execute(
+            "SELECT id, store_code, ip_address, label, added_by, added_at FROM store_known_ips ORDER BY store_code, added_at DESC"
+        )
+    rows = [dict(r) for r in cursor.fetchall()]
+    cursor.close()
+    for r in rows:
+        r['added_at'] = r['added_at'].isoformat()
+    return jsonify({'success': True, 'ips': rows})
+
+
+@app.route('/api/admin/store-ips/<int:ip_id>', methods=['DELETE'])
+def admin_store_ips_delete(ip_id):
+    if 'user' not in session or session['role'] != 'admin':
+        return jsonify({'error': 'Forbidden'}), 403
+    db = get_db()
+    cursor = db.cursor()
+    cursor.execute("DELETE FROM store_known_ips WHERE id = %s", (ip_id,))
+    db.commit()
+    cursor.close()
+    return jsonify({'success': True})
+
+
 
 
 @app.route('/api/admin/db-size', methods=['GET'])

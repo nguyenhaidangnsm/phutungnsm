@@ -2329,11 +2329,13 @@
                                 <th>Tên Đăng Nhập</th>
                                 <th>Role</th>
                                 <th>Cửa Hàng</th>
+                                <th>Trạng Thái</th>
+                                <th>Đăng Nhập Gần Nhất</th>
                                 <th class="text-end">Thao Tác</th>
                             </tr>
                         </thead>
                         <tbody id="admin-users-body">
-                            <tr><td colspan="4" class="text-center py-4 text-muted">Đang tải danh sách user...</td></tr>
+                            <tr><td colspan="6" class="text-center py-4 text-muted">Đang tải danh sách user...</td></tr>
                         </tbody>
                     </table>
                 </div>
@@ -2383,6 +2385,40 @@
                     <input type="password" id="new-password-input" class="form-control" placeholder="Nhập mật khẩu mới...">
                 </div>
                 <button type="button" class="btn btn-primary w-100 fw-semibold" onclick="submitNewPassword()">Xác Nhận Đổi Mật Khẩu</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Modal Lịch Sử Đăng Nhập -->
+<div class="modal fade" id="loginHistoryModal" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered modal-lg">
+        <div class="modal-content border-0 shadow">
+            <div class="modal-header bg-primary text-white">
+                <h5 class="modal-title fw-bold fs-6">Lịch Sử Đăng Nhập: <span id="login-history-username"></span></h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body p-3 p-md-4">
+                <div id="store-ip-section" class="mb-3 p-2 border rounded-3 bg-light small">
+                    <div class="fw-semibold mb-1"><i class="bi bi-shield-check me-1"></i>IP đã đăng ký là "đúng IP cửa hàng":</div>
+                    <div id="store-ip-list">Đang tải...</div>
+                </div>
+                <div class="table-responsive" style="max-height: 55vh;">
+                    <table class="table table-hover align-middle mb-0">
+                        <thead>
+                            <tr>
+                                <th>Thời Gian</th>
+                                <th>Địa Chỉ IP</th>
+                                <th>Trình Duyệt / Thiết Bị</th>
+                                <th>Khớp Cửa Hàng?</th>
+                                <th class="text-end">Thao Tác</th>
+                            </tr>
+                        </thead>
+                        <tbody id="login-history-body">
+                            <tr><td colspan="5" class="text-center py-4 text-muted">Đang tải...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
             </div>
         </div>
     </div>
@@ -6304,6 +6340,34 @@ if (storeLocationForm) {
         }
     }
 
+    function fmtDateTimeVN(isoString) {
+        if (!isoString) return '--';
+        const d = new Date(isoString);
+        if (isNaN(d.getTime())) return '--';
+        return d.toLocaleString('vi-VN', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+    }
+
+    // Rút gọn User-Agent thô thành tên trình duyệt + hệ điều hành dễ đọc,
+    // không cần thư viện ngoài - chỉ đủ để admin phân biệt "máy tính hay
+    // điện thoại, Chrome hay Safari", không cần chính xác tuyệt đối.
+    function parseUserAgent(ua) {
+        if (!ua) return 'Không rõ';
+        let os = 'Không rõ hệ điều hành';
+        if (/windows/i.test(ua)) os = 'Windows';
+        else if (/android/i.test(ua)) os = 'Android';
+        else if (/iphone|ipad|ios/i.test(ua)) os = 'iOS';
+        else if (/mac os/i.test(ua)) os = 'macOS';
+        else if (/linux/i.test(ua)) os = 'Linux';
+
+        let browser = 'Không rõ trình duyệt';
+        if (/edg\//i.test(ua)) browser = 'Edge';
+        else if (/chrome\//i.test(ua)) browser = 'Chrome';
+        else if (/safari\//i.test(ua) && !/chrome/i.test(ua)) browser = 'Safari';
+        else if (/firefox\//i.test(ua)) browser = 'Firefox';
+
+        return `${browser} · ${os}`;
+    }
+
     async function loadAdminUsers() {
         const res = await fetch('/api/admin/users');
         const result = await res.json();
@@ -6314,13 +6378,127 @@ if (storeLocationForm) {
                     <td class="fw-bold">${u.username}</td>
                     <td><span class="badge ${u.role === 'admin' ? 'bg-danger' : 'bg-primary'}">${u.role}</span></td>
                     <td>${u.store_code}</td>
+                    <td>
+                        ${u.online
+                            ? `<span class="badge bg-success"><i class="bi bi-circle-fill me-1" style="font-size:6px;"></i>Đang online</span><div class="small text-muted mt-1">${u.current_ip || ''}</div>`
+                            : '<span class="badge bg-secondary">Offline</span>'}
+                    </td>
+                    <td class="small">
+                        ${u.last_login_time ? fmtDateTimeVN(u.last_login_time) : '<span class="text-muted">Chưa từng đăng nhập</span>'}
+                        ${u.last_login_ip ? `<div class="text-muted">IP: ${u.last_login_ip}${u.last_login_location ? ` · ${u.last_login_location}` : ''}</div>` : ''}
+                        ${u.is_store_ip === true ? '<span class="badge bg-success mt-1"><i class="bi bi-shield-check me-1"></i>Đúng IP cửa hàng</span>'
+                            : u.is_store_ip === false ? '<span class="badge bg-warning text-dark mt-1"><i class="bi bi-exclamation-triangle me-1"></i>IP khác cửa hàng</span>'
+                            : ''}
+                    </td>
                     <td class="text-end">
+                        <button class="btn btn-outline-secondary btn-sm me-1" onclick="openLoginHistory('${u.username}')">
+                            <i class="bi bi-clock-history me-1"></i> <span class="d-none d-sm-inline">Lịch Sử</span>
+                        </button>
                         <button class="btn btn-outline-primary btn-sm" onclick="openPassModal('${u.username}')">
                             <i class="bi bi-key me-1"></i> <span class="d-none d-sm-inline">Đổi Mật Khẩu</span>
                         </button>
                     </td>
                 </tr>
             `).join('');
+        }
+    }
+
+    let _currentHistoryStoreCode = null;
+
+    async function openLoginHistory(username, options = {}) {
+        const { skipShow = false } = options;
+        document.getElementById('login-history-username').innerText = username;
+        const tbody = document.getElementById('login-history-body');
+        tbody.innerHTML = '<tr><td colspan="5" class="text-center py-4 text-muted">Đang tải...</td></tr>';
+        document.getElementById('store-ip-list').innerHTML = 'Đang tải...';
+
+        // CHỈ mở modal ở lần gọi ĐẦU TIÊN (khi bấm nút "Lịch Sử"). Khi hàm
+        // này được gọi lại để REFRESH dữ liệu (từ markAsStoreIp/removeStoreIp
+        // lúc modal đang mở sẵn), gọi lại .show() sẽ khiến Bootstrap tạo
+        // thêm 1 lớp "backdrop" (nền mờ) chồng lên, và lớp cũ không được
+        // dọn khi đóng modal - gây ra tình trạng bị 1 lớp che chặn thao tác
+        // trên toàn trang. dùng getOrCreateInstance thay vì new Modal() để
+        // không tạo thêm instance/backdrop trùng lặp.
+        if (!skipShow) {
+            bootstrap.Modal.getOrCreateInstance(document.getElementById('loginHistoryModal')).show();
+        }
+
+        try {
+            const res = await fetch(`/api/admin/login-log?username=${encodeURIComponent(username)}`);
+            const result = await res.json();
+            const logs = result.success ? result.logs : [];
+            _currentHistoryStoreCode = logs.length ? logs[0].store_code : null;
+
+            tbody.innerHTML = logs.length ? logs.map(log => `
+                <tr>
+                    <td class="small">${fmtDateTimeVN(log.login_time)}</td>
+                    <td class="small">${log.ip_address || '--'}${log.location ? `<div class="text-muted">${log.location}</div>` : ''}</td>
+                    <td class="small text-muted">${parseUserAgent(log.user_agent)}</td>
+                    <td class="small">
+                        ${log.is_store_ip === true ? '<span class="badge bg-success">Đúng</span>'
+                            : log.is_store_ip === false ? '<span class="badge bg-warning text-dark">Khác</span>'
+                            : '<span class="text-muted">Chưa rõ</span>'}
+                    </td>
+                    <td class="text-end">
+                        ${log.ip_address && log.is_store_ip !== true ? `
+                            <button class="btn btn-outline-success btn-sm" onclick="markAsStoreIp('${log.store_code}', '${log.ip_address}')">
+                                <i class="bi bi-pin-angle me-1"></i>Đánh dấu
+                            </button>` : ''}
+                    </td>
+                </tr>
+            `).join('') : '<tr><td colspan="5" class="text-center py-4 text-muted">Chưa có lượt đăng nhập nào được ghi nhận.</td></tr>';
+
+            await loadStoreIpList(_currentHistoryStoreCode);
+        } catch (e) {
+            console.error(e);
+            tbody.innerHTML = '<tr><td colspan="5" class="text-center py-4 text-muted">Lỗi kết nối đến server.</td></tr>';
+        }
+    }
+
+    async function loadStoreIpList(storeCode) {
+        const box = document.getElementById('store-ip-list');
+        if (!storeCode) { box.innerHTML = '<span class="text-muted">Không xác định được cửa hàng của tài khoản này.</span>'; return; }
+        try {
+            const res = await fetch(`/api/admin/store-ips?store_code=${encodeURIComponent(storeCode)}`);
+            const result = await res.json();
+            box.innerHTML = (result.success && result.ips.length) ? result.ips.map(ip => `
+                <span class="badge bg-primary-subtle text-dark border me-1 mb-1">
+                    ${ip.ip_address}${ip.label ? ` (${ip.label})` : ''}
+                    <a href="#" class="text-danger ms-1" onclick="removeStoreIp(${ip.id}, '${storeCode}'); return false;" title="Xoá"><i class="bi bi-x-circle"></i></a>
+                </span>
+            `).join('') : '<span class="text-muted">Chưa đăng ký IP nào cho cửa hàng này - dùng nút "Đánh dấu" ở bảng bên dưới.</span>';
+        } catch (e) {
+            box.innerHTML = '<span class="text-muted">Lỗi tải danh sách IP.</span>';
+        }
+    }
+
+    async function markAsStoreIp(storeCode, ipAddress) {
+        try {
+            const res = await fetch('/api/admin/store-ips', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ store_code: storeCode, ip_address: ipAddress })
+            });
+            const result = await res.json();
+            if (result.success) {
+                await openLoginHistory(document.getElementById('login-history-username').innerText, { skipShow: true });
+                loadAdminUsers();
+            } else {
+                alert('Lỗi: ' + (result.error || 'Không thể đánh dấu IP'));
+            }
+        } catch (e) {
+            alert('Lỗi kết nối đến server.');
+        }
+    }
+
+    async function removeStoreIp(ipId, storeCode) {
+        if (!confirm('Xoá IP này khỏi danh sách IP đã biết của cửa hàng?')) return;
+        try {
+            await fetch(`/api/admin/store-ips/${ipId}`, { method: 'DELETE' });
+            await openLoginHistory(document.getElementById('login-history-username').innerText, { skipShow: true });
+            loadAdminUsers();
+        } catch (e) {
+            alert('Lỗi kết nối đến server.');
         }
     }
 
