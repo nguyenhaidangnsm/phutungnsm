@@ -270,22 +270,36 @@
     .inv-name-col { max-width: 180px; overflow: hidden; text-overflow: ellipsis; }
     .store-badge-default { background: #f1efe8; color: #444441; }
 
-    /* Danh sách mã hàng trong 1 phiếu - 2 cột (mã hàng | số lượng) canh
-       thẳng hàng bằng cách CHIA CỘT (grid), không dùng đường kẻ nào cả -
-       khoảng cách dòng (row-gap) và khoảng cách cột (column-gap) đã đủ để
-       mắt phân biệt rạch ròi từng dòng/từng cột mà không bị rối bởi viền. */
-    .transfer-items-list { display: grid; grid-template-columns: 190px max-content; column-gap: 20px; row-gap: 10px; align-items: center; }
-    .transfer-items-list .transfer-item-row { display: contents; }
-    .transfer-items-list .transfer-item-row .part-code {
-        background: none; border: none; border-radius: 0; padding: 0;
-        text-align: left; overflow: hidden; text-overflow: ellipsis;
-        min-height: 26px; display: flex; align-items: center;
+    /* Mã Hàng / Tên Hàng / Số Lượng của 1 phiếu luân chuyển - MỖI THÀNH
+       PHẦN LÀ 1 CỘT <td> THẬT RIÊNG trong bảng (không gộp chung 1 ô như
+       trước), nên các dòng tự động thẳng hàng với nhau VÀ thẳng với tiêu
+       đề cột (do trình duyệt canh theo bảng thật, không cần tự dàn bằng
+       CSS grid độc lập từng ô - cách cũ mỗi ô tự tính bề rộng riêng nên
+       dễ bị lệch giữa các phiếu). Mỗi cột chỉ cần xếp các dòng theo chiều
+       dọc, số dòng bằng số mã hàng trong phiếu.
+       - Mã hàng: không giới hạn bề rộng, không bao giờ bị cắt "...".
+       - Tên hàng: cắt bớt + "..." khi quá dài, xem đầy đủ bằng tooltip
+         (title) khi rê chuột, để cột không bị giãn quá rộng. */
+    .transfer-items-list { display: flex; flex-direction: column; gap: 10px; }
+    .transfer-items-list .transfer-item-row { display: flex; align-items: center; min-height: 26px; }
+    .transfer-items-list .part-code {
+        font-weight: 700; color: #1e3a8a; font-size: 0.9rem; white-space: nowrap;
     }
-    .transfer-items-list .transfer-item-row .transfer-item-qty {
-        justify-self: end; text-align: right; padding: 0;
+    .transfer-items-list .transfer-item-name {
+        display: inline-block; max-width: 220px; overflow: hidden;
+        text-overflow: ellipsis; white-space: nowrap; color: #475569; font-size: 0.85rem;
+    }
+    .transfer-items-list .transfer-item-qty {
         font-weight: 700; font-variant-numeric: tabular-nums;
-        color: #475569; min-height: 26px; display: flex; align-items: center; gap: 4px;
+        color: #475569; display: flex; align-items: center; gap: 4px;
     }
+    /* Cột Ghi Chú - thu hẹp lại (thay vì chiếm hết bề ngang còn lại) và
+       cho phép xuống dòng khi nội dung dài, thay vì kéo dài mãi 1 hàng
+       ngang như mặc định (bảng đang dùng .text-nowrap chung cho mọi ô).
+       Cột Trạng Thái/Thời Gian/Thao Tác đã được thu gọn (2 dòng, nút xếp
+       chồng) nên tăng thêm bề ngang dành cho Ghi Chú. */
+    th.transfer-note-col { width: 340px; }
+    td.transfer-note-cell { white-space: normal; word-break: break-word; max-width: 340px; }
     /* Icon lịch sử số lượng (thay cho badge "Đã sửa" + số cũ gạch ngang) -
        chỉ hiện số lượng đã đồng ý, số lượng xin ban đầu nằm trong tooltip
        (title) khi rê chuột/chạm giữ vào icon, để không tốn thêm bề ngang. */
@@ -931,6 +945,17 @@
          ================================================================ -->
     <aside class="ns-sidebar" id="mega-nav" aria-label="Menu chính">
         <div class="ns-sidebar-group">
+            <!-- "Tổng Quan" (trang tóm tắt nhanh khi vừa đăng nhập) - KHÔNG
+                 thuộc bất kỳ nhóm menu nào (không có tiêu đề nhóm phía
+                 trên, đứng riêng 1 mình ở vị trí đầu tiên), khác với nhóm
+                 "Tổng quan BO" bên dưới (đó là tên 1 NHÓM chứa các mục Báo
+                 Cáo/Lịch Sử/Tải Lên, không phải trang này). -->
+            <button type="button" class="ns-sidebar-item" data-target-tab="overview-tab" onclick="megaNavClick('overview-tab', this)">
+                <span class="ns-sidebar-icon"><i class="bi bi-speedometer2"></i></span>
+                <span class="ns-label">Tổng Quan</span>
+            </button>
+        </div>
+        <div class="ns-sidebar-group">
             <div class="ns-sidebar-group-title"><span class="ns-label">Tổng quan BO</span></div>
             <button type="button" class="ns-sidebar-item" data-target-tab="report-tab" onclick="megaNavClick('report-tab', this)">
                 <span class="ns-sidebar-icon"><i class="bi bi-bar-chart-fill"></i></span>
@@ -1003,7 +1028,12 @@
 
     <ul class="nav nav-pills mb-3 mb-md-4 gap-2 flex-nowrap overflow-auto d-none" id="mainTab" role="tablist">
     <li class="nav-item" role="presentation">
-        <button class="nav-link active" id="report-tab" data-bs-toggle="pill" data-bs-target="#report-pane" onclick="loadData()">
+        <button class="nav-link active" id="overview-tab" data-bs-toggle="pill" data-bs-target="#overview-pane" onclick="loadOverviewDashboard()">
+            <i class="bi bi-speedometer2 me-2"></i>Tổng Quan
+        </button>
+    </li>
+    <li class="nav-item" role="presentation">
+        <button class="nav-link" id="report-tab" data-bs-toggle="pill" data-bs-target="#report-pane" onclick="loadData()">
             <i class="bi bi-bar-chart-fill me-2"></i>Dashboard & Kết Quả
         </button>
     </li>
@@ -1088,9 +1118,153 @@
     </div>
 
     <div class="tab-content" id="mainTabContent">
-        
+
+        <!-- TRANG TỔNG QUAN - hiện mặc định ngay khi vừa đăng nhập, KHÔNG
+             thuộc bất kỳ menu/nhóm nào (xem mục sidebar riêng phía trên) -
+             chỉ tóm tắt nhanh những gì cần chú ý + vài mốc thời gian quan
+             trọng, không có thao tác nghiệp vụ nào ở đây. Toàn bộ số liệu
+             lấy lại (gương) từ đúng các API/hàm đã có sẵn ở nơi khác trong
+             trang (loadData(), loadTransfers(), loadInventory(),
+             updateNotifBadge()) - không gọi thêm API mới, đảm bảo số liệu
+             luôn khớp 100% với các tab gốc và tự cập nhật theo cơ chế
+             polling (startVersionPolling) đã có sẵn, không cần thêm cơ chế
+             làm mới riêng cho trang này. -->
+        <div class="tab-pane fade show active" id="overview-pane">
+
+            <h5 class="fw-bold mb-3"><i class="bi bi-speedometer2 me-2 text-primary"></i>Tổng Quan</h5>
+
+            <!-- Chú Ý Cần Xử Lý -->
+            <div class="row g-2 g-md-3 mb-3 mb-md-4">
+                <div class="col-12 col-md-6">
+                    <div class="card card-custom p-3 h-100" style="border-left: 4px solid #dc3545; cursor: pointer;"
+                         onclick="megaNavClick('report-tab', document.querySelector('[data-target-tab=report-tab]'))">
+                        <div class="d-flex align-items-center justify-content-between">
+                            <div>
+                                <span class="fw-semibold text-uppercase text-danger" style="font-size: 0.7rem;">Chú Ý - Hàng Cần Xử Lý (Đang Nợ)</span>
+                                <h3 class="fw-bold text-danger mb-0 mt-1" id="ov-stat-debt">0</h3>
+                            </div>
+                            <div class="stat-icon bg-danger bg-opacity-10 text-danger"><i class="bi bi-exclamation-triangle-fill"></i></div>
+                        </div>
+                        <div class="small text-muted mt-2"><i class="bi bi-arrow-right-short"></i>Xem chi tiết ở Dashboard &amp; Kết Quả</div>
+                    </div>
+                </div>
+                <div class="col-12 col-md-6">
+                    {% if role == 'admin' %}
+                    <div class="card card-custom p-3 h-100" style="border-left: 4px solid #fd7e14; cursor: pointer;"
+                         onclick="megaNavClick('transfer-tab', document.querySelector('[data-target-tab=transfer-tab]'))">
+                    {% else %}
+                    <div class="card card-custom p-3 h-100" style="border-left: 4px solid #fd7e14; cursor: pointer;"
+                         onclick="megaNavClick('transfer-import-tab', document.querySelector('[data-target-tab=transfer-import-tab]'))">
+                    {% endif %}
+                        <div class="d-flex align-items-center justify-content-between">
+                            <div>
+                                <span class="fw-semibold text-uppercase text-warning" style="font-size: 0.7rem;">Chú Ý - Phiếu Chuyển Kho Cần Xử Lý</span>
+                                <h3 class="fw-bold text-warning mb-0 mt-1" id="ov-transfer-pending-highlight">0</h3>
+                            </div>
+                            <div class="stat-icon bg-warning bg-opacity-10 text-warning"><i class="bi bi-arrow-left-right"></i></div>
+                        </div>
+                        <div class="small text-muted mt-2"><i class="bi bi-arrow-right-short"></i>Xem/duyệt các phiếu đang chờ</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Dashboard Phiếu Chuyển Kho -->
+            <div class="card card-custom p-3 mb-3 mb-md-4">
+                <h6 class="fw-bold mb-3"><i class="bi bi-arrow-left-right me-2 text-primary"></i>Dashboard Phiếu Chuyển Kho Nội Bộ</h6>
+                <div class="row g-2 g-md-3">
+                    <div class="col-6 col-md-3">
+                        <div class="p-2 p-md-3 rounded-3 bg-light text-center">
+                            <div class="fw-bold fs-4" id="ov-transfer-total">0</div>
+                            <div class="small text-muted">Tổng Số Phiếu</div>
+                        </div>
+                    </div>
+                    <div class="col-6 col-md-3">
+                        <div class="p-2 p-md-3 rounded-3 bg-warning bg-opacity-10 text-center">
+                            <div class="fw-bold fs-4 text-warning" id="ov-transfer-pending">0</div>
+                            <div class="small text-muted">Đang Chờ Duyệt</div>
+                        </div>
+                    </div>
+                    <div class="col-6 col-md-3">
+                        <div class="p-2 p-md-3 rounded-3 bg-success bg-opacity-10 text-center">
+                            <div class="fw-bold fs-4 text-success" id="ov-transfer-approved">0</div>
+                            <div class="small text-muted">Đã Duyệt</div>
+                        </div>
+                    </div>
+                    <div class="col-6 col-md-3">
+                        <div class="p-2 p-md-3 rounded-3 bg-danger bg-opacity-10 text-center">
+                            <div class="fw-bold fs-4 text-danger" id="ov-transfer-rejected">0</div>
+                            <div class="small text-muted">Đã Từ Chối</div>
+                        </div>
+                    </div>
+                </div>
+                <div class="small text-muted mt-2">* Tính trên các phiếu gần đây và các phiếu đang cần xử lý đang tải sẵn trong hệ thống.</div>
+            </div>
+
+            <!-- Dashboard Hàng Nợ -->
+            <div class="card card-custom p-3 mb-3 mb-md-4">
+                <h6 class="fw-bold mb-3"><i class="bi bi-bar-chart-fill me-2 text-primary"></i>Dashboard Đối Soát PO - Hàng Nợ</h6>
+                <div class="row g-2 g-md-3">
+                    <div class="col-6 col-md-3">
+                        <div class="p-2 p-md-3 rounded-3 bg-light text-center">
+                            <div class="fw-bold fs-4" id="ov-stat-total">0</div>
+                            <div class="small text-muted">Tổng Mã Hàng</div>
+                        </div>
+                    </div>
+                    <div class="col-6 col-md-3">
+                        <div class="p-2 p-md-3 rounded-3 bg-danger bg-opacity-10 text-center">
+                            <div class="fw-bold fs-4 text-danger" id="ov-stat-debt-2">0</div>
+                            <div class="small text-muted">Đang Nợ Hàng</div>
+                        </div>
+                    </div>
+                    <div class="col-6 col-md-3">
+                        <div class="p-2 p-md-3 rounded-3 bg-warning bg-opacity-10 text-center">
+                            <div class="fw-bold fs-4 text-warning" id="ov-stat-shipping">0</div>
+                            <div class="small text-muted">Đang Vận Chuyển</div>
+                        </div>
+                    </div>
+                    <div class="col-6 col-md-3">
+                        <div class="p-2 p-md-3 rounded-3 bg-success bg-opacity-10 text-center">
+                            <div class="fw-bold fs-4 text-success" id="ov-stat-received">0</div>
+                            <div class="small text-muted">Đã Nhận Hàng</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Mốc cập nhật + thông báo -->
+            <div class="row g-2 g-md-3">
+                <div class="col-12 col-md-4">
+                    <div class="card card-custom p-3 h-100">
+                        <div class="d-flex align-items-center gap-2 mb-2">
+                            <div class="stat-icon bg-primary bg-opacity-10 text-primary"><i class="bi bi-boxes"></i></div>
+                            <span class="fw-semibold text-uppercase text-muted" style="font-size: 0.7rem;">Tồn Kho Cập Nhật Lúc</span>
+                        </div>
+                        <div class="small" id="ov-inventory-updated">Đang tải...</div>
+                    </div>
+                </div>
+                <div class="col-12 col-md-4">
+                    <div class="card card-custom p-3 h-100">
+                        <div class="d-flex align-items-center gap-2 mb-2">
+                            <div class="stat-icon bg-warning bg-opacity-10 text-warning"><i class="bi bi-tag-fill"></i></div>
+                            <span class="fw-semibold text-uppercase text-muted" style="font-size: 0.7rem;">Bảng Giá Cập Nhật Lúc</span>
+                        </div>
+                        <div class="small" id="ov-price-updated">Đang tải...</div>
+                    </div>
+                </div>
+                <div class="col-12 col-md-4">
+                    <div class="card card-custom p-3 h-100" style="cursor: pointer;" onclick="document.getElementById('notif-bell-btn') ? document.getElementById('notif-bell-btn').click() : null">
+                        <div class="d-flex align-items-center gap-2 mb-2">
+                            <div class="stat-icon bg-danger bg-opacity-10 text-danger"><i class="bi bi-bell-fill"></i></div>
+                            <span class="fw-semibold text-uppercase text-muted" style="font-size: 0.7rem;">Thông Báo</span>
+                        </div>
+                        <div class="small" id="ov-unread-notif">Đang tải...</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
         <!-- DASHBOARD & REPORT PANE -->
-        <div class="tab-pane fade show active" id="report-pane">
+        <div class="tab-pane fade" id="report-pane">
             
             {% if role == 'admin' %}
             <div class="card card-custom p-3 mb-3 mb-md-4">
@@ -1681,14 +1855,20 @@
                         </div>
                     </div>
                     <div class="col-12 col-md-3">
-                        <select id="transfer-received-status-filter" class="form-select" onchange="renderReceivedTransfers()">
-                            <option value="">Tất cả trạng thái</option>
-                            <option value="pending">Chờ Xử Lý</option>
-                            <option value="approved_pending_receipt">Đã Đồng Ý (Chưa Nhận Đủ)</option>
-                            <option value="approved_received">Đã Nhận Đủ Hàng</option>
-                            <option value="rejected">Đã Từ Chối</option>
-                            <option value="cancelled">Đã Huỷ</option>
-                        </select>
+                        <div class="dropdown transfer-status-multiselect" id="transfer-received-status-filter">
+                            <button class="btn btn-outline-secondary form-select text-start d-flex justify-content-between align-items-center" type="button" data-bs-toggle="dropdown" data-bs-auto-close="outside" aria-expanded="false">
+                                <span class="status-filter-label">Tất cả trạng thái</span>
+                            </button>
+                            <ul class="dropdown-menu p-2 shadow-sm" style="min-width: 240px;">
+                                <li><label class="dropdown-item d-flex align-items-center gap-2 py-1 rounded"><input type="checkbox" class="form-check-input m-0 status-filter-checkbox" value="pending" onchange="onTransferStatusFilterChange('transfer-received-status-filter', renderReceivedTransfers)"> Chờ Xử Lý</label></li>
+                                <li><label class="dropdown-item d-flex align-items-center gap-2 py-1 rounded"><input type="checkbox" class="form-check-input m-0 status-filter-checkbox" value="approved_pending_receipt" onchange="onTransferStatusFilterChange('transfer-received-status-filter', renderReceivedTransfers)"> Đã Đồng Ý (Chưa Nhận Đủ)</label></li>
+                                <li><label class="dropdown-item d-flex align-items-center gap-2 py-1 rounded"><input type="checkbox" class="form-check-input m-0 status-filter-checkbox" value="approved_received" onchange="onTransferStatusFilterChange('transfer-received-status-filter', renderReceivedTransfers)"> Đã Nhận Đủ Hàng</label></li>
+                                <li><label class="dropdown-item d-flex align-items-center gap-2 py-1 rounded"><input type="checkbox" class="form-check-input m-0 status-filter-checkbox" value="rejected" onchange="onTransferStatusFilterChange('transfer-received-status-filter', renderReceivedTransfers)"> Đã Từ Chối</label></li>
+                                <li><label class="dropdown-item d-flex align-items-center gap-2 py-1 rounded"><input type="checkbox" class="form-check-input m-0 status-filter-checkbox" value="cancelled" onchange="onTransferStatusFilterChange('transfer-received-status-filter', renderReceivedTransfers)"> Đã Huỷ</label></li>
+                                <li><hr class="dropdown-divider my-1"></li>
+                                <li><button type="button" class="btn btn-link btn-sm p-0" onclick="clearStatusMultiSelect('transfer-received-status-filter'); renderReceivedTransfers()">Bỏ chọn tất cả</button></li>
+                            </ul>
+                        </div>
                     </div>
                     <div class="col-12 col-md-4 d-flex justify-content-md-end">
                         <button class="btn btn-outline-primary btn-sm text-nowrap" onclick="printSelectedTransfers()"><i class="bi bi-printer me-1"></i> In Phiếu Đã Chọn (<span id="transfer-selected-count">0</span>)</button>
@@ -1700,16 +1880,17 @@
                             <tr>
                                 <th class="text-center" style="width: 36px;"><input type="checkbox" class="form-check-input" onchange="toggleSelectAllTransfers(this.checked, 'received')"></th>
                                 <th>Cửa Hàng Xin</th>
-                                <th>Mã Hàng (SL)</th>
-                                <th>Nhân Viên</th>
-                                <th>Ghi Chú</th>
+                                <th>Mã Hàng</th>
+                                <th>Tên Hàng</th>
+                                <th class="text-end">Số Lượng</th>
+                                <th class="transfer-note-col">Ghi Chú</th>
                                 <th>Trạng Thái</th>
                                 <th>Thời Gian Gửi</th>
                                 <th class="text-end">Thao Tác</th>
                             </tr>
                         </thead>
                         <tbody id="transfer-received-body">
-                            <tr><td colspan="8" class="text-center py-4 text-muted">Đang tải dữ liệu...</td></tr>
+                            <tr><td colspan="9" class="text-center py-4 text-muted">Đang tải dữ liệu...</td></tr>
                         </tbody>
                     </table>
                 </div>
@@ -1782,14 +1963,20 @@
                         </div>
                     </div>
                     <div class="col-12 col-md-3">
-                        <select id="transfer-sent-status-filter" class="form-select" onchange="renderSentTransfers()">
-                            <option value="">Tất cả trạng thái</option>
-                            <option value="pending">Chờ Xử Lý</option>
-                            <option value="approved_pending_receipt">Đã Đồng Ý (Chưa Nhận Đủ)</option>
-                            <option value="approved_received">Đã Nhận Đủ Hàng</option>
-                            <option value="rejected">Đã Từ Chối</option>
-                            <option value="cancelled">Đã Huỷ</option>
-                        </select>
+                        <div class="dropdown transfer-status-multiselect" id="transfer-sent-status-filter">
+                            <button class="btn btn-outline-secondary form-select text-start d-flex justify-content-between align-items-center" type="button" data-bs-toggle="dropdown" data-bs-auto-close="outside" aria-expanded="false">
+                                <span class="status-filter-label">Tất cả trạng thái</span>
+                            </button>
+                            <ul class="dropdown-menu p-2 shadow-sm" style="min-width: 240px;">
+                                <li><label class="dropdown-item d-flex align-items-center gap-2 py-1 rounded"><input type="checkbox" class="form-check-input m-0 status-filter-checkbox" value="pending" onchange="onTransferStatusFilterChange('transfer-sent-status-filter', renderSentTransfers)"> Chờ Xử Lý</label></li>
+                                <li><label class="dropdown-item d-flex align-items-center gap-2 py-1 rounded"><input type="checkbox" class="form-check-input m-0 status-filter-checkbox" value="approved_pending_receipt" onchange="onTransferStatusFilterChange('transfer-sent-status-filter', renderSentTransfers)"> Đã Đồng Ý (Chưa Nhận Đủ)</label></li>
+                                <li><label class="dropdown-item d-flex align-items-center gap-2 py-1 rounded"><input type="checkbox" class="form-check-input m-0 status-filter-checkbox" value="approved_received" onchange="onTransferStatusFilterChange('transfer-sent-status-filter', renderSentTransfers)"> Đã Nhận Đủ Hàng</label></li>
+                                <li><label class="dropdown-item d-flex align-items-center gap-2 py-1 rounded"><input type="checkbox" class="form-check-input m-0 status-filter-checkbox" value="rejected" onchange="onTransferStatusFilterChange('transfer-sent-status-filter', renderSentTransfers)"> Đã Từ Chối</label></li>
+                                <li><label class="dropdown-item d-flex align-items-center gap-2 py-1 rounded"><input type="checkbox" class="form-check-input m-0 status-filter-checkbox" value="cancelled" onchange="onTransferStatusFilterChange('transfer-sent-status-filter', renderSentTransfers)"> Đã Huỷ</label></li>
+                                <li><hr class="dropdown-divider my-1"></li>
+                                <li><button type="button" class="btn btn-link btn-sm p-0" onclick="clearStatusMultiSelect('transfer-sent-status-filter'); renderSentTransfers()">Bỏ chọn tất cả</button></li>
+                            </ul>
+                        </div>
                     </div>
                     <div class="col-12 col-md-4 d-flex justify-content-md-end">
                         <button class="btn btn-outline-primary btn-sm text-nowrap" onclick="printSelectedTransfers()"><i class="bi bi-printer me-1"></i> In Phiếu Đã Chọn (<span id="transfer-selected-count-2">0</span>)</button>
@@ -1801,17 +1988,18 @@
                             <tr>
                                 <th class="text-center" style="width: 36px;"><input type="checkbox" class="form-check-input" onchange="toggleSelectAllTransfers(this.checked, 'sent')"></th>
                                 <th>Xin Từ Cửa Hàng</th>
-                                <th>Mã Hàng (SL)</th>
-                                <th>Nhân Viên</th>
+                                <th>Mã Hàng</th>
+                                <th>Tên Hàng</th>
+                                <th class="text-end">Số Lượng</th>
                                 <th>Trạng Thái</th>
                                 <th>Đã Nhận</th>
-                                <th>Ghi Chú / Lý Do</th>
+                                <th class="transfer-note-col">Ghi Chú / Lý Do</th>
                                 <th>Thời Gian Gửi</th>
                                 <th class="text-end">Thao Tác</th>
                             </tr>
                         </thead>
                         <tbody id="transfer-sent-body">
-                            <tr><td colspan="9" class="text-center py-4 text-muted">Đang tải dữ liệu...</td></tr>
+                            <tr><td colspan="10" class="text-center py-4 text-muted">Đang tải dữ liệu...</td></tr>
                         </tbody>
                     </table>
                 </div>
@@ -2153,14 +2341,20 @@
                     </div>
                     <div class="col-12 col-md-4">
                         <label class="form-label fw-semibold small mb-1 text-secondary">Lọc Theo Trạng Thái:</label>
-                        <select id="transfer-admin-status-filter" class="form-select border-primary-subtle" onchange="renderAdminTransfers()">
-                            <option value="">Tất cả trạng thái</option>
-                            <option value="pending">Chờ Xử Lý</option>
-                            <option value="approved_pending_receipt">Đã Đồng Ý (Chưa Nhận Đủ)</option>
-                            <option value="approved_received">Đã Nhận Đủ Hàng</option>
-                            <option value="rejected">Đã Từ Chối</option>
-                            <option value="cancelled">Đã Huỷ</option>
-                        </select>
+                        <div class="dropdown transfer-status-multiselect" id="transfer-admin-status-filter">
+                            <button class="btn btn-outline-secondary form-select border-primary-subtle text-start d-flex justify-content-between align-items-center" type="button" data-bs-toggle="dropdown" data-bs-auto-close="outside" aria-expanded="false">
+                                <span class="status-filter-label">Tất cả trạng thái</span>
+                            </button>
+                            <ul class="dropdown-menu p-2 shadow-sm" style="min-width: 240px;">
+                                <li><label class="dropdown-item d-flex align-items-center gap-2 py-1 rounded"><input type="checkbox" class="form-check-input m-0 status-filter-checkbox" value="pending" onchange="onTransferStatusFilterChange('transfer-admin-status-filter', renderAdminTransfers)"> Chờ Xử Lý</label></li>
+                                <li><label class="dropdown-item d-flex align-items-center gap-2 py-1 rounded"><input type="checkbox" class="form-check-input m-0 status-filter-checkbox" value="approved_pending_receipt" onchange="onTransferStatusFilterChange('transfer-admin-status-filter', renderAdminTransfers)"> Đã Đồng Ý (Chưa Nhận Đủ)</label></li>
+                                <li><label class="dropdown-item d-flex align-items-center gap-2 py-1 rounded"><input type="checkbox" class="form-check-input m-0 status-filter-checkbox" value="approved_received" onchange="onTransferStatusFilterChange('transfer-admin-status-filter', renderAdminTransfers)"> Đã Nhận Đủ Hàng</label></li>
+                                <li><label class="dropdown-item d-flex align-items-center gap-2 py-1 rounded"><input type="checkbox" class="form-check-input m-0 status-filter-checkbox" value="rejected" onchange="onTransferStatusFilterChange('transfer-admin-status-filter', renderAdminTransfers)"> Đã Từ Chối</label></li>
+                                <li><label class="dropdown-item d-flex align-items-center gap-2 py-1 rounded"><input type="checkbox" class="form-check-input m-0 status-filter-checkbox" value="cancelled" onchange="onTransferStatusFilterChange('transfer-admin-status-filter', renderAdminTransfers)"> Đã Huỷ</label></li>
+                                <li><hr class="dropdown-divider my-1"></li>
+                                <li><button type="button" class="btn btn-link btn-sm p-0" onclick="clearStatusMultiSelect('transfer-admin-status-filter'); renderAdminTransfers()">Bỏ chọn tất cả</button></li>
+                            </ul>
+                        </div>
                     </div>
                     <div class="col-12 col-md-4">
                         <label class="form-label fw-semibold small mb-1 text-secondary">Tìm Kiếm:</label>
@@ -2211,16 +2405,17 @@
                                 <th class="text-center">ID</th>
                                 <th>Cửa Hàng Chuyển</th>
                                 <th>Cửa Hàng Nhận</th>
-                                <th>Nhân Viên</th>
-                                <th>Mã Hàng (SL)</th>
+                                <th>Mã Hàng</th>
+                                <th>Tên Hàng</th>
+                                <th class="text-end">Số Lượng</th>
                                 <th>Trạng Thái</th>
-                                <th>Ghi Chú / Lý Do</th>
+                                <th class="transfer-note-col">Ghi Chú / Lý Do</th>
                                 <th>Thời Gian Gửi</th>
                                 <th class="text-end">Thao Tác</th>
                             </tr>
                         </thead>
                         <tbody id="transfer-admin-body">
-                            <tr><td colspan="10" class="text-center py-4 text-muted">Đang tải dữ liệu...</td></tr>
+                            <tr><td colspan="11" class="text-center py-4 text-muted">Đang tải dữ liệu...</td></tr>
                         </tbody>
                     </table>
                 </div>
@@ -2826,6 +3021,8 @@
 
         loadData();
         loadTransfers(); // tải sớm để hiển thị số lượng badge yêu cầu đang chờ
+        loadInventory(); // tải sớm để trang "Tổng Quan" có ngay mốc cập nhật tồn kho/giá
+        loadOverviewDashboard(); // trang "Tổng Quan" active sẵn từ đầu, không qua sự kiện click tab nên gọi tay ở đây
         setupDragZones();
         startVersionPolling();
         setupQuickLookupFabDrag();
@@ -2952,6 +3149,53 @@
         
         document.getElementById('report-min-date').innerText = summary.min_date || 'N/A';
         document.getElementById('report-max-date').innerText = summary.max_date || 'N/A';
+
+        // Gương lại cùng số liệu này sang trang "Tổng Quan" (Dashboard Hàng
+        // Nợ) - dùng chung 1 nguồn dữ liệu duy nhất (loadData()), không gọi
+        // thêm API riêng, tránh sai lệch giữa 2 nơi hiển thị. ov-* chỉ tồn
+        // tại ở tab Tổng Quan nên luôn kiểm tra null trước khi gán.
+        const ovTotal = document.getElementById('ov-stat-total');
+        if (ovTotal) ovTotal.innerText = summary.total.toLocaleString();
+        const ovDebt = document.getElementById('ov-stat-debt');
+        if (ovDebt) ovDebt.innerText = summary.debt.toLocaleString();
+        const ovDebt2 = document.getElementById('ov-stat-debt-2');
+        if (ovDebt2) ovDebt2.innerText = summary.debt.toLocaleString();
+        const ovShipping = document.getElementById('ov-stat-shipping');
+        if (ovShipping) ovShipping.innerText = summary.shipping.toLocaleString();
+        const ovReceived = document.getElementById('ov-stat-received');
+        if (ovReceived) ovReceived.innerText = summary.received.toLocaleString();
+    }
+
+    // Gọi khi bấm vào tab "Tổng Quan" (kể cả khi nó đã active sẵn từ đầu,
+    // hàm này KHÔNG được onclick tự gọi lúc đó - xem loadOverviewDashboard()
+    // được gọi thêm 1 lần ở khối khởi tạo DOMContentLoaded). Không tự gọi
+    // API riêng nào mới - chỉ đảm bảo các nguồn dữ liệu dùng chung
+    // (loadData/loadTransfers/loadInventory) đã/đang được tải, rồi vẽ lại
+    // phần phiếu chuyển kho từ dữ liệu đã có sẵn trong bộ nhớ.
+    function loadOverviewDashboard() {
+        if (globalInventory.length === 0) loadInventory();
+        renderTransferOverviewStats();
+    }
+
+    // Đếm nhanh phiếu chuyển kho nội bộ theo trạng thái từ danh sách đã tải
+    // sẵn (window._lastTransferRequests, do loadTransfers() nạp - dùng
+    // chung, không gọi thêm API riêng) để hiển thị ở trang "Tổng Quan".
+    // Lưu ý: đây là danh sách "gần đây + đang cần xử lý" (xem chú thích ở
+    // backend _TRANSFER_LIST_RECENT_DAYS), không phải TOÀN BỘ lịch sử từ
+    // trước tới giờ - đủ dùng cho mục đích xem nhanh tổng quan.
+    function renderTransferOverviewStats() {
+        const totalEl = document.getElementById('ov-transfer-total');
+        if (!totalEl) return; // đang không ở tab Tổng Quan / chưa render tới đó
+        const all = window._lastTransferRequests || [];
+        const pending = all.filter(r => r.status === 'pending').length;
+        const approved = all.filter(r => r.status === 'approved').length;
+        const rejected = all.filter(r => r.status === 'rejected').length;
+        const setText = (id, val) => { const el = document.getElementById(id); if (el) el.innerText = val.toLocaleString(); };
+        setText('ov-transfer-total', all.length);
+        setText('ov-transfer-pending', pending);
+        setText('ov-transfer-approved', approved);
+        setText('ov-transfer-rejected', rejected);
+        setText('ov-transfer-pending-highlight', pending);
     }
 
     // Chỉ nhận và vẽ ĐÚNG 1 TRANG dữ liệu (mảng con đã cắt sẵn theo pageSize)
@@ -3148,6 +3392,20 @@
                 } else {
                     priceMetaEl.innerText = '';
                 }
+            }
+            // Gương lại 2 mốc thời gian này sang trang "Tổng Quan" - cùng 1
+            // nguồn dữ liệu (loadInventory()), không gọi thêm API riêng.
+            const ovInv = document.getElementById('ov-inventory-updated');
+            if (ovInv) {
+                ovInv.innerHTML = (result.meta && result.meta.upload_time)
+                    ? `Cập nhật lúc <strong>${result.meta.upload_time}</strong><br><span class="text-muted">bởi ${result.meta.uploaded_by} · ${result.meta.total_parts.toLocaleString()} mã hàng</span>`
+                    : 'Chưa có dữ liệu tồn kho.';
+            }
+            const ovPrice = document.getElementById('ov-price-updated');
+            if (ovPrice) {
+                ovPrice.innerHTML = (result.price_meta && result.price_meta.upload_time)
+                    ? `Cập nhật lúc <strong>${result.price_meta.upload_time}</strong><br><span class="text-muted">bởi ${result.price_meta.uploaded_by} · ${result.price_meta.total_parts.toLocaleString()} mã hàng</span>`
+                    : 'Chưa có dữ liệu bảng giá.';
             }
         }
     } catch (e) { console.error(e); }
@@ -4530,6 +4788,24 @@ if (storeLocationForm) {
         return String(s == null ? '' : s).replace(/"/g, '&quot;').replace(/'/g, '&#39;');
     }
 
+    // Rút gọn cột "Thời Gian Gửi" trong các bảng danh sách phiếu luân chuyển
+    // thành 2 dòng (Thứ + Giờ ở trên, Ngày/Tháng/Năm ở dưới) thay vì 1 dòng
+    // dài - nhường thêm chỗ ngang cho cột Ghi Chú. Chuỗi gốc có dạng
+    // "Thứ Bảy, 12/09/2026 13:01" (xem format_vi_datetime ở backend); nếu
+    // không đúng định dạng mong đợi thì hiển thị nguyên văn để không mất
+    // dữ liệu.
+    function formatTransferListTime(str) {
+        if (!str) return '';
+        const parts = String(str).split(',');
+        if (parts.length < 2) return escapeHtmlAttr(str);
+        const weekday = parts[0].trim();
+        const rest = parts.slice(1).join(',').trim(); // "12/09/2026 13:01"
+        const restParts = rest.split(' ').filter(Boolean);
+        const datePart = restParts[0] || '';
+        const timePart = restParts.slice(1).join(' ') || '';
+        return `<div>${escapeHtmlAttr(weekday)}${timePart ? ' ' + escapeHtmlAttr(timePart) : ''}</div><div>${escapeHtmlAttr(datePart)}</div>`;
+    }
+
     function fillEmployeeSelect(selectEl, storeCode, placeholder) {
         if (!selectEl) return;
         const names = STORE_EMPLOYEES[storeCode] || [];
@@ -4554,12 +4830,6 @@ if (storeLocationForm) {
         names.map(n => `<option value="${escapeHtmlAttr(n)}">${escapeHtmlAttr(n)}</option>`).join('');
 }
 //
-    function transferEmployeeCell(r) {
-        const created = r.created_employee ? escapeHtmlAttr(r.created_employee) : '—';
-        const confirmed = r.confirmed_employee ? escapeHtmlAttr(r.confirmed_employee) : '';
-        return `<div class="small">Người tạo: <strong>${created}</strong>${confirmed ? `<br>Xác nhận: <strong>${confirmed}</strong>` : ''}</div>`;
-    }
-
     // Badge màu riêng cho từng cửa hàng (xem CSS .store-badge-XX) - dùng
     // thống nhất ở mọi nơi hiển thị mã cửa hàng trong bảng luân chuyển.
     const KNOWN_STORE_CODES = ['NS1', 'NS2', 'NS3', 'NS4', 'NS5', 'NSM1'];
@@ -4570,7 +4840,7 @@ if (storeLocationForm) {
 
     // Lặp lại badge cửa hàng ngay trong cột "Cửa Hàng Xin", 1 badge cho mỗi
     // dòng mã hàng (rowCount) - để badge thẳng hàng với từng mã hàng bên
-    // cột "Mã Hàng (SL)", thay vì chỉ hiện 1 lần rồi trôi giữa cả nhóm.
+    // cột "Mã Hàng - Tên Hàng - Số Lượng", thay vì chỉ hiện 1 lần rồi trôi giữa cả nhóm.
     function storeBadgeColumn(code, rowCount) {
         const count = Math.max(1, rowCount || 1);
         const badge = storeBadge(code);
@@ -4583,15 +4853,71 @@ if (storeLocationForm) {
     }
 
     // Số dòng mã hàng hiển thị mặc định trước khi phải bấm "Xem thêm" - áp
-    // dụng thống nhất cho cả 3 cột lặp-theo-dòng của 1 phiếu (Mã Hàng (SL),
-    // Cửa Hàng Xin, Đã Nhận) để luôn thẳng hàng khi mở/thu gọn.
+    // dụng thống nhất cho các cột lặp-theo-dòng của 1 phiếu (Mã Hàng, Tên
+    // Hàng, Số Lượng, Cửa Hàng Xin, Đã Nhận) để luôn thẳng hàng khi mở/thu gọn.
     const ITEMS_COLLAPSE_THRESHOLD = 5;
+
+    // ------------------------------------------------------------------
+    // 3 hàm dưới đây render riêng CỘT MÃ HÀNG / CỘT TÊN HÀNG / CỘT SỐ
+    // LƯỢNG của 1 phiếu - dùng cho 3 <td> THẬT RIÊNG trong bảng danh sách
+    // phiếu (khác với transferItemsSummary() ở trên vốn gộp chung 1 ô,
+    // vẫn giữ lại transferItemsSummary() để dùng cho phần tóm tắt trong
+    // modal Từ Chối Phiếu). Tách thành 3 cột thật giúp các dòng mã hàng
+    // luôn thẳng hàng với nhau VÀ thẳng với tiêu đề cột, vì lúc này trình
+    // duyệt tự canh theo bảng thật thay vì phải tự dàn bằng CSS riêng cho
+    // từng ô (mỗi ô trước đây tự tính bề rộng độc lập nên dễ lệch nhau
+    // giữa các phiếu khác nhau).
+    // Nút "Xem thêm N mã" chỉ cần đặt ở 1 trong 3 cột (đặt ở cột Mã Hàng)
+    // vì bấm vào sẽ mở toàn bộ các dòng ẩn trong CẢ 3 cột cùng lúc (xem
+    // toggleTransferItemsExpand - dò theo cả <tr>, không riêng cột nào).
+    function transferItemsCodeColumn(items) {
+        if (!items || !items.length) return '';
+        const rows = items.map((it, idx) => {
+            const hiddenCls = idx >= ITEMS_COLLAPSE_THRESHOLD ? ' js-extra-hidden' : '';
+            return `<div class="transfer-item-row${hiddenCls}"><span class="part-code" title="${escapeHtmlAttr(it.part_code)}">${escapeHtmlAttr(it.part_code)}</span></div>`;
+        }).join('');
+        let toggle = '';
+        if (items.length > ITEMS_COLLAPSE_THRESHOLD) {
+            const hiddenCount = items.length - ITEMS_COLLAPSE_THRESHOLD;
+            toggle = `<div class="transfer-item-row transfer-item-toggle"><button type="button" class="btn-transfer-toggle" data-hidden-count="${hiddenCount}" onclick="toggleTransferItemsExpand(this)">Xem thêm ${hiddenCount} mã <i class="bi bi-chevron-down"></i></button></div>`;
+        }
+        return `<div class="transfer-items-list">${rows}${toggle}</div>`;
+    }
+
+    function transferItemsNameColumn(items) {
+        if (!items || !items.length) return '';
+        const rows = items.map((it, idx) => {
+            const hiddenCls = idx >= ITEMS_COLLAPSE_THRESHOLD ? ' js-extra-hidden' : '';
+            const name = it.part_name || '';
+            return `<div class="transfer-item-row${hiddenCls}"><span class="transfer-item-name" title="${escapeHtmlAttr(name)}">${escapeHtmlAttr(name)}</span></div>`;
+        }).join('');
+        return `<div class="transfer-items-list">${rows}</div>`;
+    }
+
+    function transferItemsQtyColumn(items) {
+        if (!items || !items.length) return '';
+        const rows = items.map((it, idx) => {
+            const requested = Number(it.quantity || 0).toLocaleString();
+            const hiddenCls = idx >= ITEMS_COLLAPSE_THRESHOLD ? ' js-extra-hidden' : '';
+            if (it.quantity_adjusted) {
+                const approvedQty = Number(it.approved_quantity || 0);
+                const approved = approvedQty.toLocaleString();
+                const approvedHtml = approvedQty === 0
+                    ? `<span class="text-danger fw-semibold">0 — Hết hàng</span>`
+                    : `<span class="text-success fw-semibold">${approved}</span>`;
+                return `<div class="transfer-item-row${hiddenCls}"><span class="transfer-item-qty">${approvedHtml} <i class="bi bi-clock-history qty-history-icon" title="Số lượng xin ban đầu: ${requested}"></i></span></div>`;
+            }
+            return `<div class="transfer-item-row${hiddenCls}"><span class="transfer-item-qty">x ${requested}</span></div>`;
+        }).join('');
+        return `<div class="transfer-items-list">${rows}</div>`;
+    }
 
     function transferItemsSummary(items) {
         if (!items || !items.length) return '';
         const rows = items.map((it, idx) => {
             const requested = Number(it.quantity || 0).toLocaleString();
-            const codeHtml = `<span class="part-code">${escapeHtmlAttr(it.part_code)}</span>`;
+            const codeHtml = `<span class="part-code" title="${escapeHtmlAttr(it.part_code)}">${escapeHtmlAttr(it.part_code)}</span>` +
+                `<span class="transfer-item-name" title="${it.part_name ? escapeHtmlAttr(it.part_name) : ''}">${it.part_name ? escapeHtmlAttr(it.part_name) : ''}</span>`;
             const hiddenCls = idx >= ITEMS_COLLAPSE_THRESHOLD ? ' js-extra-hidden' : '';
             if (it.quantity_adjusted) {
                 // Bên cho đã sửa số lượng lúc Đồng ý - CHỈ hiện số lượng đã
@@ -4619,8 +4945,8 @@ if (storeLocationForm) {
     }
 
     // Bấm "Xem thêm N mã" / "Thu gọn" trên 1 phiếu - mở hoặc ẩn các dòng mã
-    // hàng vượt ngưỡng gọn ở CẢ 3 cột lặp-theo-dòng trong cùng <tr> (Mã Hàng
-    // (SL), Cửa Hàng Xin, Đã Nhận), rồi đồng bộ lại chiều cao dòng vì số
+    // hàng vượt ngưỡng gọn ở CÁC cột lặp-theo-dòng trong cùng <tr> (Mã Hàng,
+    // Tên Hàng, Số Lượng, Cửa Hàng Xin, Đã Nhận), rồi đồng bộ lại chiều cao dòng vì số
     // dòng hiển thị vừa thay đổi.
     function toggleTransferItemsExpand(btn) {
         const tr = btn.closest('tr');
@@ -4649,8 +4975,7 @@ if (storeLocationForm) {
         if (!tbody) return;
         tbody.querySelectorAll('tr').forEach(tr => {
             const groups = [];
-            const itemsList = tr.querySelector('.transfer-items-list');
-            if (itemsList) groups.push(Array.from(itemsList.children));
+            tr.querySelectorAll('.transfer-items-list').forEach(itemsList => groups.push(Array.from(itemsList.children)));
             const storeList = tr.querySelector('.transfer-store-list');
             if (storeList) groups.push(Array.from(storeList.children));
             const receivedList = tr.querySelector('.transfer-received-list');
@@ -5051,7 +5376,7 @@ if (storeLocationForm) {
         // Ô tick "Đã nhận hàng" cho từng mã - chỉ hiển thị cho phiếu đã được
         // đồng ý (approved), đặt ở cột riêng cạnh "Trạng Thái" cho gọn.
         // Mỗi dòng bọc trong .transfer-received-row (cùng row-gap/chiều cao
-        // với .transfer-items-list ở cột "Mã Hàng (SL)") để tick "Đã Nhận"
+        // với .transfer-items-list ở cột "Mã Hàng - Tên Hàng - Số Lượng") để tick "Đã Nhận"
         // luôn nằm NGANG HÀNG với đúng mã hàng tương ứng, dễ kiểm soát.
         if (req.status !== 'approved') return '<span class="text-muted small">—</span>';
         const allReceived = req.items.length > 0 && req.items.every(it => it.received);
@@ -5181,12 +5506,56 @@ if (storeLocationForm) {
 
     // Lọc theo trạng thái phiếu - tách riêng "Đã Đồng Ý" thành 2 mức để dễ
     // kiểm soát: đã đồng ý nhưng CHƯA nhận đủ hàng (cần theo dõi tiếp), và
-    // đã đồng ý và ĐÃ nhận đủ hàng (coi như xong). Giá trị rỗng = không lọc.
-    function transferMatchesStatusFilter(r, value) {
-        if (!value) return true;
-        if (value === 'approved_pending_receipt') return r.status === 'approved' && !r.all_received;
-        if (value === 'approved_received') return r.status === 'approved' && !!r.all_received;
-        return r.status === value;
+    // đã đồng ý và ĐÃ nhận đủ hàng (coi như xong). Cho phép chọn NHIỀU
+    // trạng thái cùng lúc (OR với nhau) - values là 1 mảng; mảng rỗng =
+    // không lọc gì cả (hiển thị tất cả), giữ đúng hành vi cũ khi chưa chọn.
+    function transferMatchesStatusFilter(r, values) {
+        if (!values || values.length === 0) return true;
+        return values.some(value => {
+            if (value === 'approved_pending_receipt') return r.status === 'approved' && !r.all_received;
+            if (value === 'approved_received') return r.status === 'approved' && !!r.all_received;
+            return r.status === value;
+        });
+    }
+
+    // ------------------------------------------------------------------
+    // BỘ LỌC TRẠNG THÁI DẠNG "MULTI-SELECT" (dropdown + checkbox) - dùng
+    // chung cho cả 3 bảng phiếu luân chuyển (Nhận, Gửi, Admin). containerId
+    // là id của div.dropdown bọc ngoài, chứa các input.status-filter-checkbox.
+    // ------------------------------------------------------------------
+    function getStatusMultiSelectValues(containerId) {
+        const container = document.getElementById(containerId);
+        if (!container) return [];
+        return Array.from(container.querySelectorAll('.status-filter-checkbox:checked')).map(cb => cb.value);
+    }
+
+    function clearStatusMultiSelect(containerId) {
+        const container = document.getElementById(containerId);
+        if (!container) return;
+        container.querySelectorAll('.status-filter-checkbox').forEach(cb => { cb.checked = false; });
+        updateStatusMultiSelectLabel(containerId);
+    }
+
+    function updateStatusMultiSelectLabel(containerId) {
+        const container = document.getElementById(containerId);
+        if (!container) return;
+        const labelEl = container.querySelector('.status-filter-label');
+        if (!labelEl) return;
+        const checked = Array.from(container.querySelectorAll('.status-filter-checkbox:checked'));
+        if (checked.length === 0) {
+            labelEl.textContent = 'Tất cả trạng thái';
+        } else if (checked.length === 1) {
+            labelEl.textContent = checked[0].closest('label').textContent.trim();
+        } else {
+            labelEl.textContent = `Đã chọn ${checked.length} trạng thái`;
+        }
+    }
+
+    // Gọi mỗi khi tick/bỏ tick 1 checkbox trạng thái: cập nhật lại nhãn hiển
+    // thị trên nút dropdown rồi mới render lại bảng tương ứng.
+    function onTransferStatusFilterChange(containerId, renderFn) {
+        updateStatusMultiSelectLabel(containerId);
+        renderFn();
     }
 
     function updateTransferSelectedCount() {
@@ -5220,29 +5589,29 @@ if (storeLocationForm) {
         if (!receivedBody) return;
         const searchEl = document.getElementById('transfer-received-search');
         const search = searchEl ? searchEl.value.trim() : '';
-        const statusEl = document.getElementById('transfer-received-status-filter');
-        const statusValue = statusEl ? statusEl.value : '';
+        const statusValue = getStatusMultiSelectValues('transfer-received-status-filter');
         const received = (window._lastReceivedRequests || []).filter(r => transferMatchesSearch(r, search) && transferMatchesStatusFilter(r, statusValue));
 
         receivedBody.innerHTML = received.length ? received.map(r => `
             <tr class="transfer-row-clickable" onclick="handleTransferRowClick(event, ${r.id}, 'received')">
                 <td class="text-center"><input type="checkbox" class="form-check-input transfer-select-checkbox" value="${r.id}" ${selectedTransferIds.has(r.id) ? 'checked' : ''} onchange="toggleTransferSelect(${r.id}, this.checked)"></td>
                 <td>${storeBadgeColumn(r.from_store, r.items ? r.items.length : 1)}</td>
-                <td>${transferItemsSummary(r.items)}</td>
-                <td>${transferEmployeeCell(r)}</td>
-                <td class="small">${r.note || ''}</td>
+                <td>${transferItemsCodeColumn(r.items)}</td>
+                <td>${transferItemsNameColumn(r.items)}</td>
+                <td class="text-end">${transferItemsQtyColumn(r.items)}</td>
+                <td class="small transfer-note-cell">${r.note || ''}</td>
                 <td>${transferStatusBadge(r, true)}</td>
-                <td class="text-muted small">${r.created_at || ''}</td>
+                <td class="text-muted small">${formatTransferListTime(r.created_at)}</td>
                 <td class="text-end text-nowrap">
                     ${r.status === 'pending' ? `
-                        <button class="btn btn-success btn-sm me-1" onclick="openTransferApproveModal(${r.id})"><i class="bi bi-check-lg"></i> Đồng Ý</button>
-                        <button class="btn btn-outline-danger btn-sm" onclick="openTransferRejectModal(${r.id})"><i class="bi bi-x-lg"></i> Từ Chối</button>
+                        <button class="btn btn-success btn-sm d-block w-100 mb-1" onclick="openTransferApproveModal(${r.id})"><i class="bi bi-check-lg"></i> Đồng Ý</button>
+                        <button class="btn btn-outline-danger btn-sm d-block w-100" onclick="openTransferRejectModal(${r.id})"><i class="bi bi-x-lg"></i> Từ Chối</button>
                     ` : (r.status === 'approved' || r.status === 'rejected') && !r.any_received ? `
                         <button class="btn btn-outline-secondary btn-sm" onclick="revertTransfer(${r.id})"><i class="bi bi-arrow-counterclockwise"></i> Đổi Lại</button>
                     ` : ''}
                 </td>
             </tr>
-        `).join('') : `<tr><td colspan="8" class="text-center py-4 text-muted">${(search || statusValue) ? 'Không tìm thấy phiếu phù hợp.' : 'Chưa có phiếu nào gửi đến.'}</td></tr>`;
+        `).join('') : `<tr><td colspan="9" class="text-center py-4 text-muted">${(search || statusValue.length) ? 'Không tìm thấy phiếu phù hợp.' : 'Chưa có phiếu nào gửi đến.'}</td></tr>`;
 
         const pendingCount = (window._lastReceivedRequests || []).filter(r => r.status === 'pending').length;
         // Cập nhật cả badge trên nút tab GỐC (đã ẩn) lẫn 2 badge hiển thị
@@ -5262,25 +5631,25 @@ if (storeLocationForm) {
         if (!sentBody) return;
         const searchEl = document.getElementById('transfer-sent-search');
         const search = searchEl ? searchEl.value.trim() : '';
-        const statusEl = document.getElementById('transfer-sent-status-filter');
-        const statusValue = statusEl ? statusEl.value : '';
+        const statusValue = getStatusMultiSelectValues('transfer-sent-status-filter');
         const sent = (window._lastSentRequests || []).filter(r => transferMatchesSearch(r, search) && transferMatchesStatusFilter(r, statusValue));
 
         sentBody.innerHTML = sent.length ? sent.map(r => `
             <tr class="transfer-row-clickable" onclick="handleTransferRowClick(event, ${r.id}, 'sent')">
                 <td class="text-center"><input type="checkbox" class="form-check-input transfer-select-checkbox" value="${r.id}" ${selectedTransferIds.has(r.id) ? 'checked' : ''} onchange="toggleTransferSelect(${r.id}, this.checked)"></td>
                 <td>${storeBadgeColumn(r.to_store, r.items ? r.items.length : 1)}</td>
-                <td>${transferItemsSummary(r.items)}</td>
-                <td>${transferEmployeeCell(r)}</td>
+                <td>${transferItemsCodeColumn(r.items)}</td>
+                <td>${transferItemsNameColumn(r.items)}</td>
+                <td class="text-end">${transferItemsQtyColumn(r.items)}</td>
                 <td>${transferStatusBadge(r)}</td>
                 <td>${renderReceivedItemsChecklist(r)}</td>
-                <td class="small">${r.status === 'rejected' ? (r.reject_reason || '') : (r.note || '')}</td>
-                <td class="text-muted small">${r.created_at || ''}</td>
+                <td class="small transfer-note-cell">${r.status === 'rejected' ? (r.reject_reason || '') : (r.note || '')}</td>
+                <td class="text-muted small">${formatTransferListTime(r.created_at)}</td>
                 <td class="text-end">
                     ${r.status === 'pending' ? `<button class="btn btn-outline-secondary btn-sm" onclick="cancelTransferRequest(${r.id})"><i class="bi bi-x-lg"></i> Huỷ</button>` : ''}
                 </td>
             </tr>
-        `).join('') : `<tr><td colspan="9" class="text-center py-4 text-muted">${(search || statusValue) ? 'Không tìm thấy phiếu phù hợp.' : 'Bạn chưa gửi phiếu nào.'}</td></tr>`;
+        `).join('') : `<tr><td colspan="10" class="text-center py-4 text-muted">${(search || statusValue.length) ? 'Không tìm thấy phiếu phù hợp.' : 'Bạn chưa gửi phiếu nào.'}</td></tr>`;
         syncTransferRowHeights('transfer-sent-body');
     }
 
@@ -5613,7 +5982,7 @@ if (storeLocationForm) {
 
             const requests = result.requests;
             // Sắp xếp mã hàng trong TỪNG phiếu từ nhỏ tới lớn ngay tại đây,
-            // trước khi phân phối cho mọi nơi hiển thị (cột "Mã Hàng (SL)",
+            // trước khi phân phối cho mọi nơi hiển thị (cột "Mã Hàng - Tên Hàng - Số Lượng",
             // checklist "Đã Nhận", modal đồng ý, phiếu in...) - nhờ vậy tất
             // cả đều dùng chung 1 thứ tự đã sắp xếp, dễ kiểm soát và các cột
             // liên quan (vd tick đã nhận) vẫn thẳng hàng đúng theo mã hàng.
@@ -5623,6 +5992,7 @@ if (storeLocationForm) {
                 }
             });
             window._lastTransferRequests = requests;
+            renderTransferOverviewStats(); // cập nhật số liệu ở trang "Tổng Quan" (nếu đang có)
             // Mặc định chỉ tải phiếu gần đây (xem _TRANSFER_LIST_RECENT_DAYS
             // ở backend) - 2 biến này là "con trỏ" để bấm nút "Xem lịch sử
             // cũ hơn" tải tiếp lô cũ hơn, nối vào danh sách đang có. Khi đang
@@ -5722,8 +6092,7 @@ if (storeLocationForm) {
         if (!adminBody) return;
 
         const requests = window._lastTransferRequests || [];
-        const adminStatusEl = document.getElementById('transfer-admin-status-filter');
-        const adminStatusValue = adminStatusEl ? adminStatusEl.value : '';
+        const adminStatusValue = getStatusMultiSelectValues('transfer-admin-status-filter');
         const adminSearchEl = document.getElementById('transfer-admin-search');
         const adminSearchValue = adminSearchEl ? adminSearchEl.value.trim() : '';
 
@@ -5741,16 +6110,17 @@ if (storeLocationForm) {
                 <td class="text-center text-muted small">${r.id}</td>
                 <td>${storeBadge(r.to_store)}</td>
                 <td>${storeBadge(r.from_store)}</td>
-                <td>${transferEmployeeCell(r)}</td>
-                <td>${transferItemsSummary(r.items)}</td>
+                <td>${transferItemsCodeColumn(r.items)}</td>
+                <td>${transferItemsNameColumn(r.items)}</td>
+                <td class="text-end">${transferItemsQtyColumn(r.items)}</td>
                 <td>${transferStatusBadge(r)}</td>
-                <td class="small">${r.status === 'rejected' ? (r.reject_reason || '') : (r.note || '')}</td>
-                <td class="text-muted small">${r.created_at || ''}</td>
+                <td class="small transfer-note-cell">${r.status === 'rejected' ? (r.reject_reason || '') : (r.note || '')}</td>
+                <td class="text-muted small">${formatTransferListTime(r.created_at)}</td>
                 <td class="text-end" onclick="event.stopPropagation()">
                     <button class="btn btn-outline-danger btn-sm" title="Xoá hẳn phiếu này" onclick="deleteAdminTransfer(${r.id})"><i class="bi bi-trash"></i></button>
                 </td>
             </tr>
-        `).join('') : `<tr><td colspan="10" class="text-center py-4 text-muted">${(adminStatusValue || adminSearchValue) ? 'Không có phiếu phù hợp với bộ lọc/tìm kiếm.' : 'Chưa có phiếu luân chuyển nào.'}</td></tr>`;
+        `).join('') : `<tr><td colspan="11" class="text-center py-4 text-muted">${(adminStatusValue.length || adminSearchValue) ? 'Không có phiếu phù hợp với bộ lọc/tìm kiếm.' : 'Chưa có phiếu luân chuyển nào.'}</td></tr>`;
         updateAdminTransferSelectedCount();
         syncTransferRowHeights('transfer-admin-body');
     }
@@ -7433,13 +7803,19 @@ function notifyTransferEvent(title, message, toastType) {
 // ------------------------------------------------------------------
 function updateNotifBadge(count) {
     const badge = document.getElementById('notif-badge');
-    if (!badge) return; // phòng khi phần tử chưa render kịp
     const n = Number(count) || 0;
-    if (n > 0) {
-        badge.textContent = n > 99 ? '99+' : String(n);
-        badge.style.display = '';
-    } else {
-        badge.style.display = 'none';
+    if (badge) {
+        if (n > 0) {
+            badge.textContent = n > 99 ? '99+' : String(n);
+            badge.style.display = '';
+        } else {
+            badge.style.display = 'none';
+        }
+    }
+    // Gương lại số này sang trang "Tổng Quan".
+    const ovNotif = document.getElementById('ov-unread-notif');
+    if (ovNotif) {
+        ovNotif.innerText = n > 0 ? `${n.toLocaleString()} thông báo chưa đọc` : 'Không có thông báo mới';
     }
 }
 
