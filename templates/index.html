@@ -2946,6 +2946,16 @@
     const CURRENT_STORE_CODE = "{{ store_code }}";
     const CURRENT_USER = "{{ user }}";
 
+    // Chuẩn hoá mã hàng/mã PO trước khi so khớp tìm kiếm: hạ chữ thường, bỏ
+    // hết khoảng trắng và dấu "-" - để gõ "53012-k12-900" hay "53012 k12 900"
+    // vẫn tìm ra đúng mã lưu trong hệ thống dạng "53012K12900". Chỉ áp dụng
+    // cho các trường MÃ (part_code, po_code, số phiếu...), không áp dụng cho
+    // tên hàng/ghi chú/tên nhân viên vì các trường đó cần giữ nguyên khoảng
+    // trắng giữa các từ để so khớp đúng nghĩa.
+    function normalizeCodeSearch(s) {
+        return String(s == null ? '' : s).toLowerCase().replace(/[\s-]+/g, '');
+    }
+
     // ================== ADMIN MƯỢN QUYỀN XEM 1 CỬA HÀNG ==================
     // Reload lại toàn trang sau khi đổi role/store_code trong session (thay
     // vì cố cập nhật lại DOM tại chỗ) - đơn giản và chắc chắn đúng nhất vì
@@ -3251,10 +3261,11 @@
 
     function filterData(resetPage = true) {
         const search = document.getElementById('search-input').value.toLowerCase();
+        const searchCode = normalizeCodeSearch(search);
         const status = document.getElementById('filter-status').value;
         const orderType = document.getElementById('filter-order-type') ? document.getElementById('filter-order-type').value : '';
         filteredData = globalData.filter(item => {
-            return (item.po_code.toLowerCase().includes(search) || item.part_code.toLowerCase().includes(search)) && 
+            return (normalizeCodeSearch(item.po_code).includes(searchCode) || normalizeCodeSearch(item.part_code).includes(searchCode)) && 
                    (status === '' || item.status === status) &&
                    (orderType === '' || (item.order_type || 'Chưa có dữ liệu') === orderType);
         });
@@ -3672,8 +3683,9 @@
 
     function filterInventory() {
         const search = document.getElementById('inventory-search').value.toLowerCase();
+        const searchCode = normalizeCodeSearch(search);
         const filtered = globalInventory.filter(item =>
-            item.part_code.toLowerCase().includes(search) ||
+            normalizeCodeSearch(item.part_code).includes(searchCode) ||
             (item.part_name || '').toLowerCase().includes(search)
         );
         renderInventoryTable(filtered);
@@ -3940,8 +3952,9 @@
     function filterQuickLookup() {
         const searchEl = document.getElementById('quick-lookup-search');
         const search = searchEl ? searchEl.value.toLowerCase() : '';
+        const searchCode = normalizeCodeSearch(search);
         const filtered = globalInventory.filter(item =>
-            item.part_code.toLowerCase().includes(search) ||
+            normalizeCodeSearch(item.part_code).includes(searchCode) ||
             (item.part_name || '').toLowerCase().includes(search)
         );
         renderQuickLookupTable(filtered);
@@ -4597,9 +4610,10 @@ async function saveLocationRow(btn, partCode) {
 
     function filterLocations() {
         const search = document.getElementById('location-search').value.toLowerCase();
+        const searchCode = normalizeCodeSearch(search);
         const onlyMissing = document.getElementById('location-missing-filter').checked;
         const filtered = globalLocations.filter(item => {
-            const matchesSearch = item.part_code.toLowerCase().includes(search) ||
+            const matchesSearch = normalizeCodeSearch(item.part_code).includes(searchCode) ||
                 (item.part_name || '').toLowerCase().includes(search);
             if (!matchesSearch) return false;
             return !onlyMissing || locationIsMissing(item);
@@ -5492,6 +5506,7 @@ if (storeLocationForm) {
     function transferMatchesSearch(r, search) {
         if (!search) return true;
         const s = search.toLowerCase();
+        const sCode = normalizeCodeSearch(search);
         if (String(r.id || '').toLowerCase().includes(s)) return true;
         if ((r.to_store || '').toLowerCase().includes(s)) return true;
         if ((r.from_store || '').toLowerCase().includes(s)) return true;
@@ -5499,7 +5514,7 @@ if (storeLocationForm) {
         if ((r.confirmed_employee || '').toLowerCase().includes(s)) return true;
         if ((r.note || '').toLowerCase().includes(s)) return true;
         if ((r.reject_reason || '').toLowerCase().includes(s)) return true;
-        if ((r.items || []).some(it => (it.part_code || '').toLowerCase().includes(s))) return true;
+        if ((r.items || []).some(it => normalizeCodeSearch(it.part_code).includes(sCode))) return true;
         if ((r.items || []).some(it => (it.part_name || '').toLowerCase().includes(s))) return true;
         return false;
     }
@@ -7325,8 +7340,9 @@ if (storeLocationForm) {
         if (globalInventory.length === 0) { alert("Không có dữ liệu tồn kho!"); return; }
 
         const search = (document.getElementById('inventory-search').value || '').toLowerCase();
+        const searchCode = normalizeCodeSearch(search);
         const filtered = globalInventory.filter(item =>
-            item.part_code.toLowerCase().includes(search) ||
+            normalizeCodeSearch(item.part_code).includes(searchCode) ||
             (item.part_name || '').toLowerCase().includes(search)
         );
         if (filtered.length === 0) { alert("Không có dữ liệu tồn kho khớp với tìm kiếm hiện tại!"); return; }
