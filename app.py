@@ -184,6 +184,21 @@ def format_vi_datetime(dt):
 # luân chuyển nội bộ theo khu vực (xem /api/admin/transfer/region-report)
 # thay vì phải xem từng cặp cửa hàng lẻ tẻ. NS1 & NS3 cùng ở Cà Mau, NS5 &
 # NSM1 cùng ở Bạc Liêu nên 2 cửa hàng đó sẽ được gộp chung 1 khu vực.
+# Tên đăng nhập của tài khoản admin GỐC, quyền cao nhất hệ thống - ĐÂY LÀ
+# TÀI KHOẢN DUY NHẤT được phép đổi mật khẩu của bất kỳ ai qua trang Quản Lý
+# User, kể cả mật khẩu của các tài khoản admin khác. Các tài khoản admin
+# khác (không phải tài khoản này) thì KHÔNG được đổi mật khẩu của bất kỳ
+# tài khoản admin nào (kể cả lẫn nhau) - chỉ tự đổi được mật khẩu của chính
+# mình qua /api/change-password.
+SUPER_ADMIN_USERNAME = 'admin'
+
+# Quy tắc bảo mật: KHÔNG cho phép reset mật khẩu của bất kỳ tài khoản
+# quyền 'admin' nào qua trang Quản Lý User (route /api/admin/users) - áp
+# dụng cho MỌI admin, kể cả giữa các admin với nhau. 1 tài khoản admin chỉ
+# tự đổi được mật khẩu của chính mình qua /api/change-password (bắt buộc
+# đăng nhập đúng tài khoản đó + nhập đúng mật khẩu hiện tại). Xem chi tiết
+# tại route admin_users() bên dưới.
+
 STORE_REGIONS = {
     'NS1': 'Cà Mau',
     'NS3': 'Cà Mau',
@@ -554,6 +569,17 @@ def init_db():
         db = get_db()
         cursor = db.cursor()
 
+        # Khoá "advisory lock" ở mức database TRONG PHẠM VI TRANSACTION HIỆN
+        # TẠI (tự nhả khi commit/rollback, không cần tự tay mở khoá) - đảm
+        # bảo CHỈ 1 process được chạy migrate (CREATE/ALTER TABLE) tại 1
+        # thời điểm. Nếu chạy nhiều worker (gunicorn/Render) hoặc chạy 2 lần
+        # `python app.py` cùng lúc, các process còn lại sẽ tự CHỜ ở đây cho
+        # tới khi process đầu tiên migrate xong, thay vì cùng lúc đụng độ
+        # ALTER TABLE với nhau và bị Postgres báo lỗi "deadlock detected".
+        # Con số 727270001 chỉ là 1 mã khoá tự đặt, không có ý nghĩa gì khác
+        # ngoài việc phải giống nhau ở mọi lần gọi init_db().
+        cursor.execute("SELECT pg_advisory_xact_lock(727270001)")
+
         # 1. Tạo bảng users
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS users (
@@ -563,6 +589,15 @@ def init_db():
                 store_code VARCHAR(20) NOT NULL
             )
         ''')
+        # 1a. Bổ sung thông tin hiển thị của user: Họ và tên (dùng để chào
+        # khi đăng nhập, VD "Xin chào Nguyễn Văn A") và Chi nhánh làm việc
+        # (nhập tự do, KHÁC với store_code dùng để phân quyền - vì 1 tài
+        # khoản cửa hàng có thể có nhiều nhân viên cùng dùng chung, mỗi
+        # người vẫn có thể được ghi rõ đang làm việc tại chi nhánh nào).
+        # Cho phép NULL vì các tài khoản cũ/mặc định chưa có 2 thông tin
+        # này, admin sẽ bổ sung dần qua trang Quản Lý User.
+        cursor.execute('ALTER TABLE users ADD COLUMN IF NOT EXISTS full_name VARCHAR(100)')
+        cursor.execute('ALTER TABLE users ADD COLUMN IF NOT EXISTS branch VARCHAR(100)')
 
         # 1b. Bảng nhật ký đăng nhập - để admin biết mỗi tài khoản đã đăng
         #     nhập từ đâu (IP) và lúc nào, phục vụ theo dõi/bảo mật.
@@ -2274,6 +2309,8 @@ def index():
     return render_template(
         'index.html',
         user=session['user'],
+        full_name=session.get('full_name') or session['user'],
+        branch=session.get('branch') or '',
         role=session['role'],
         store_code=session['store_code'],
         store_employees=STORE_EMPLOYEES,
@@ -2362,6 +2399,11 @@ def login():
             session['user'] = user['username']
             session['role'] = user['role']
             session['store_code'] = user['store_code']
+            # Họ và tên để hiển thị lời chào (VD "Xin chào Nguyễn Văn A") -
+            # nếu tài khoản chưa được admin điền Họ và tên thì tạm dùng luôn
+            # tên đăng nhập, để chỗ chào hỏi không bao giờ bị trống.
+            session['full_name'] = user.get('full_name') or user['username']
+            session['branch'] = user.get('branch') or ''
             session.permanent = True
             return redirect(url_for('index'))
         else:
@@ -2374,6 +2416,50 @@ def login():
 def logout():
     session.clear()
     return redirect(url_for('login'))
+
+
+@app.route('/api/change-password', methods=['POST'])
+@limiter.limit("10 per minute")
+def change_own_password():
+    """Cho phép CHÍNH user đang đăng nhập tự đổi mật khẩu của mình (khác
+    với /api/admin/users vốn chỉ admin mới gọi được để reset mật khẩu cho
+    người khác). Bắt buộc phải nhập đúng mật khẩu hiện tại trước khi cho
+    đổi, để tránh trường hợp máy đang đăng nhập sẵn bị người khác lợi dụng
+    đổi mật khẩu chiếm tài khoản.
+
+    Lưu ý: nếu đang trong chế độ admin "mượn quyền" xem 1 cửa hàng
+    (impersonate), session['user'] VẪN LÀ tên đăng nhập THẬT của admin (xem
+    admin_impersonate_store ở trên), nên hàm này luôn đổi đúng mật khẩu của
+    tài khoản đang thực sự đăng nhập, không bị nhầm sang tài khoản cửa hàng
+    đang được xem."""
+    if 'user' not in session:
+        return jsonify({'error': 'Vui lòng đăng nhập lại.'}), 401
+
+    data = request.json or {}
+    current_password = (data.get('current_password') or '').strip()
+    new_password = (data.get('new_password') or '').strip()
+
+    if not current_password or not new_password:
+        return jsonify({'error': 'Vui lòng nhập đầy đủ mật khẩu hiện tại và mật khẩu mới.'}), 400
+    if len(new_password) < 4:
+        return jsonify({'error': 'Mật khẩu mới phải có ít nhất 4 ký tự.'}), 400
+
+    db = get_db()
+    cursor = db.cursor()
+    cursor.execute("SELECT * FROM users WHERE username = %s", (session['user'],))
+    user = cursor.fetchone()
+
+    if not user or not verify_and_upgrade_password(cursor, db, user, current_password):
+        cursor.close()
+        return jsonify({'error': 'Mật khẩu hiện tại không đúng.'}), 400
+
+    cursor.execute(
+        "UPDATE users SET password = %s WHERE username = %s",
+        (generate_password_hash(new_password), user['username'])
+    )
+    db.commit()
+    cursor.close()
+    return jsonify({'success': True})
 
 
 # ----------------------------------------------------------------------------
@@ -3680,6 +3766,56 @@ def get_history():
     return jsonify({'success': True, 'history': history})
 
 
+@app.route('/api/admin/users/create', methods=['POST'])
+def admin_users_create():
+    """Admin tạo TÀI KHOẢN MỚI - chọn quyền 'admin' (xem được toàn bộ hệ
+    thống, store_code luôn là 'ALL' như các tài khoản admin có sẵn) hoặc
+    'store' (gắn với 1 mã cửa hàng cụ thể, VD NS1/NS6...). Nếu store_code
+    nhập là 1 mã CHƯA từng tồn tại, tài khoản này sẽ trở thành tài khoản
+    đầu tiên của cửa hàng đó (hệ thống không có danh sách cửa hàng cố định
+    riêng - _valid_store_codes() lấy động từ chính bảng users)."""
+    if 'user' not in session or session['role'] != 'admin':
+        return jsonify({'error': 'Forbidden'}), 403
+
+    data = request.json or {}
+    username = (data.get('username') or '').strip()
+    password = (data.get('password') or '').strip()
+    role = (data.get('role') or '').strip()
+    store_code = (data.get('store_code') or '').strip().upper()
+    full_name = (data.get('full_name') or '').strip() or None
+    branch = (data.get('branch') or '').strip() or None
+
+    if not username or not password:
+        return jsonify({'error': 'Vui lòng nhập tên đăng nhập và mật khẩu.'}), 400
+    if len(password) < 4:
+        return jsonify({'error': 'Mật khẩu phải có ít nhất 4 ký tự.'}), 400
+    if role not in ('admin', 'store'):
+        return jsonify({'error': 'Vui lòng chọn quyền hợp lệ (Admin hoặc Cửa hàng).'}), 400
+
+    # Tài khoản 'admin' luôn có store_code = 'ALL' (giống mọi tài khoản
+    # admin có sẵn) - KHÔNG dùng giá trị store_code người dùng gõ (nếu có)
+    # để tránh tạo ra 1 admin bị giới hạn nhầm vào 1 cửa hàng.
+    if role == 'admin':
+        store_code = 'ALL'
+    elif not store_code:
+        return jsonify({'error': 'Vui lòng nhập mã cửa hàng cho tài khoản quyền Cửa hàng.'}), 400
+
+    db = get_db()
+    cursor = db.cursor()
+    cursor.execute("SELECT 1 FROM users WHERE username = %s", (username,))
+    if cursor.fetchone():
+        cursor.close()
+        return jsonify({'error': 'Tên đăng nhập đã tồn tại.'}), 400
+
+    cursor.execute(
+        "INSERT INTO users (username, password, role, store_code, full_name, branch) VALUES (%s, %s, %s, %s, %s, %s)",
+        (username, generate_password_hash(password), role, store_code, full_name, branch)
+    )
+    db.commit()
+    cursor.close()
+    return jsonify({'success': True})
+
+
 @app.route('/api/admin/users', methods=['GET', 'POST'])
 def admin_users():
     if 'user' not in session or session['role'] != 'admin':
@@ -3688,19 +3824,72 @@ def admin_users():
     db = get_db()
     cursor = db.cursor()
     if request.method == 'POST':
-        data = request.json
+        data = request.json or {}
         username = data.get('username')
         new_password = data.get('password')
-        if username and new_password:
-            hashed_password = generate_password_hash(new_password)
-            cursor.execute("UPDATE users SET password = %s WHERE username = %s", (hashed_password, username))
-            db.commit()
-            cursor.close()
-            return jsonify({'success': True})
-        cursor.close()
-        return jsonify({'error': 'Thiếu thông tin'}), 400
+        # full_name/branch: dùng sentinel `object()` để phân biệt "không gửi
+        # trường này" (giữ nguyên giá trị cũ) với "gửi chuỗi rỗng" (xoá về
+        # trống) - nếu chỉ check `if data.get('full_name')` thì không thể
+        # xoá 1 giá trị đã điền trước đó về rỗng được.
+        _MISSING = object()
+        full_name = data.get('full_name', _MISSING)
+        branch = data.get('branch', _MISSING)
 
-    cursor.execute("SELECT username, role, store_code FROM users")
+        if not username:
+            cursor.close()
+            return jsonify({'error': 'Thiếu tên đăng nhập'}), 400
+
+        # QUY TẮC: tài khoản admin GỐC (SUPER_ADMIN_USERNAME, xem hằng số ở
+        # đầu file) được phép đổi mật khẩu của BẤT KỲ ai qua route này, kể cả
+        # các tài khoản admin khác. Nhưng các tài khoản admin KHÁC (không
+        # phải admin gốc) thì KHÔNG được đổi mật khẩu của 1 tài khoản admin
+        # (dù là admin gốc hay 1 admin khác) - tức các admin thường không
+        # được đổi mật khẩu LẪN NHAU, chỉ admin gốc mới có đặc quyền này.
+        # Mật khẩu của chính admin gốc khi KHÔNG phải nó tự đổi vẫn luôn bị
+        # chặn qua route này (chỉ tự đổi qua /api/change-password).
+        if new_password:
+            cursor.execute("SELECT role FROM users WHERE username = %s", (username,))
+            target_user = cursor.fetchone()
+            is_requester_super_admin = (session['user'] == SUPER_ADMIN_USERNAME)
+            if target_user and target_user['role'] == 'admin' and not is_requester_super_admin:
+                cursor.close()
+                return jsonify({
+                    'error': 'Không thể đổi mật khẩu của 1 tài khoản admin qua đây. '
+                             'Tài khoản admin chỉ tự đổi được mật khẩu của chính mình '
+                             'bằng cách đăng nhập vào tài khoản đó rồi dùng chức năng '
+                             '"Đổi Mật Khẩu Của Tôi".'
+                }), 403
+
+        # Cho phép gọi API này để: chỉ đổi mật khẩu, chỉ sửa thông tin
+        # (Họ và tên/Chi nhánh), hoặc cả hai cùng lúc - miễn có ít nhất 1
+        # trong 3 thứ được gửi lên thì mới coi là hợp lệ.
+        set_clauses = []
+        params = []
+        if new_password:
+            set_clauses.append('password = %s')
+            params.append(generate_password_hash(new_password))
+        if full_name is not _MISSING:
+            set_clauses.append('full_name = %s')
+            params.append((full_name or '').strip() or None)
+        if branch is not _MISSING:
+            set_clauses.append('branch = %s')
+            params.append((branch or '').strip() or None)
+
+        if not set_clauses:
+            cursor.close()
+            return jsonify({'error': 'Thiếu thông tin'}), 400
+
+        params.append(username)
+        cursor.execute(f"UPDATE users SET {', '.join(set_clauses)} WHERE username = %s", params)
+        if cursor.rowcount == 0:
+            db.rollback()
+            cursor.close()
+            return jsonify({'error': 'Không tìm thấy tài khoản.'}), 404
+        db.commit()
+        cursor.close()
+        return jsonify({'success': True})
+
+    cursor.execute("SELECT username, role, store_code, full_name, branch FROM users")
     users = [dict(row) for row in cursor.fetchall()]
 
     # Lấy lượt đăng nhập GẦN NHẤT của mỗi user (DISTINCT ON theo username,

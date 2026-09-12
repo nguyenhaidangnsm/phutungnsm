@@ -879,10 +879,13 @@
                 <i class="bi bi-arrow-return-left me-1"></i>Về Admin
             </button>
             {% endif %}
-            <span class="badge bg-light text-dark shadow-sm px-2 px-md-3 py-2 border rounded-pill text-truncate" style="max-width: 200px;">
-                <i class="bi bi-person-circle text-primary me-1"></i> <strong class="d-none d-sm-inline">User: </strong>{{ user }} 
+            <span class="badge bg-light text-dark shadow-sm px-2 px-md-3 py-2 border rounded-pill text-truncate" style="max-width: 260px;">
+                <i class="bi bi-person-circle text-primary me-1"></i> <strong class="d-none d-sm-inline">Xin chào, </strong>{{ full_name }}
                 <span class="badge bg-primary ms-1">{{ store_code }}</span>
             </span>
+            <button type="button" class="btn btn-outline-secondary btn-sm fw-semibold shadow-sm text-nowrap" onclick="openSelfPassModal()" title="Đổi mật khẩu của tôi">
+                <i class="bi bi-key-fill me-1"></i><span class="d-none d-sm-inline">Đổi Mật Khẩu</span>
+            </button>
             <a href="/logout" class="btn btn-outline-primary btn-sm fw-semibold shadow-sm text-nowrap"><i class="bi bi-box-arrow-right me-1"></i><span class="d-none d-sm-inline">Thoát</span></a>
         </div>
     </div>
@@ -2321,21 +2324,28 @@
             </div>
 
             <div class="card card-custom p-3 p-md-4 mt-3 mt-md-4">
-                <h5 class="fw-bold mb-3 fs-6 fs-md-5"><i class="bi bi-people-fill me-2 text-primary"></i>Quản Lý Tài Khoản & Mật Khẩu User</h5>
+                <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+                    <h5 class="fw-bold mb-0 fs-6 fs-md-5"><i class="bi bi-people-fill me-2 text-primary"></i>Quản Lý Tài Khoản & Mật Khẩu User</h5>
+                    <button type="button" class="btn btn-success btn-sm fw-semibold" onclick="openCreateUserModal()">
+                        <i class="bi bi-person-plus-fill me-1"></i>Thêm User Mới
+                    </button>
+                </div>
                 <div class="table-responsive border rounded-3">
                     <table class="table table-hover align-middle mb-0">
                         <thead>
                             <tr>
                                 <th>Tên Đăng Nhập</th>
+                                <th>Họ Và Tên</th>
                                 <th>Role</th>
                                 <th>Cửa Hàng</th>
+                                <th>Chi Nhánh Làm Việc</th>
                                 <th>Trạng Thái</th>
                                 <th>Đăng Nhập Gần Nhất</th>
                                 <th class="text-end">Thao Tác</th>
                             </tr>
                         </thead>
                         <tbody id="admin-users-body">
-                            <tr><td colspan="6" class="text-center py-4 text-muted">Đang tải danh sách user...</td></tr>
+                            <tr><td colspan="8" class="text-center py-4 text-muted">Đang tải danh sách user...</td></tr>
                         </tbody>
                     </table>
                 </div>
@@ -2385,6 +2395,102 @@
                     <input type="password" id="new-password-input" class="form-control" placeholder="Nhập mật khẩu mới...">
                 </div>
                 <button type="button" class="btn btn-primary w-100 fw-semibold" onclick="submitNewPassword()">Xác Nhận Đổi Mật Khẩu</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Modal Thêm User Mới - admin chọn quyền Admin hoặc Cửa hàng -->
+<div class="modal fade" id="createUserModal" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content border-0 shadow">
+            <div class="modal-header bg-success text-white">
+                <h5 class="modal-title fw-bold fs-6">Thêm User Mới</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body p-3 p-md-4">
+                <div class="mb-3">
+                    <label class="form-label fw-semibold small">Tên đăng nhập</label>
+                    <input type="text" id="create-username-input" class="form-control" placeholder="VD: NS6" autocomplete="off">
+                </div>
+                <div class="mb-3">
+                    <label class="form-label fw-semibold small">Mật khẩu</label>
+                    <input type="password" id="create-password-input" class="form-control" placeholder="Ít nhất 4 ký tự...">
+                </div>
+                <div class="mb-3">
+                    <label class="form-label fw-semibold small">Quyền tài khoản</label>
+                    <select id="create-role-input" class="form-select" onchange="toggleCreateStoreCodeField()">
+                        <option value="store">Cửa hàng (chỉ xem/thao tác 1 chi nhánh)</option>
+                        <option value="admin">Admin (toàn quyền, xem tất cả cửa hàng)</option>
+                    </select>
+                </div>
+                <div class="mb-3" id="create-store-code-wrap">
+                    <label class="form-label fw-semibold small">Mã cửa hàng</label>
+                    <input type="text" id="create-store-code-input" class="form-control text-uppercase" placeholder="VD: NS6" maxlength="20">
+                    <div class="form-text">Nếu nhập mã cửa hàng chưa từng có, hệ thống sẽ tự thêm cửa hàng mới này.</div>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label fw-semibold small">Họ và tên (không bắt buộc)</label>
+                    <input type="text" id="create-full-name-input" class="form-control" placeholder="VD: Nguyễn Văn A" maxlength="100">
+                </div>
+                <div class="mb-3">
+                    <label class="form-label fw-semibold small">Chi nhánh làm việc (không bắt buộc)</label>
+                    <input type="text" id="create-branch-input" class="form-control" placeholder="VD: Cửa hàng NS6 - Cà Mau" maxlength="100">
+                </div>
+                <div id="create-user-error" class="text-danger small mb-2 d-none"></div>
+                <button type="button" class="btn btn-success w-100 fw-semibold" onclick="submitCreateUser()">Tạo Tài Khoản</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Modal Sửa Thông Tin User (Họ và tên, Chi nhánh làm việc) - admin dùng -->
+<div class="modal fade" id="editUserInfoModal" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content border-0 shadow">
+            <div class="modal-header bg-primary text-white">
+                <h5 class="modal-title fw-bold fs-6">Sửa Thông Tin: <span id="info-modal-username"></span></h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body p-3 p-md-4">
+                <input type="hidden" id="info-target-username">
+                <div class="mb-3">
+                    <label class="form-label fw-semibold small">Họ và tên</label>
+                    <input type="text" id="info-full-name-input" class="form-control" placeholder="VD: Nguyễn Văn A" maxlength="100">
+                </div>
+                <div class="mb-3">
+                    <label class="form-label fw-semibold small">Chi nhánh làm việc</label>
+                    <input type="text" id="info-branch-input" class="form-control" placeholder="VD: Cửa hàng NS1 - Cà Mau" maxlength="100">
+                </div>
+                <button type="button" class="btn btn-primary w-100 fw-semibold" onclick="submitUserInfo()">Lưu Thông Tin</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Modal Tự Đổi Mật Khẩu (cho chính user đang đăng nhập, mọi vai trò) -->
+<div class="modal fade" id="selfChangePassModal" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content border-0 shadow">
+            <div class="modal-header bg-primary text-white">
+                <h5 class="modal-title fw-bold fs-6">Đổi Mật Khẩu Của Tôi</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body p-3 p-md-4">
+                <div class="mb-3">
+                    <label class="form-label fw-semibold small">Mật khẩu hiện tại</label>
+                    <input type="password" id="self-current-password-input" class="form-control" placeholder="Nhập mật khẩu hiện tại...">
+                </div>
+                <div class="mb-3">
+                    <label class="form-label fw-semibold small">Mật khẩu mới</label>
+                    <input type="password" id="self-new-password-input" class="form-control" placeholder="Ít nhất 4 ký tự...">
+                </div>
+                <div class="mb-3">
+                    <label class="form-label fw-semibold small">Nhập lại mật khẩu mới</label>
+                    <input type="password" id="self-new-password-confirm-input" class="form-control" placeholder="Nhập lại để xác nhận...">
+                </div>
+                <div id="self-change-pass-error" class="text-danger small mb-2 d-none"></div>
+                <button type="button" class="btn btn-primary w-100 fw-semibold" onclick="submitSelfChangePassword()">Xác Nhận Đổi Mật Khẩu</button>
             </div>
         </div>
     </div>
@@ -2643,6 +2749,7 @@
 <script>
     const CURRENT_ROLE = "{{ role }}";
     const CURRENT_STORE_CODE = "{{ store_code }}";
+    const CURRENT_USER = "{{ user }}";
 
     // ================== ADMIN MƯỢN QUYỀN XEM 1 CỬA HÀNG ==================
     // Reload lại toàn trang sau khi đổi role/store_code trong session (thay
@@ -6376,8 +6483,10 @@ if (storeLocationForm) {
             tbody.innerHTML = result.users.map(u => `
                 <tr>
                     <td class="fw-bold">${u.username}</td>
+                    <td>${u.full_name ? escapeHtmlText(u.full_name) : '<span class="text-muted fst-italic">Chưa cập nhật</span>'}</td>
                     <td><span class="badge ${u.role === 'admin' ? 'bg-danger' : 'bg-primary'}">${u.role}</span></td>
                     <td>${u.store_code}</td>
+                    <td>${u.branch ? escapeHtmlText(u.branch) : '<span class="text-muted fst-italic">Chưa cập nhật</span>'}</td>
                     <td>
                         ${u.online
                             ? `<span class="badge bg-success"><i class="bi bi-circle-fill me-1" style="font-size:6px;"></i>Đang online</span><div class="small text-muted mt-1">${u.current_ip || ''}</div>`
@@ -6391,12 +6500,16 @@ if (storeLocationForm) {
                             : ''}
                     </td>
                     <td class="text-end">
-                        <button class="btn btn-outline-secondary btn-sm me-1" onclick="openLoginHistory('${u.username}')">
+                        <button class="btn btn-outline-secondary btn-sm me-1 mb-1" onclick="openLoginHistory('${u.username}')">
                             <i class="bi bi-clock-history me-1"></i> <span class="d-none d-sm-inline">Lịch Sử</span>
                         </button>
-                        <button class="btn btn-outline-primary btn-sm" onclick="openPassModal('${u.username}')">
+                        <button class="btn btn-outline-dark btn-sm me-1 mb-1" data-username="${escapeHtmlAttr(u.username)}" data-fullname="${escapeHtmlAttr(u.full_name || '')}" data-branch="${escapeHtmlAttr(u.branch || '')}" onclick="openInfoModal(this)">
+                            <i class="bi bi-pencil-square me-1"></i> <span class="d-none d-sm-inline">Thông Tin</span>
+                        </button>
+                        <button class="btn btn-outline-primary btn-sm mb-1" onclick="openPassModal('${u.username}')" ${(u.role === 'admin' && CURRENT_USER !== 'admin') ? 'disabled title="Chỉ tài khoản admin gốc mới được đổi mật khẩu của 1 tài khoản admin khác."' : ''}>
                             <i class="bi bi-key me-1"></i> <span class="d-none d-sm-inline">Đổi Mật Khẩu</span>
                         </button>
+                        ${(u.role === 'admin' && CURRENT_USER !== 'admin') ? '<div class="small text-muted mt-1" style="max-width:220px;">Chỉ admin gốc mới đổi được mật khẩu tài khoản admin.</div>' : ''}
                     </td>
                 </tr>
             `).join('');
@@ -6502,6 +6615,118 @@ if (storeLocationForm) {
         }
     }
 
+    function openCreateUserModal() {
+        document.getElementById('create-username-input').value = '';
+        document.getElementById('create-password-input').value = '';
+        document.getElementById('create-role-input').value = 'store';
+        document.getElementById('create-store-code-input').value = '';
+        document.getElementById('create-full-name-input').value = '';
+        document.getElementById('create-branch-input').value = '';
+        const errBox = document.getElementById('create-user-error');
+        errBox.classList.add('d-none');
+        errBox.innerText = '';
+        toggleCreateStoreCodeField();
+        new bootstrap.Modal(document.getElementById('createUserModal')).show();
+    }
+
+    function toggleCreateStoreCodeField() {
+        const isStore = document.getElementById('create-role-input').value === 'store';
+        document.getElementById('create-store-code-wrap').classList.toggle('d-none', !isStore);
+    }
+
+    async function submitCreateUser() {
+        const username = document.getElementById('create-username-input').value.trim();
+        const password = document.getElementById('create-password-input').value;
+        const role = document.getElementById('create-role-input').value;
+        const storeCode = document.getElementById('create-store-code-input').value.trim();
+        const fullName = document.getElementById('create-full-name-input').value.trim();
+        const branch = document.getElementById('create-branch-input').value.trim();
+        const errBox = document.getElementById('create-user-error');
+
+        const showError = (msg) => {
+            errBox.innerText = msg;
+            errBox.classList.remove('d-none');
+        };
+        errBox.classList.add('d-none');
+
+        if (!username || !password) {
+            showError('Vui lòng nhập tên đăng nhập và mật khẩu.');
+            return;
+        }
+        if (password.length < 4) {
+            showError('Mật khẩu phải có ít nhất 4 ký tự.');
+            return;
+        }
+        if (role === 'store' && !storeCode) {
+            showError('Vui lòng nhập mã cửa hàng cho tài khoản quyền Cửa hàng.');
+            return;
+        }
+
+        try {
+            const res = await fetch('/api/admin/users/create', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({
+                    username, password, role,
+                    store_code: storeCode,
+                    full_name: fullName,
+                    branch: branch
+                })
+            });
+            const result = await res.json();
+
+            if (res.ok && result.success) {
+                const modalEl = document.getElementById('createUserModal');
+                const modal = bootstrap.Modal.getInstance(modalEl);
+                if (modal) modal.hide();
+                loadAdminUsers();
+            } else {
+                showError(result.error || 'Không thể tạo tài khoản.');
+            }
+        } catch (e) {
+            console.error(e);
+            showError('Lỗi kết nối đến server.');
+        }
+    }
+
+    function openInfoModal(btn) {
+        const username = btn.dataset.username;
+        const fullName = btn.dataset.fullname;
+        const branch = btn.dataset.branch;
+        document.getElementById('info-target-username').value = username;
+        document.getElementById('info-modal-username').innerText = username;
+        document.getElementById('info-full-name-input').value = fullName || '';
+        document.getElementById('info-branch-input').value = branch || '';
+        new bootstrap.Modal(document.getElementById('editUserInfoModal')).show();
+    }
+
+    async function submitUserInfo() {
+        const username = document.getElementById('info-target-username').value;
+        const fullName = document.getElementById('info-full-name-input').value.trim();
+        const branch = document.getElementById('info-branch-input').value.trim();
+
+        try {
+            const res = await fetch('/api/admin/users', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ username, full_name: fullName, branch: branch })
+            });
+            const result = await res.json();
+
+            if (res.ok && result.success) {
+                const modalEl = document.getElementById('editUserInfoModal');
+                const modal = bootstrap.Modal.getInstance(modalEl);
+                if (modal) modal.hide();
+                loadAdminUsers();
+            } else {
+                alert('Lỗi: ' + (result.error || 'Không thể lưu thông tin'));
+            }
+        } catch (e) {
+            console.error(e);
+            alert('Lỗi kết nối đến server.');
+        }
+    }
+
     function openPassModal(username) {
         document.getElementById('target-username').value = username;
         document.getElementById('modal-username').innerText = username;
@@ -6544,6 +6769,63 @@ if (storeLocationForm) {
         } catch (e) {
             console.error(e);
             alert('Lỗi kết nối đến server.');
+        }
+    }
+
+    function openSelfPassModal() {
+        document.getElementById('self-current-password-input').value = '';
+        document.getElementById('self-new-password-input').value = '';
+        document.getElementById('self-new-password-confirm-input').value = '';
+        const errBox = document.getElementById('self-change-pass-error');
+        errBox.classList.add('d-none');
+        errBox.innerText = '';
+        new bootstrap.Modal(document.getElementById('selfChangePassModal')).show();
+    }
+
+    async function submitSelfChangePassword() {
+        const currentPassword = document.getElementById('self-current-password-input').value;
+        const newPassword = document.getElementById('self-new-password-input').value;
+        const confirmPassword = document.getElementById('self-new-password-confirm-input').value;
+        const errBox = document.getElementById('self-change-pass-error');
+
+        const showError = (msg) => {
+            errBox.innerText = msg;
+            errBox.classList.remove('d-none');
+        };
+        errBox.classList.add('d-none');
+
+        if (!currentPassword || !newPassword || !confirmPassword) {
+            showError('Vui lòng nhập đầy đủ các ô bên trên.');
+            return;
+        }
+        if (newPassword !== confirmPassword) {
+            showError('Mật khẩu mới nhập lại không khớp.');
+            return;
+        }
+        if (newPassword.length < 4) {
+            showError('Mật khẩu mới phải có ít nhất 4 ký tự.');
+            return;
+        }
+
+        try {
+            const res = await fetch('/api/change-password', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ current_password: currentPassword, new_password: newPassword })
+            });
+            const result = await res.json();
+
+            if (res.ok && result.success) {
+                alert('Đổi mật khẩu thành công! Lần đăng nhập sau hãy dùng mật khẩu mới.');
+                const modalEl = document.getElementById('selfChangePassModal');
+                const modal = bootstrap.Modal.getInstance(modalEl);
+                if (modal) modal.hide();
+            } else {
+                showError(result.error || 'Không thể đổi mật khẩu.');
+            }
+        } catch (e) {
+            console.error(e);
+            showError('Lỗi kết nối đến server.');
         }
     }
 
