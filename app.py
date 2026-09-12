@@ -4210,14 +4210,32 @@ def admin_transfer_stats():
 # bên dưới - sửa ở đây thì nhớ sửa cả nhãn.
 REGION_REPORT_STATUS_CONDITIONS = {
     'pending': "tr.status = 'pending'",
-    'approved_not_prepared': "tr.status = 'approved' AND tr.prepared = FALSE",
-    'approved_prepared': "tr.status = 'approved' AND tr.prepared = TRUE",
-    'approved_not_received': (
-        "tr.status = 'approved' AND EXISTS ("
+    # Trước đây có 4 điều kiện tách rời (chưa/đã soạn hàng, chưa/đã nhận đủ
+    # hàng) - nhưng đó là 2 CHIỀU khác nhau của cùng 1 phiếu "Đã Đồng Ý", nên
+    # khi người dùng tick nhiều ô OR với nhau, tick đủ cả "Chưa Soạn Hàng" +
+    # "Đã Soạn Hàng" (2 ô) đã tự động khớp 100% phiếu đã đồng ý (vì 1 phiếu
+    # luôn là 1 trong 2), khiến ô "Chưa Nhận Đủ Hàng" tick thêm không còn tác
+    # dụng lọc bớt gì cả -> xuất ra thừa cả các phiếu "Đã Nhận Đủ Hàng".
+    # Sửa: gộp thành 4 tổ hợp loại trừ lẫn nhau (soạn x nhận), y hệt 4 nhãn
+    # "Trạng Thái Phiếu" xuất hiện trong file Excel (_phieu_status_label bên
+    # dưới) - mỗi phiếu chỉ khớp ĐÚNG 1 trong 4 tổ hợp này, nên OR nhiều ô mới
+    # thực sự thu hẹp kết quả đúng như người dùng tick.
+    'approved_np_nr': (  # Đã Đồng Ý - Chưa Soạn Hàng - Chưa Nhận Đủ Hàng
+        "tr.status = 'approved' AND tr.prepared = FALSE AND EXISTS ("
         "SELECT 1 FROM transfer_items x WHERE x.request_id = tr.id AND x.received = FALSE)"
     ),
-    'approved_received': (
-        "tr.status = 'approved' AND EXISTS (SELECT 1 FROM transfer_items x WHERE x.request_id = tr.id)"
+    'approved_np_r': (  # Đã Đồng Ý - Chưa Soạn Hàng - Đã Nhận Đủ Hàng
+        "tr.status = 'approved' AND tr.prepared = FALSE"
+        " AND EXISTS (SELECT 1 FROM transfer_items x WHERE x.request_id = tr.id)"
+        " AND NOT EXISTS (SELECT 1 FROM transfer_items x WHERE x.request_id = tr.id AND x.received = FALSE)"
+    ),
+    'approved_p_nr': (  # Đã Đồng Ý - Đã Soạn Hàng - Chưa Nhận Đủ Hàng
+        "tr.status = 'approved' AND tr.prepared = TRUE AND EXISTS ("
+        "SELECT 1 FROM transfer_items x WHERE x.request_id = tr.id AND x.received = FALSE)"
+    ),
+    'approved_p_r': (  # Đã Đồng Ý - Đã Soạn Hàng - Đã Nhận Đủ Hàng
+        "tr.status = 'approved' AND tr.prepared = TRUE"
+        " AND EXISTS (SELECT 1 FROM transfer_items x WHERE x.request_id = tr.id)"
         " AND NOT EXISTS (SELECT 1 FROM transfer_items x WHERE x.request_id = tr.id AND x.received = FALSE)"
     ),
     'rejected': "tr.status = 'rejected'",
@@ -4228,10 +4246,10 @@ REGION_REPORT_STATUS_CONDITIONS = {
 # cả báo cáo (breakdown card) lẫn cột "Trạng Thái Phiếu" khi xuất Excel.
 REGION_REPORT_STATUS_LABELS = {
     'pending': 'Chờ Xử Lý',
-    'approved_not_prepared': 'Đã Đồng Ý - Chưa Soạn Hàng',
-    'approved_prepared': 'Đã Đồng Ý - Đã Soạn Hàng',
-    'approved_not_received': 'Đã Đồng Ý - Chưa Nhận Đủ Hàng',
-    'approved_received': 'Đã Đồng Ý - Đã Nhận Đủ Hàng',
+    'approved_np_nr': 'Đã Đồng Ý - Chưa Soạn Hàng - Chưa Nhận Đủ Hàng',
+    'approved_np_r': 'Đã Đồng Ý - Chưa Soạn Hàng - Đã Nhận Đủ Hàng',
+    'approved_p_nr': 'Đã Đồng Ý - Đã Soạn Hàng - Chưa Nhận Đủ Hàng',
+    'approved_p_r': 'Đã Đồng Ý - Đã Soạn Hàng - Đã Nhận Đủ Hàng',
     'rejected': 'Đã Từ Chối',
     'cancelled': 'Đã Huỷ',
 }
@@ -4360,7 +4378,18 @@ def admin_transfer_region_report():
     ''', (range_start, range_end))
     all_rows = cursor.fetchall()
 
-    status_counts = {k: 0 for k in REGION_REPORT_STATUS_CONDITIONS}
+    # status_counts dùng cho card tổng quan - đây là bản HIỂN THỊ theo 2
+    # CHIỀU riêng (chưa/đã soạn hàng, chưa/đã nhận đủ hàng) để dễ đọc tổng
+    # quan tình hình chung, CỐ TÌNH tách biệt với REGION_REPORT_STATUS_CONDITIONS
+    # (bộ lọc thực tế) ở trên - 2 khái niệm khác nhau: ở đây chỉ để ĐẾM hiển
+    # thị (1 phiếu có thể được cộng vào cả 2 pill khác trục, không dùng để
+    # lọc), còn REGION_REPORT_STATUS_CONDITIONS dùng 4 tổ hợp loại trừ lẫn
+    # nhau để lọc chính xác.
+    status_counts = {
+        'pending': 0, 'rejected': 0, 'cancelled': 0,
+        'approved_not_prepared': 0, 'approved_prepared': 0, 'approved_total': 0,
+        'approved_not_received': 0, 'approved_received': 0,
+    }
     for r in all_rows:
         if r['status'] == 'pending':
             status_counts['pending'] += 1

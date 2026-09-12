@@ -1108,7 +1108,7 @@
     <div id="truck-announcement-wrap" class="mb-3 mb-md-4" style="margin-top: 80px;">
         {% for ann in truck_announcements %}
         <div class="d-flex align-items-center gap-2 gap-md-3 px-3 py-2 mb-2 rounded-3 shadow-sm text-white"
-             style="background: linear-gradient(135deg, #0a1dcd 0%, #0a1dcd 100%);" data-ann-id="{{ ann.id }}">
+             style="background: linear-gradient(135deg, #dc3545 0%, #b02a37 100%);" data-ann-id="{{ ann.id }}">
             <i class="bi bi-truck fs-5 flex-shrink-0"></i>
             <div class="small fw-semibold" style="line-height: 1.4;">
                 <span class="badge bg-white text-dark me-2 fs-5">Ngày {{ ann.departure_date_vi }}</span>{{ ann.message }}
@@ -2166,26 +2166,26 @@
                                 </li>
                                 <li>
                                     <label class="dropdown-item d-flex align-items-center gap-2 mb-0 rounded" style="cursor:pointer;">
-                                        <input type="checkbox" class="form-check-input mt-0 rr-status-chk" value="approved_not_prepared" onchange="onRegionReportStatusItemToggle()">
-                                        <span class="rr-dot rr-dot-not-prepared"></span> Đã Đồng Ý — Chưa Soạn Hàng
+                                        <input type="checkbox" class="form-check-input mt-0 rr-status-chk" value="approved_np_nr" onchange="onRegionReportStatusItemToggle()">
+                                        <span class="rr-dot rr-dot-not-prepared"></span> Đã Đồng Ý — Chưa Soạn — Chưa Nhận Đủ
                                     </label>
                                 </li>
                                 <li>
                                     <label class="dropdown-item d-flex align-items-center gap-2 mb-0 rounded" style="cursor:pointer;">
-                                        <input type="checkbox" class="form-check-input mt-0 rr-status-chk" value="approved_prepared" onchange="onRegionReportStatusItemToggle()">
-                                        <span class="rr-dot rr-dot-prepared"></span> Đã Đồng Ý — Đã Soạn Hàng
+                                        <input type="checkbox" class="form-check-input mt-0 rr-status-chk" value="approved_np_r" onchange="onRegionReportStatusItemToggle()">
+                                        <span class="rr-dot rr-dot-not-prepared"></span> Đã Đồng Ý — Chưa Soạn — Đã Nhận Đủ
                                     </label>
                                 </li>
                                 <li>
                                     <label class="dropdown-item d-flex align-items-center gap-2 mb-0 rounded" style="cursor:pointer;">
-                                        <input type="checkbox" class="form-check-input mt-0 rr-status-chk" value="approved_not_received" onchange="onRegionReportStatusItemToggle()">
-                                        <span class="rr-dot rr-dot-not-received"></span> Đã Đồng Ý — Chưa Nhận Đủ Hàng
+                                        <input type="checkbox" class="form-check-input mt-0 rr-status-chk" value="approved_p_nr" onchange="onRegionReportStatusItemToggle()">
+                                        <span class="rr-dot rr-dot-prepared"></span> Đã Đồng Ý — Đã Soạn — Chưa Nhận Đủ
                                     </label>
                                 </li>
                                 <li>
                                     <label class="dropdown-item d-flex align-items-center gap-2 mb-0 rounded" style="cursor:pointer;">
-                                        <input type="checkbox" class="form-check-input mt-0 rr-status-chk" value="approved_received" onchange="onRegionReportStatusItemToggle()">
-                                        <span class="rr-dot rr-dot-received"></span> Đã Đồng Ý — Đã Nhận Đủ Hàng
+                                        <input type="checkbox" class="form-check-input mt-0 rr-status-chk" value="approved_p_r" onchange="onRegionReportStatusItemToggle()">
+                                        <span class="rr-dot rr-dot-prepared"></span> Đã Đồng Ý — Đã Soạn — Đã Nhận Đủ
                                     </label>
                                 </li>
                                 <li>
@@ -6764,14 +6764,30 @@ if (storeLocationForm) {
         { key: 'rejected', dot: 'rr-dot-rejected', label: 'Từ Chối' },
         { key: 'cancelled', dot: 'rr-dot-cancelled', label: 'Huỷ' },
     ];
+    // Card tổng quan hiển thị 2 CHIỀU riêng (soạn hàng / nhận hàng) bằng các
+    // key "phẳng" cũ (approved_not_prepared, approved_received...), trong
+    // khi bộ lọc thực tế (activeFilters, xem REGION_REPORT_STATUS_CONDITIONS
+    // ở backend) giờ dùng 4 tổ hợp loại trừ lẫn nhau (approved_np_nr...) -
+    // ánh xạ ngược ở đây chỉ để BIẾT pill nào nên tô đậm cho khớp bộ lọc
+    // đang chọn, không ảnh hưởng tới việc lọc dữ liệu thực tế.
+    const RR_COMBO_TO_FLAT_KEYS = {
+        approved_np_nr: ['approved_not_prepared', 'approved_not_received'],
+        approved_np_r: ['approved_not_prepared', 'approved_received'],
+        approved_p_nr: ['approved_prepared', 'approved_not_received'],
+        approved_p_r: ['approved_prepared', 'approved_received'],
+    };
     function renderRegionReportStatusBreakdown(statusCounts, activeFilters) {
         const el = document.getElementById('region-report-status-breakdown');
         if (!el) return;
-        const active = activeFilters || [];
+        const rawActive = activeFilters || [];
+        const active = new Set();
+        rawActive.forEach(v => {
+            (RR_COMBO_TO_FLAT_KEYS[v] || [v]).forEach(k => active.add(k));
+        });
         el.innerHTML = `<div class="rr-status-grid">${RR_STATUS_PILLS.map(p => {
             const count = statusCounts[p.key] || 0;
-            const isActive = active.includes(p.key);
-            const muted = active.length && !isActive ? ' rr-muted' : '';
+            const isActive = active.has(p.key);
+            const muted = active.size && !isActive ? ' rr-muted' : '';
             return `<span class="rr-status-pill${muted}"${isActive ? ' style="border-color:#0d6efd;box-shadow:0 0 0 2px rgba(13,110,253,0.15);"' : ''}>
                 <span class="rr-dot ${p.dot}"></span>${p.label} <span class="rr-count">${count.toLocaleString()}</span>
             </span>`;
