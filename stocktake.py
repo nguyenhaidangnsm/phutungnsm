@@ -41,6 +41,14 @@ stocktake_bp = Blueprint('stocktake', __name__)
 # của người dùng: không khoá vĩnh viễn, nhưng cũng không mở vô hạn).
 REOPEN_WINDOW_HOURS = 48
 
+# Nhật ký đếm chi tiết (stocktake_counts) của 1 phiên ĐÃ CHỐT chỉ giữ trong
+# DB bấy nhiêu ngày rồi tự xoá - vì lúc chốt/xuất Excel đã có sheet riêng
+# "Nhat Ky Dem" lưu lại đầy đủ, giữ mãi trong DB không cần thiết và làm
+# bảng phình to theo thời gian. KHÔNG đụng tới stocktake_adjustments (biên
+# bản kết quả cuối cùng) hay bản thân stocktake_sessions - chỉ xoá dòng log
+# thô của stocktake_counts.
+LOG_RETENTION_DAYS = 5
+
 
 def init_stocktake_tables(cursor):
     """Gọi 1 lần trong init_db() của app.py - tạo toàn bộ bảng cho tính
@@ -76,6 +84,8 @@ def init_stocktake_tables(cursor):
 
     # Mỗi lần đếm là 1 dòng riêng (không ghi đè) để cộng dồn được khi đếm
     # nhiều lần/nhiều khu vực, và giữ được counted_at của TỪNG lần đếm.
+    # LƯU Ý: dữ liệu bảng này của các phiên ĐÃ CHỐT tự động bị xoá sau
+    # LOG_RETENTION_DAYS ngày - xem _cleanup_old_logs().
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS stocktake_counts (
             id SERIAL PRIMARY KEY,
@@ -154,6 +164,23 @@ def init_stocktake_tables(cursor):
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_inventory_store ON inventory_items(store_code)')
 
 
+def _cleanup_old_logs(db, cursor):
+    """Xoá nhật ký đếm thô (stocktake_counts) của các phiên ĐÃ CHỐT quá
+    LOG_RETENTION_DAYS ngày kể từ lúc chốt. Gọi ở đầu các route có liên
+    quan tới log/lịch sử (không cần cron riêng) - rẻ vì chỉ 1 câu DELETE
+    có điều kiện, và closed_at đã có index qua session nên không quét
+    toàn bộ bảng lớn."""
+    cursor.execute('''
+        DELETE FROM stocktake_counts c
+        USING stocktake_sessions s
+        WHERE c.session_id = s.id
+          AND s.status = 'closed'
+          AND s.closed_at IS NOT NULL
+          AND s.closed_at < NOW() - (%s * INTERVAL '1 day')
+    ''', (LOG_RETENTION_DAYS,))
+    db.commit()
+
+
 def _require_admin():
     """Trả về response lỗi (jsonify, status) nếu không phải admin, hoặc
     None nếu hợp lệ - gọi ở đầu mỗi route, return luôn nếu khác None."""
@@ -171,6 +198,9 @@ def _get_session_or_404(cursor, session_id):
 def stocktake_page():
     if 'user' not in session or session.get('role') != 'admin':
         return render_template('login.html', error='Chỉ Admin mới được truy cập trang này.')
+    # Tiện dịp trang được mở, dọn luôn log quá hạn - khỏi cần cron riêng.
+    db = get_db()
+    _cleanup_old_logs(db, db.cursor())
     return render_template('stocktake.html', user=session['user'], stores=sorted(STORE_REGIONS.keys()))
 
 
@@ -476,6 +506,13 @@ def _fetch_summary_rows(cursor, session_id, store_code, cutoff_time):
         manual_received AS (
             SELECT part_code, SUM(quantity) AS qty FROM stocktake_manual_adjustments
             WHERE session_id = %(sid)s AND adjustment_type = 'received_other' GROUP BY part_code
+        ),
+        areas AS (
+            -- Gộp TẤT CẢ khu vực đã ghi nhận đếm cho 1 mã (có thể đếm ở
+            -- nhiều khu vực khác nhau) thành 1 chuỗi hiển thị, bỏ khu vực
+            -- trống/NULL và không lặp lại tên khu vực giống nhau.
+            SELECT part_code, STRING_AGG(DISTINCT NULLIF(TRIM(area_note), ''), ', ') AS area_list
+            FROM stocktake_counts WHERE session_id = %(sid)s GROUP BY part_code
         )
         SELECT s.part_code, s.part_name, s.unit, s.book_quantity,
                COALESCE(r.qty, 0) AS received_qty,
@@ -483,7 +520,7 @@ def _fetch_summary_rows(cursor, session_id, store_code, cutoff_time):
                COALESCE(dm.qty, 0) AS damaged_qty,
                COALESCE(ms.qty, 0) AS manual_sold_qty,
                COALESCE(mr.qty, 0) AS manual_received_qty,
-               c.counted_quantity, c.counted_until
+               c.counted_quantity, c.counted_until, ar.area_list
         FROM stocktake_snapshot_items s
         LEFT JOIN counts c ON c.part_code = s.part_code
         LEFT JOIN received r ON r.part_code = s.part_code
@@ -491,13 +528,14 @@ def _fetch_summary_rows(cursor, session_id, store_code, cutoff_time):
         LEFT JOIN damaged dm ON dm.part_code = s.part_code
         LEFT JOIN manual_sold ms ON ms.part_code = s.part_code
         LEFT JOIN manual_received mr ON mr.part_code = s.part_code
+        LEFT JOIN areas ar ON ar.part_code = s.part_code
         WHERE s.session_id = %(sid)s
         ORDER BY s.part_code
     ''', {'sid': session_id, 'store': store_code, 'cutoff': cutoff_time})
     return cursor.fetchall()
 
 
-def _build_summary(rows, diff_threshold_pct=5, diff_threshold_abs=3):
+def _build_summary(rows):
     """Ghép known_movement/expected/diff/trạng thái từ dữ liệu thô của
     _fetch_summary_rows() - tách riêng để dùng chung cho cả API summary lẫn
     lúc chốt phiên (close), khỏi lặp code."""
@@ -507,6 +545,7 @@ def _build_summary(rows, diff_threshold_pct=5, diff_threshold_abs=3):
         manual_qty = float(r['manual_received_qty'] or 0) - float(r['manual_sold_qty'] or 0)
         has_manual = float(r['manual_received_qty'] or 0) > 0 or float(r['manual_sold_qty'] or 0) > 0
         counted = r['counted_quantity']
+        areas = r['area_list'] if 'area_list' in r.keys() else None
         if counted is None:
             # Chưa đếm mã này - theo yêu cầu: khi CHỐT sẽ coi như tồn = 0.
             # manual_qty vẫn được cộng vào known_movement dù chưa đếm - lỡ
@@ -516,20 +555,28 @@ def _build_summary(rows, diff_threshold_pct=5, diff_threshold_abs=3):
                 'part_code': r['part_code'], 'part_name': r['part_name'], 'unit': r['unit'],
                 'book_quantity': book, 'known_movement_qty': manual_qty, 'expected_quantity': book + manual_qty,
                 'counted_quantity': None, 'diff_quantity': None, 'has_manual_adjustment': has_manual,
-                'counted': False, 'status': 'not_counted',
+                'areas': areas, 'counted': False, 'status': 'not_counted',
             })
             continue
         movement = float(r['received_qty'] or 0) - float(r['sent_qty'] or 0) - float(r['damaged_qty'] or 0) + manual_qty
         expected = book + movement
         counted = float(counted)
         diff = counted - expected
-        threshold = max(diff_threshold_abs, abs(expected) * diff_threshold_pct / 100)
-        status = 'needs_recount' if abs(diff) > threshold else 'matched'
+        # Trạng thái theo đúng 3 mức người dùng cần, dựa thẳng vào dấu của
+        # chênh lệch thực tế - không còn khái niệm "trong ngưỡng dung sai"
+        # (dễ gây hiểu lầm là khớp dù còn lệch): "Đủ" khi lệch đúng bằng 0,
+        # "Dư" khi đếm được NHIỀU hơn kỳ vọng, "Thiếu" khi đếm được ÍT hơn.
+        if diff == 0:
+            status = 'matched'
+        elif diff > 0:
+            status = 'surplus'
+        else:
+            status = 'shortage'
         out.append({
             'part_code': r['part_code'], 'part_name': r['part_name'], 'unit': r['unit'],
             'book_quantity': book, 'known_movement_qty': movement, 'expected_quantity': expected,
             'counted_quantity': counted, 'diff_quantity': diff, 'has_manual_adjustment': has_manual,
-            'counted': True, 'status': status,
+            'areas': areas, 'counted': True, 'status': status,
         })
     return out
 
@@ -560,8 +607,47 @@ def stocktake_summary(session_id):
         'items': summary,
         'total_parts': len(summary),
         'counted_parts': sum(1 for x in summary if x['counted']),
-        'needs_recount': sum(1 for x in summary if x['status'] == 'needs_recount'),
+        'surplus_count': sum(1 for x in summary if x['status'] == 'surplus'),
+        'shortage_count': sum(1 for x in summary if x['status'] == 'shortage'),
     })
+
+
+@stocktake_bp.route('/api/stocktake/<int:session_id>/log', methods=['GET'])
+def stocktake_log(session_id):
+    """Nhật ký TỪNG LẦN đếm (không gộp) của 1 phiên - trả lời khiếu nại
+    "chưa có log hiển thị lịch sử các mã đã kiểm". Đọc thẳng từ bảng
+    stocktake_counts (mỗi lần đếm là 1 dòng riêng, không bị ghi đè), nên
+    dữ liệu này KHÔNG mất kể cả sau khi phiên đã chốt - khác với bảng đối
+    chiếu (summary) vốn chỉ hiện số đã CỘNG DỒN theo mã."""
+    err = _require_admin()
+    if err:
+        return err
+
+    db = get_db()
+    cursor = db.cursor()
+    sess = _get_session_or_404(cursor, session_id)
+    if not sess:
+        cursor.close()
+        return jsonify({'error': 'Không tìm thấy phiên kiểm kê.'}), 404
+    _cleanup_old_logs(db, cursor)
+
+    cursor.execute('''
+        SELECT c.id, c.part_code, s.part_name, c.counted_quantity, c.area_note,
+               c.counted_by, c.counted_at
+        FROM stocktake_counts c
+        LEFT JOIN stocktake_snapshot_items s
+               ON s.session_id = c.session_id AND s.part_code = c.part_code
+        WHERE c.session_id = %s
+        ORDER BY c.counted_at DESC, c.id DESC
+    ''', (session_id,))
+    rows = cursor.fetchall()
+    cursor.close()
+
+    return jsonify({'success': True, 'log': [{
+        'id': r['id'], 'part_code': r['part_code'], 'part_name': r['part_name'],
+        'counted_quantity': float(r['counted_quantity']), 'area_note': r['area_note'] or '',
+        'counted_by': r['counted_by'], 'counted_at': format_vi_datetime(r['counted_at']),
+    } for r in rows]})
 
 
 @stocktake_bp.route('/api/stocktake/<int:session_id>/close', methods=['POST'])
@@ -609,13 +695,11 @@ def stocktake_close(session_id):
         ''', (session_id, it['part_code'], it['part_name'], it['book_quantity'], movement,
               expected, counted, diff))
 
-        # Đồng bộ luôn tồn kho hệ thống theo kết quả kiểm kê thực tế - coi
-        # đây là số chính xác nhất cho tới lần admin upload file tồn kho
-        # tiếp theo (xem thiết kế: inventory_items vốn chỉ là snapshot).
-        cursor.execute(
-            "UPDATE inventory_items SET quantity = %s WHERE store_code = %s AND part_code = %s",
-            (counted, sess['store_code'], it['part_code'])
-        )
+        # LƯU Ý: theo yêu cầu, chốt phiên KHÔNG tự động cập nhật tồn kho hệ
+        # thống (inventory_items) nữa - chỉ lưu kết quả đối chiếu vào
+        # stocktake_adjustments và cho xuất Excel. Nếu muốn áp số liệu kiểm
+        # kê vào tồn hệ thống, admin phải tự làm việc đó bằng cách khác
+        # (vd upload lại file tồn kho), không phải qua thao tác chốt này.
 
     cursor.execute(
         "UPDATE stocktake_sessions SET status = 'closed', closed_by = %s, closed_at = %s, note = %s WHERE id = %s",
@@ -675,6 +759,7 @@ def stocktake_history():
     store_code = (request.args.get('store_code') or '').strip().upper()
     db = get_db()
     cursor = db.cursor()
+    _cleanup_old_logs(db, cursor)
     if store_code:
         cursor.execute(
             "SELECT * FROM stocktake_sessions WHERE store_code = %s ORDER BY id DESC LIMIT 100", (store_code,)
@@ -705,6 +790,32 @@ def stocktake_export(session_id):
     if not sess:
         cursor.close()
         return jsonify({'error': 'Không tìm thấy phiên kiểm kê.'}), 404
+    _cleanup_old_logs(db, cursor)
+
+    # Nhật ký TỪNG LẦN đếm - đọc trước, dùng chung để: (1) làm sheet riêng
+    # trong file Excel (log này đọc thẳng từ stocktake_counts, nên nếu xuất
+    # trong vòng LOG_RETENTION_DAYS ngày kể từ lúc chốt thì còn đầy đủ; xuất
+    # trễ hơn thì sheet này sẽ trống vì đã tới hạn tự xoá), và (2) suy ra
+    # "Khu Vực Đã Đếm" cho từng mã ở sheet chính.
+    cursor.execute('''
+        SELECT c.id, c.part_code, s.part_name, c.counted_quantity, c.area_note,
+               c.counted_by, c.counted_at
+        FROM stocktake_counts c
+        LEFT JOIN stocktake_snapshot_items s
+               ON s.session_id = c.session_id AND s.part_code = c.part_code
+        WHERE c.session_id = %s
+        ORDER BY c.counted_at ASC, c.id ASC
+    ''', (session_id,))
+    log_rows = cursor.fetchall()
+
+    area_map = {}
+    for lr in log_rows:
+        note = (lr['area_note'] or '').strip()
+        if not note:
+            continue
+        existing = area_map.setdefault(lr['part_code'], [])
+        if note not in existing:
+            existing.append(note)
 
     if sess['status'] == 'closed':
         cursor.execute(
@@ -717,20 +828,34 @@ def stocktake_export(session_id):
             'Tồn Sổ Sách': r['book_quantity'], 'Phát Sinh Đã Biết': r['known_movement_qty'],
             'Tồn Kỳ Vọng': r['expected_quantity'], 'Số Đếm Thực Tế': r['counted_quantity'],
             'Chênh Lệch': r['diff_quantity'],
+            'Vị Trí Đã Đếm': ', '.join(area_map.get(r['part_code'], [])),
         } for r in rows]
     else:
         rows = _fetch_summary_rows(cursor, session_id, sess['store_code'], sess['cutoff_time'])
         cursor.close()
         summary = _build_summary(rows)
+        status_label = {
+            'matched': 'Đủ', 'surplus': 'Dư',
+            'shortage': 'Thiếu', 'not_counted': 'Chưa đếm',
+        }
         out_rows = [{
             'Mã Hàng': it['part_code'], 'Tên Hàng': it['part_name'],
             'Tồn Sổ Sách': it['book_quantity'], 'Phát Sinh Đã Biết': it['known_movement_qty'],
             'Tồn Kỳ Vọng': it['expected_quantity'],
             'Số Đếm Thực Tế': it['counted_quantity'] if it['counted'] else 'Chưa đếm',
             'Chênh Lệch': it['diff_quantity'] if it['counted'] else '',
+            'Trạng Thái': status_label.get(it['status'], it['status']),
+            'Vị Trí Đã Đếm': ', '.join(area_map.get(it['part_code'], [])),
         } for it in summary]
 
+    log_out_rows = [{
+        'Thời Gian': format_vi_datetime(lr['counted_at']), 'Mã Hàng': lr['part_code'],
+        'Tên Hàng': lr['part_name'], 'Số Lượng Đếm': float(lr['counted_quantity']),
+        'Vị Trí': lr['area_note'] or '', 'Người Đếm': lr['counted_by'] or '',
+    } for lr in log_rows]
+
     df = pd.DataFrame(out_rows)
+    df_log = pd.DataFrame(log_out_rows)
     buffer = io.BytesIO()
     with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
         df.to_excel(writer, sheet_name='Kiem Ke', index=False)
@@ -738,6 +863,14 @@ def stocktake_export(session_id):
         for col_idx, col_name in enumerate(df.columns, start=1):
             max_len = max([len(str(col_name))] + [len(str(v)) for v in df[col_name].tolist()] or [0])
             ws.column_dimensions[ws.cell(row=1, column=col_idx).column_letter].width = min(max_len + 3, 45)
+
+        # Sheet riêng cho log từng lần đếm - giữ nguyên TOÀN BỘ lịch sử,
+        # không gộp theo mã, để không mất dấu vết ai đếm lúc nào ở đâu.
+        df_log.to_excel(writer, sheet_name='Nhat Ky Dem', index=False)
+        ws_log = writer.sheets['Nhat Ky Dem']
+        for col_idx, col_name in enumerate(df_log.columns, start=1):
+            max_len = max([len(str(col_name))] + [len(str(v)) for v in df_log[col_name].tolist()] or [0])
+            ws_log.column_dimensions[ws_log.cell(row=1, column=col_idx).column_letter].width = min(max_len + 3, 45)
     buffer.seek(0)
 
     filename = f"kiem_ke_{sess['store_code']}_{session_id}.xlsx"

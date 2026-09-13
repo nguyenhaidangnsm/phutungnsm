@@ -8,17 +8,46 @@
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.0/font/bootstrap-icons.css">
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js" defer></script>
 <style>
-    body { background: #f5f6f8; }
-    .badge-matched { background: #198754; }
-    .badge-recount { background: #dc3545; }
-    .badge-notcounted { background: #6c757d; }
+    /* ===== Đồng bộ "chất Nam Sương" với index.html: font SVN-MonaSans,
+       xanh thương hiệu #0d6efd, thẻ bo góc 16px có viền xanh trên cùng,
+       bảng có header xanh nhạt/chữ hoa/đậm - thay vì Bootstrap mặc định
+       trơn như trước. ===== */
+    @font-face {
+        font-family: 'SVN-MonaSans';
+        src: url("{{ url_for('static', filename='fonts/SVN-MonaSans-SemiBoldWide.otf') }}") format('opentype');
+        font-weight: normal;
+        font-style: normal;
+    }
+    :root {
+        --ns-blue: #0d6efd;
+        --ns-dark: #1e293b;
+    }
+    body { background: #f4f6f9; color: var(--ns-dark); font-family: 'SVN-MonaSans', sans-serif; }
+    .card { border: none; border-radius: 16px; box-shadow: 0 10px 30px rgba(13,110,253,0.05); border-top: 4px solid var(--ns-blue); }
+    .btn-primary { background-color: var(--ns-blue); border-color: var(--ns-blue); }
+    .btn-primary:hover { background-color: #0b5ed7; border-color: #0b5ed7; }
+    .table thead th {
+        position: sticky; top: 0; background-color: #e7f1ff; z-index: 10;
+        font-size: 0.75rem; text-transform: uppercase; color: var(--ns-blue);
+        white-space: nowrap; font-weight: 800 !important; text-align: center !important;
+    }
+    .part-code { font-weight: 700; color: #1e3a8a; background: #eef2ff; border: 1px solid #e0e7ff; padding: 2px 8px; border-radius: 6px; font-size: 0.85rem; white-space: nowrap; }
+    .badge-status { padding: 5px 10px; font-weight: 600; border-radius: 20px; font-size: 0.74rem; white-space: nowrap; }
+    .badge-matched { background-color: #dafbe1; color: #1a7f37; border: 1px solid rgba(26,127,55,0.2); }
+    .badge-minor { background-color: #fff8c5; color: #9a6700; border: 1px solid rgba(154,103,0,0.2); }
+    .badge-recount { background-color: #ffebe9; color: #cf222e; border: 1px solid rgba(207,34,46,0.2); }
+    .badge-notcounted { background-color: #e8eaed; color: #495057; border: 1px solid rgba(73,80,87,0.2); }
+    .area-chip { display: inline-block; padding: 2px 8px; border-radius: 6px; font-size: 0.74rem; font-weight: 600; background: #f1f5f9; color: #475569; border: 1px solid #e2e8f0; margin: 1px; white-space: nowrap; }
+    #st-summary-pages .nav-link { border-radius: 8px; font-weight: 600; color: #475569; background: #f8fafc; border: 1px solid #e2e8f0; }
+    #st-summary-pages .nav-link.active { background-color: var(--ns-blue) !important; color: #fff !important; border-color: var(--ns-blue); }
     tr.row-recount { background: #fff5f5; }
+    tr.row-minor { background: #fffdf5; }
 </style>
 </head>
 <body>
 <div class="container py-4">
     <div class="d-flex justify-content-between align-items-center mb-3">
-        <h4 class="fw-bold mb-0"><i class="bi bi-clipboard-check"></i> Kiểm Kê Kho</h4>
+        <h4 class="fw-bold mb-0" style="color: var(--ns-dark);"><i class="bi bi-clipboard-check" style="color: var(--ns-blue);"></i> Kiểm Kê Kho <span class="text-muted fw-normal fs-6">- Nam Sương Motor</span></h4>
         <a href="/" class="btn btn-outline-secondary btn-sm"><i class="bi bi-arrow-left"></i> Về trang chính</a>
     </div>
 
@@ -50,12 +79,53 @@
             </div>
             <div class="row g-2">
                 <div class="col-6 col-md-3"><input type="text" id="st-count-part" class="form-control" placeholder="Mã hàng (scan hoặc gõ tay)" autocomplete="off"></div>
-                <div class="col-6 col-md-2"><input type="number" id="st-count-qty" class="form-control" placeholder="Số lượng đếm" min="0" step="any"></div>
-                <div class="col-6 col-md-3"><input type="text" id="st-count-area" class="form-control" placeholder="Khu vực (tuỳ chọn)"></div>
+                <div class="col-6 col-md-2"><input type="number" id="st-count-qty" class="form-control" placeholder="Mặc định: 1" min="0" step="any"></div>
+                <div class="col-6 col-md-3"><input type="text" id="st-count-area" class="form-control" placeholder="Vị trí (nhớ tự động cho lần sau)"></div>
                 <div class="col-6 col-md-2"><button type="button" class="btn btn-success w-100" onclick="submitCount()"><i class="bi bi-check-lg"></i> Ghi Nhận</button></div>
             </div>
-            <div class="form-text mt-1">Dùng máy scan tay: quét mã → tự nhảy sang ô Số lượng (mặc định 1) → Enter để ghi nhận, hoặc sửa số rồi Enter.</div>
+            <div class="form-text mt-1">Scan xong là ghi nhận NGAY với số lượng mặc định 1, không cần bấm Enter lần 2. Nếu số lượng thực tế khác 1, sửa lại ở khung "Mã Vừa Kiểm" bên dưới sau khi scan. Ô Vị trí tự nhớ giá trị lần trước - chỉ cần gõ lại khi đổi sang vị trí mới.</div>
             <div id="st-count-msg" class="small mt-2"></div>
+
+            <!-- Mã Vừa Kiểm - hiện ngay lượt scan gần nhất để sửa số lượng
+                 tại chỗ nếu cần, không cần đếm lại từ đầu (đếm lại sẽ cộng
+                 dồn thành 2 dòng, sai số liệu). Ẩn cho tới khi có lượt đếm
+                 đầu tiên trong phiên. -->
+            <div id="st-last-count-box" class="mt-3 p-3 rounded-3" style="display:none; background:#eff6ff; border:1px solid #cfe2ff;">
+                <div class="d-flex flex-wrap justify-content-between align-items-center gap-2">
+                    <div>
+                        <div class="small text-muted mb-1">Mã Vừa Kiểm</div>
+                        <div><span class="part-code" id="st-last-count-part"></span> <span id="st-last-count-name" class="small text-muted"></span></div>
+                        <div class="small text-muted mt-1">Vị trí: <span id="st-last-count-area">-</span> - Lúc <span id="st-last-count-time"></span></div>
+                    </div>
+                    <div class="d-flex align-items-center gap-2">
+                        <label class="small text-secondary mb-0">Số lượng:</label>
+                        <input type="number" id="st-last-count-qty" class="form-control form-control-sm" style="width:100px;" min="0" step="any">
+                        <button type="button" class="btn btn-primary btn-sm" onclick="updateLastCount()"><i class="bi bi-check-lg"></i> Cập nhật</button>
+                        <button type="button" class="btn btn-outline-danger btn-sm" onclick="deleteLastCount()" title="Xoá lượt đếm này (lỡ scan nhầm mã)"><i class="bi bi-trash"></i></button>
+                    </div>
+                </div>
+                <div id="st-last-count-msg" class="small mt-2"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Nhật ký đếm - đưa LÊN TRÊN bảng đối chiếu để dễ kiểm soát/theo dõi
+         ngay khi đang đếm. Lịch sử TỪNG lần đếm, không mất khi xuất Excel
+         (có sheet riêng "Nhat Ky Dem" trong file xuất). -->
+    <div class="card shadow-sm mb-3" id="st-log-card" style="display:none;">
+        <div class="card-body">
+            <div class="d-flex justify-content-between align-items-center mb-2">
+                <h6 class="fw-semibold mb-0"><i class="bi bi-journal-text"></i> Nhật Ký Đếm (lịch sử từng lần)</h6>
+                <button type="button" class="btn btn-outline-secondary btn-sm" onclick="loadLog()"><i class="bi bi-arrow-clockwise"></i> Làm mới</button>
+            </div>
+            <div class="small text-muted mb-2">Ghi lại đầy đủ từng lần quét/nhập số đếm - dùng bộ lọc bên dưới (mã hàng, vị trí) để tra cứu. Log này tự động xoá 5 ngày sau khi phiên được CHỐT, nên nhớ xuất Excel (sheet "Nhat Ky Dem") sớm nếu cần lưu lại lâu dài.</div>
+            <div class="table-responsive" style="max-height: 320px;">
+                <table class="table table-sm">
+                    <thead class="table-light"><tr><th>Thời Gian</th><th>Mã Hàng</th><th>Tên Hàng</th><th class="text-end">Số Lượng</th><th>Vị Trí</th><th>Người Đếm</th></tr></thead>
+                    <tbody id="st-log-body"></tbody>
+                </table>
+            </div>
+            <div class="small text-muted mt-1" id="st-log-note"></div>
         </div>
     </div>
 
@@ -70,11 +140,52 @@
                 </div>
             </div>
             <div class="small text-muted mb-2" id="st-summary-stats"></div>
+
+            <!-- Bộ lọc: Mã hàng, Vị trí, Chênh lệch, Trạng thái -->
+            <div class="row g-2 align-items-end mb-3">
+                <div class="col-6 col-md-3">
+                    <label class="form-label small text-secondary mb-1">Lọc theo mã hàng</label>
+                    <input type="text" id="st-filter-part" class="form-control form-control-sm" placeholder="Nhập mã hàng...">
+                </div>
+                <div class="col-6 col-md-3">
+                    <label class="form-label small text-secondary mb-1">Lọc theo vị trí</label>
+                    <select id="st-filter-area" class="form-select form-select-sm">
+                        <option value="">-- Tất cả vị trí --</option>
+                    </select>
+                </div>
+                <div class="col-6 col-md-3">
+                    <label class="form-label small text-secondary mb-1">Chênh lệch</label>
+                    <select id="st-filter-diff" class="form-select form-select-sm">
+                        <option value="">-- Tất cả --</option>
+                        <option value="has_diff">Chỉ mã có chênh lệch</option>
+                        <option value="no_diff">Chỉ mã Đủ (lệch = 0)</option>
+                    </select>
+                </div>
+                <div class="col-6 col-md-3">
+                    <label class="form-label small text-secondary mb-1">Trạng thái</label>
+                    <select id="st-filter-status" class="form-select form-select-sm">
+                        <option value="">-- Tất cả --</option>
+                        <option value="matched">Đủ</option>
+                        <option value="surplus">Dư</option>
+                        <option value="shortage">Thiếu</option>
+                        <option value="not_counted">Chưa đếm</option>
+                    </select>
+                </div>
+            </div>
+
+            <!-- Phân trang kiểu tab - mỗi trang tối đa 200 mã, tránh render
+                 hàng nghìn dòng cùng lúc gây nặng máy/khó rà soát. -->
+            <div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-2">
+                <div class="small text-muted" id="st-summary-page-info"></div>
+                <ul class="nav nav-pills" id="st-summary-pages"></ul>
+            </div>
+
             <div class="table-responsive">
                 <table class="table table-sm table-hover align-middle">
                     <thead class="table-light">
                         <tr>
                             <th>Mã Hàng</th><th>Tên Hàng</th>
+                            <th>Vị Trí Đã Đếm</th>
                             <th class="text-end">Tồn Sổ Sách</th>
                             <th class="text-end">Phát Sinh</th>
                             <th class="text-end">Tồn Kỳ Vọng</th>
@@ -89,6 +200,7 @@
             </div>
         </div>
     </div>
+
 
     <!-- Lịch sử -->
     <div class="card shadow-sm">
@@ -163,7 +275,18 @@
             renderSessionInfo();
             document.getElementById('st-count-card').style.display = '';
             document.getElementById('st-summary-card').style.display = '';
+            document.getElementById('st-log-card').style.display = '';
             loadSummary();
+            loadLog();
+            // Vị trí đếm: tự điền lại giá trị lần gần nhất đã dùng cho CỬA
+            // HÀNG này (nhớ theo localStorage, riêng từng cửa hàng) - chỉ
+            // điền khi ô đang trống, để không ghi đè vị trí người dùng vừa
+            // gõ dở nếu hàm này được gọi lại (vd sau khi ghi nhận 1 lượt đếm).
+            const areaEl = document.getElementById('st-count-area');
+            if (!areaEl.value) {
+                const remembered = localStorage.getItem(`st_last_area_${store}`);
+                if (remembered) areaEl.value = remembered;
+            }
             // Focus sẵn ô Mã hàng để scan được ngay, không cần bấm chuột vào
             // ô trước - áp dụng cả lần đầu mở phiên lẫn mỗi lần đổi cửa hàng.
             document.getElementById('st-count-part').focus();
@@ -218,12 +341,22 @@
         }
     }
 
+    // Lượt đếm gần nhất - lưu lại để có thể sửa số lượng/xoá ngay tại khung
+    // "Mã Vừa Kiểm" mà không cần đếm lại từ đầu (đếm lại sẽ CỘNG DỒN thành
+    // 2 dòng riêng, sai số liệu vì stocktake_counts không ghi đè).
+    let lastCountInfo = null;
+
     async function submitCount() {
         const part_code = document.getElementById('st-count-part').value.trim();
-        const quantity = document.getElementById('st-count-qty').value;
+        // Không bắt buộc gõ số lượng nữa - để trống mặc định là 1, đúng yêu
+        // cầu "scan xong ghi nhận ngay, không cần Enter lần 2 để xác nhận
+        // số lượng". Ai cần số khác 1 thì gõ trước khi scan, hoặc sửa lại
+        // ở khung "Mã Vừa Kiểm" ngay sau khi scan.
+        const qtyRaw = document.getElementById('st-count-qty').value;
+        const quantity = qtyRaw === '' ? '1' : qtyRaw;
         const area_note = document.getElementById('st-count-area').value.trim();
         const msgEl = document.getElementById('st-count-msg');
-        if (!currentSession || !part_code || quantity === '') { msgEl.innerHTML = '<span class="text-danger">Vui lòng nhập đủ mã hàng và số lượng.</span>'; return; }
+        if (!currentSession || !part_code) { msgEl.innerHTML = '<span class="text-danger">Vui lòng nhập mã hàng.</span>'; return; }
         const res = await fetch('/api/stocktake/count', {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ session_id: currentSession.id, part_code, quantity, area_note })
@@ -241,17 +374,64 @@
         }
         msgEl.innerHTML = '<span class="text-success">Đã ghi nhận.</span>';
         speakSuccess();
+        // Ô Vị trí CỐ Ý không bị xoá sau khi ghi nhận - nhân viên thường đếm
+        // liên tục nhiều mã cùng 1 vị trí, chỉ cần gõ lại khi CHUYỂN sang vị
+        // trí khác. Đồng thời nhớ giá trị này cho CỬA HÀNG hiện tại để lần
+        // mở lại phiên/tải lại trang sau vẫn tự điền sẵn.
+        const store = document.getElementById('st-store').value;
+        if (area_note) localStorage.setItem(`st_last_area_${store}`, area_note);
+        lastCountInfo = result.count;
+        renderLastCountBox();
         document.getElementById('st-count-part').value = '';
         document.getElementById('st-count-qty').value = '';
-        document.getElementById('st-count-area').value = '';
         document.getElementById('st-count-part').focus();
+        loadCurrent(store);
+    }
+
+    function renderLastCountBox() {
+        if (!lastCountInfo) return;
+        document.getElementById('st-last-count-box').style.display = '';
+        document.getElementById('st-last-count-part').textContent = lastCountInfo.part_code;
+        document.getElementById('st-last-count-name').textContent = lastCountInfo.part_name || '';
+        document.getElementById('st-last-count-area').textContent = lastCountInfo.area_note || '-';
+        document.getElementById('st-last-count-time').textContent = lastCountInfo.counted_at || '';
+        document.getElementById('st-last-count-qty').value = lastCountInfo.quantity;
+        document.getElementById('st-last-count-msg').innerHTML = '';
+    }
+
+    async function updateLastCount() {
+        if (!lastCountInfo) return;
+        const newQty = document.getElementById('st-last-count-qty').value;
+        const msgEl = document.getElementById('st-last-count-msg');
+        if (newQty === '' || Number(newQty) < 0) { msgEl.innerHTML = '<span class="text-danger">Số lượng không hợp lệ.</span>'; return; }
+        const res = await fetch(`/api/stocktake/count/${lastCountInfo.id}`, {
+            method: 'PUT', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ quantity: newQty })
+        });
+        const result = await res.json();
+        if (!result.success) { msgEl.innerHTML = `<span class="text-danger">${result.error}</span>`; return; }
+        lastCountInfo.quantity = Number(newQty);
+        msgEl.innerHTML = '<span class="text-success">Đã cập nhật số lượng.</span>';
         loadCurrent(document.getElementById('st-store').value);
+        document.getElementById('st-count-part').focus();
+    }
+
+    async function deleteLastCount() {
+        if (!lastCountInfo) return;
+        if (!confirm(`Xoá lượt đếm mã "${lastCountInfo.part_code}" vừa quét?`)) return;
+        const res = await fetch(`/api/stocktake/count/${lastCountInfo.id}`, { method: 'DELETE' });
+        const result = await res.json();
+        if (!result.success) { document.getElementById('st-last-count-msg').innerHTML = `<span class="text-danger">${result.error}</span>`; return; }
+        document.getElementById('st-last-count-box').style.display = 'none';
+        lastCountInfo = null;
+        loadCurrent(document.getElementById('st-store').value);
+        document.getElementById('st-count-part').focus();
     }
 
     // ------------------------------------------------------------------
     // ÂM BÁO KHI SCAN - để dùng 1 mình không cần nhìn màn hình vẫn biết
     // ngay là ghi nhận thành công hay lỗi (mã sai/không có trong kho).
-    // Đọc thẳng thành lời "OK" / "Sai mã" bằng Web Speech API (SpeechSynthesis)
+    // Đọc thẳng thành lời "Đã ghi nhận" / "Sai mã" bằng Web Speech API (SpeechSynthesis)
     // - trình duyệt hỗ trợ sẵn, không cần file âm thanh riêng. Nếu trình
     // duyệt không hỗ trợ (hiếm gặp), tự chuyển sang tiếng bíp bằng Web
     // Audio API làm phương án dự phòng, để vẫn có phản hồi âm thanh.
@@ -274,7 +454,7 @@
         stSoundEnabled = !stSoundEnabled;
         localStorage.setItem('st_sound_enabled', stSoundEnabled ? '1' : '0');
         updateSoundToggleBtn();
-        if (stSoundEnabled) speakSuccess(); // phát thử "OK" để xác nhận vừa bật lại
+        if (stSoundEnabled) speakSuccess(); // phát thử "Đã ghi nhận" để xác nhận vừa bật lại
     }
 
     let _stAudioCtx = null;
@@ -295,12 +475,41 @@
         osc.start(startTime);
         osc.stop(startTime + duration);
     }
-    // Dự phòng khi trình duyệt không hỗ trợ đọc giọng nói.
+    // Dự phòng khi trình duyệt không hỗ trợ đọc giọng nói, HOẶC khi có hỗ trợ
+    // nhưng không đọc được (ví dụ máy không cài giọng đọc tiếng Việt nào) -
+    // 2 kiểu tiếng bíp khác hẳn nhau (1 tiếng cao / 2 tiếng trầm) để vẫn phân
+    // biệt được đúng/sai dù không nghe được lời đọc.
     function _stBeepFallbackSuccess() { _stBeep(1200, _stGetAudioCtx().currentTime, 0.12, 0.2); }
     function _stBeepFallbackError() {
         const ctx = _stGetAudioCtx();
         _stBeep(300, ctx.currentTime, 0.15, 0.25);
         _stBeep(300, ctx.currentTime + 0.2, 0.15, 0.25);
+    }
+
+    // "Mồi" trước danh sách giọng đọc của trình duyệt NGAY KHI TẢI TRANG (gọi
+    // getVoices() 1 lần thật sớm + lắng nghe sự kiện 'voiceschanged') - đây
+    // là lỗi rất hay gặp trên Chrome: nếu gọi speechSynthesis.speak() lần ĐẦU
+    // TIÊN trước khi trình duyệt kịp nạp xong danh sách giọng đọc (việc này
+    // xảy ra BẤT ĐỒNG BỘ, có thể mất vài trăm ms sau khi trang vừa mở), câu
+    // đó sẽ bị "nuốt" - không đọc, không báo lỗi gì cả. "Mồi" trước ngay từ
+    // đầu giúp lần đọc ĐẦU TIÊN lúc thao tác thật (thường là lỗi "Sai mã" vì
+    // hay xảy ra sớm khi mới bắt đầu kiểm kê) không bị mất tiếng.
+    let _stVoices = [];
+    function _stPrimeVoices() {
+        if (!('speechSynthesis' in window)) return;
+        _stVoices = window.speechSynthesis.getVoices();
+        window.speechSynthesis.onvoiceschanged = () => { _stVoices = window.speechSynthesis.getVoices(); };
+    }
+    _stPrimeVoices();
+
+    // Chọn đúng 1 giọng đọc tiếng Việt nếu máy có cài (rõ hơn hẳn so với để
+    // trình duyệt tự chọn giọng mặc định - giọng mặc định thường là tiếng
+    // Anh, đọc "Sai mã" nghe ngọng/không rõ). Nếu máy KHÔNG cài giọng tiếng
+    // Việt nào, trả về null - lúc đó vẫn set utter.lang = 'vi-VN' như cũ,
+    // trình duyệt tự lo phần phát âm tốt nhất có thể.
+    function _stPickVietnameseVoice() {
+        if (!_stVoices || !_stVoices.length) _stVoices = window.speechSynthesis.getVoices();
+        return _stVoices.find(v => v.lang && v.lang.toLowerCase().startsWith('vi')) || null;
     }
 
     function speakText(text, fallbackFn) {
@@ -310,26 +519,51 @@
             window.speechSynthesis.cancel(); // huỷ câu đang đọc dở (lỡ scan quá nhanh) để câu mới luôn được đọc ngay, không dồn hàng đợi
             const utter = new SpeechSynthesisUtterance(text);
             utter.lang = 'vi-VN';
-            utter.rate = 1.1;
+            const viVoice = _stPickVietnameseVoice();
+            if (viVoice) utter.voice = viVoice;
+            utter.rate = 1;
             utter.volume = 1;
+            // Nếu bản thân việc đọc bị lỗi (thường do máy không có giọng đọc
+            // tiếng Việt nào cài sẵn - hay gặp nhất trên máy tính Windows cũ/
+            // điện thoại Android chưa tải gói giọng đọc TiếngViệt) thì PHẢI
+            // có tiếng bíp thay thế, không được im lặng hoàn toàn - đây chính
+            // là nguyên nhân khiến trước đây báo "Sai mã" không ra âm thanh
+            // gì (lỗi xảy ra kiểu bất đồng bộ qua sự kiện 'error', không phải
+            // lỗi ném ra ngay lúc gọi speak() nên try/catch bên ngoài không
+            // bắt được).
+            let started = false;
+            utter.onstart = () => { started = true; };
+            utter.onerror = () => { try { fallbackFn(); } catch (e2) { /* bỏ qua */ } };
             window.speechSynthesis.speak(utter);
+            // Dự phòng THÊM 1 LỚP NỮA: 1 số trình duyệt (đặc biệt WebView
+            // Android cũ) đôi khi không bắn cả 'onstart' lẫn 'onerror' - im
+            // lặng hoàn toàn không rõ lý do. Sau 400ms nếu vẫn chưa thấy bắt
+            // đầu đọc VÀ hàng đợi đọc hiện đang trống (không phải do câu vừa
+            // gọi tiếp theo đã ghi đè), coi như lần này lỗi và phát bíp thay.
+            setTimeout(() => {
+                if (!started && !window.speechSynthesis.speaking) {
+                    try { fallbackFn(); } catch (e2) { /* bỏ qua */ }
+                }
+            }, 400);
         } catch (e) {
             try { fallbackFn(); } catch (e2) { /* trình duyệt không hỗ trợ cả 2 - bỏ qua, không chặn luồng ghi nhận */ }
         }
     }
-    function speakSuccess() { speakText('OK', _stBeepFallbackSuccess); }
+    function speakSuccess() { speakText('Đã ghi nhận', _stBeepFallbackSuccess); }
     function speakError() { speakText('Sai mã', _stBeepFallbackError); }
 
     // ------------------------------------------------------------------
     // HỖ TRỢ MÁY SCAN TAY (USB/Bluetooth, giả lập bàn phím: gõ thẳng mã
-    // vạch rồi tự gửi phím Enter) - luồng thao tác:
-    //   1. Scan mã -> Enter tự động từ máy scan -> KHÔNG ghi nhận ngay, mà
-    //      tự điền sẵn Số lượng = 1 rồi chuyển focus sang ô Số lượng, bôi
-    //      đen số để người dùng gõ đè lại nếu muốn sửa.
-    //   2. Người dùng bấm Enter ở ô Số lượng (giữ mặc định 1 hoặc sau khi
-    //      đã sửa) -> ghi nhận thật sự, rồi tự quay focus về ô Mã hàng để
-    //      sẵn sàng cho lượt scan tiếp theo - không cần chạm chuột/bàn phím
-    //      giữa các lần scan liên tục.
+    // vạch rồi tự gửi phím Enter) - luồng thao tác MỚI (bỏ bước bấm Enter
+    // lần 2 ở ô Số lượng theo yêu cầu, vì mất thời gian khi cần scan
+    // nhanh liên tục):
+    //   1. Scan mã -> Enter tự động từ máy scan -> GHI NHẬN NGAY với số
+    //      lượng mặc định 1 (hoặc số đã gõ sẵn trong ô Số lượng nếu có),
+    //      không chờ thêm thao tác nào - rồi tự quay focus về ô Mã hàng
+    //      để sẵn sàng cho lượt scan tiếp theo.
+    //   2. Nếu số lượng thực tế khác 1, sửa lại ngay ở khung "Mã Vừa
+    //      Kiểm" hiện ra ngay dưới sau khi ghi nhận - không cần đếm lại
+    //      từ đầu (đếm lại sẽ cộng dồn thành 2 dòng, sai số liệu).
     // ------------------------------------------------------------------
     const stCountPartEl = document.getElementById('st-count-part');
     const stCountQtyEl = document.getElementById('st-count-qty');
@@ -338,10 +572,10 @@
             if (e.key !== 'Enter') return;
             e.preventDefault();
             if (!stCountPartEl.value.trim()) return;
-            if (stCountQtyEl.value === '') stCountQtyEl.value = '1';
-            stCountQtyEl.focus();
-            stCountQtyEl.select();
+            submitCount();
         });
+        // Vẫn giữ Enter ở ô Số lượng - phòng trường hợp người dùng bấm vào
+        // đó để tự sửa số lượng TRƯỚC khi scan mã tiếp theo.
         stCountQtyEl.addEventListener('keydown', (e) => {
             if (e.key !== 'Enter') return;
             e.preventDefault();
@@ -349,26 +583,119 @@
         });
     }
 
+    // Cho phép Enter ở khung "Mã Vừa Kiểm" (ô sửa số lượng) để cập nhật
+    // nhanh mà không cần với chuột bấm nút "Cập nhật".
+    const stLastCountQtyEl = document.getElementById('st-last-count-qty');
+    if (stLastCountQtyEl) {
+        stLastCountQtyEl.addEventListener('keydown', (e) => {
+            if (e.key !== 'Enter') return;
+            e.preventDefault();
+            updateLastCount();
+        });
+    }
+
+
     function statusBadge(status) {
-        if (status === 'not_counted') return '<span class="badge badge-notcounted">Chưa đếm</span>';
-        if (status === 'needs_recount') return '<span class="badge badge-recount">Cần đếm lại</span>';
-        return '<span class="badge badge-matched">Khớp</span>';
+        if (status === 'not_counted') return '<span class="badge-status badge-notcounted">Chưa đếm</span>';
+        if (status === 'shortage') return '<span class="badge-status badge-recount">Thiếu</span>';
+        if (status === 'surplus') return '<span class="badge-status badge-minor">Dư</span>';
+        return '<span class="badge-status badge-matched">Đủ</span>';
+    }
+
+    function areaChips(areas) {
+        if (!areas) return '<span class="text-muted small">-</span>';
+        return areas.split(',').map(a => a.trim()).filter(Boolean)
+            .map(a => `<span class="area-chip">${a}</span>`).join(' ');
     }
 
     function fmt(n) { return n === null || n === undefined ? '-' : Number(n).toLocaleString('vi-VN'); }
 
-    async function loadSummary() {
-        if (!currentSession) return;
-        const res = await fetch(`/api/stocktake/${currentSession.id}/summary`);
-        const result = await res.json();
-        if (!result.success) return;
-        document.getElementById('st-export-link').href = `/api/stocktake/${currentSession.id}/export`;
-        document.getElementById('st-summary-stats').textContent =
-            `Tổng ${result.total_parts} mã - Đã đếm ${result.counted_parts} - Cần đếm lại ${result.needs_recount}`;
-        document.getElementById('st-summary-body').innerHTML = result.items.map(it => `
-            <tr class="${it.status === 'needs_recount' ? 'row-recount' : ''}">
-                <td class="fw-semibold">${it.part_code}</td>
+    // Toàn bộ danh sách mã hàng của phiên hiện tại (chưa lọc) - giữ lại để
+    // áp lại bộ lọc (mã hàng/vị trí/chênh lệch/trạng thái) mà không cần
+    // gọi lại API mỗi lần người dùng đổi lựa chọn lọc.
+    let summaryItemsRaw = [];
+    let summaryFilteredItems = [];
+    let summaryCurrentPage = 1;
+    const SUMMARY_PAGE_SIZE = 200; // ~200 mã/tab - tránh render cả danh sách hàng nghìn mã cùng lúc
+
+    function populateAreaFilterOptions(items) {
+        const sel = document.getElementById('st-filter-area');
+        const prevValue = sel.value;
+        const areaSet = new Set();
+        items.forEach(it => {
+            if (!it.areas) return;
+            it.areas.split(',').map(a => a.trim()).filter(Boolean).forEach(a => areaSet.add(a));
+        });
+        const sortedAreas = Array.from(areaSet).sort((a, b) => a.localeCompare(b, 'vi'));
+        sel.innerHTML = '<option value="">-- Tất cả vị trí --</option>' +
+            sortedAreas.map(a => `<option value="${a}">${a}</option>`).join('');
+        if (sortedAreas.includes(prevValue)) sel.value = prevValue;
+    }
+
+    function applySummaryFilters() {
+        const partQuery = document.getElementById('st-filter-part').value.trim().toLowerCase();
+        const areaQuery = document.getElementById('st-filter-area').value;
+        const diffFilter = document.getElementById('st-filter-diff').value;
+        const statusFilter = document.getElementById('st-filter-status').value;
+
+        summaryFilteredItems = summaryItemsRaw.filter(it => {
+            if (partQuery && !it.part_code.toLowerCase().includes(partQuery)) return false;
+            if (areaQuery) {
+                const itemAreas = (it.areas || '').split(',').map(a => a.trim());
+                if (!itemAreas.includes(areaQuery)) return false;
+            }
+            if (diffFilter === 'has_diff' && !(it.counted && it.diff_quantity !== 0)) return false;
+            if (diffFilter === 'no_diff' && !(it.counted && it.diff_quantity === 0)) return false;
+            if (statusFilter && it.status !== statusFilter) return false;
+            return true;
+        });
+        // Đổi bộ lọc thì quay về trang 1 - tránh trường hợp đang ở trang 5
+        // nhưng kết quả lọc mới chỉ còn 1 trang, hiện ra bảng trống vô lý.
+        summaryCurrentPage = 1;
+        renderSummaryPage();
+    }
+
+    function goToSummaryPage(page) {
+        summaryCurrentPage = page;
+        renderSummaryPage();
+    }
+
+    function renderSummaryPage() {
+        const total = summaryFilteredItems.length;
+        const totalPages = Math.max(1, Math.ceil(total / SUMMARY_PAGE_SIZE));
+        if (summaryCurrentPage > totalPages) summaryCurrentPage = totalPages;
+        if (summaryCurrentPage < 1) summaryCurrentPage = 1;
+
+        const start = (summaryCurrentPage - 1) * SUMMARY_PAGE_SIZE;
+        const pageItems = summaryFilteredItems.slice(start, start + SUMMARY_PAGE_SIZE);
+
+        const infoEl = document.getElementById('st-summary-page-info');
+        infoEl.textContent = total === 0
+            ? 'Không có mã hàng nào khớp bộ lọc.'
+            : `Hiện ${start + 1}-${Math.min(start + SUMMARY_PAGE_SIZE, total)} / ${total} mã`;
+
+        const pagesEl = document.getElementById('st-summary-pages');
+        if (totalPages <= 1) {
+            pagesEl.innerHTML = '';
+        } else {
+            let tabsHtml = '';
+            for (let p = 1; p <= totalPages; p++) {
+                const from = (p - 1) * SUMMARY_PAGE_SIZE + 1;
+                const to = Math.min(p * SUMMARY_PAGE_SIZE, total);
+                tabsHtml += `<li class="nav-item"><button type="button" class="nav-link ${p === summaryCurrentPage ? 'active' : ''}" style="padding:6px 12px; font-size:0.8rem;" onclick="goToSummaryPage(${p})">${from}-${to}</button></li>`;
+            }
+            pagesEl.innerHTML = tabsHtml;
+        }
+
+        renderSummaryTable(pageItems);
+    }
+
+    function renderSummaryTable(items) {
+        document.getElementById('st-summary-body').innerHTML = items.map(it => `
+            <tr class="${it.status === 'shortage' ? 'row-recount' : (it.status === 'surplus' ? 'row-minor' : '')}">
+                <td><span class="part-code">${it.part_code}</span></td>
                 <td class="small">${it.part_name || ''} ${it.has_manual_adjustment ? '<i class="bi bi-info-circle-fill text-warning" title="Đã có báo phát sinh"></i>' : ''}</td>
+                <td>${areaChips(it.areas)}</td>
                 <td class="text-end">${fmt(it.book_quantity)}</td>
                 <td class="text-end">${it.counted ? fmt(it.known_movement_qty) : '-'}</td>
                 <td class="text-end">${fmt(it.expected_quantity)}</td>
@@ -377,12 +704,79 @@
                 <td>${statusBadge(it.status)}</td>
                 <td>${it.counted ? `<button type="button" class="btn btn-outline-warning btn-sm" title="Báo phát sinh sau khi đếm" onclick="openAdjustmentModal('${it.part_code}')"><i class="bi bi-arrow-repeat"></i></button>` : ''}</td>
             </tr>
-        `).join('');
+        `).join('') || '<tr><td colspan="10" class="text-center text-muted py-3">Không có mã hàng nào khớp bộ lọc.</td></tr>';
     }
+
+    ['st-filter-diff', 'st-filter-status', 'st-filter-area'].forEach(id => {
+        document.getElementById(id).addEventListener('change', applySummaryFilters);
+    });
+    document.getElementById('st-filter-part').addEventListener('input', applySummaryFilters);
+
+    async function loadSummary() {
+        if (!currentSession) return;
+        const res = await fetch(`/api/stocktake/${currentSession.id}/summary`);
+        const result = await res.json();
+        if (!result.success) return;
+        document.getElementById('st-export-link').href = `/api/stocktake/${currentSession.id}/export`;
+        document.getElementById('st-summary-stats').textContent =
+            `Tổng ${result.total_parts} mã - Đã đếm ${result.counted_parts} - Dư ${result.surplus_count} - Thiếu ${result.shortage_count}`;
+        summaryItemsRaw = result.items;
+        populateAreaFilterOptions(summaryItemsRaw);
+        applySummaryFilters();
+    }
+
+    // ===== Nhật Ký Đếm (lịch sử từng lần đếm - không mất khi xuất Excel) =====
+    let logRowsRaw = [];
+
+    // Chỉ hiển thị tối đa 10 dòng gần nhất trên giao diện (log gốc đã được
+    // BE trả về sắp xếp mới nhất trước) - toàn bộ lịch sử vẫn nằm nguyên
+    // trong DB và trong sheet "Nhat Ky Dem" của file Excel xuất ra, chỉ
+    // giới hạn số dòng hiển thị trực tiếp trên trang cho gọn.
+    const LOG_DISPLAY_LIMIT = 10;
+
+    function applyLogFilters() {
+        const partQuery = document.getElementById('st-filter-part').value.trim().toLowerCase();
+        const areaQuery = document.getElementById('st-filter-area').value;
+        const filtered = logRowsRaw.filter(r => {
+            if (partQuery && !r.part_code.toLowerCase().includes(partQuery)) return false;
+            if (areaQuery && (r.area_note || '').trim() !== areaQuery) return false;
+            return true;
+        });
+        const shown = filtered.slice(0, LOG_DISPLAY_LIMIT);
+        document.getElementById('st-log-body').innerHTML = shown.map(r => `
+            <tr>
+                <td class="small">${r.counted_at}</td>
+                <td><span class="part-code">${r.part_code}</span></td>
+                <td class="small">${r.part_name || ''}</td>
+                <td class="text-end fw-semibold">${fmt(r.counted_quantity)}</td>
+                <td class="small">${r.area_note ? `<span class="area-chip">${r.area_note}</span>` : '-'}</td>
+                <td class="small">${r.counted_by || ''}</td>
+            </tr>
+        `).join('') || '<tr><td colspan="6" class="text-center text-muted py-3">Không có lượt đếm nào khớp bộ lọc.</td></tr>';
+
+        const noteEl = document.getElementById('st-log-note');
+        noteEl.textContent = filtered.length > LOG_DISPLAY_LIMIT
+            ? `Đang hiển thị ${LOG_DISPLAY_LIMIT}/${filtered.length} lượt đếm gần nhất - xem đầy đủ trong file Excel xuất ra (sheet "Nhat Ky Dem").`
+            : '';
+    }
+
+    async function loadLog() {
+        if (!currentSession) return;
+        const res = await fetch(`/api/stocktake/${currentSession.id}/log`);
+        const result = await res.json();
+        if (!result.success) return;
+        logRowsRaw = result.log;
+        applyLogFilters();
+    }
+
+    // Bộ lọc mã hàng/vị trí dùng chung cho cả bảng đối chiếu lẫn nhật ký
+    // đếm - áp lại nhật ký mỗi khi người dùng đổi lọc mã/vị trí.
+    document.getElementById('st-filter-part').addEventListener('input', applyLogFilters);
+    document.getElementById('st-filter-area').addEventListener('change', applyLogFilters);
 
     async function closeSession() {
         if (!currentSession) return;
-        if (!confirm('Chốt kiểm kê sẽ CẬP NHẬT LUÔN tồn kho hệ thống theo số đếm thực tế (mã chưa đếm sẽ tính tồn = 0). Tiếp tục?')) return;
+        if (!confirm('Chốt kiểm kê sẽ khoá phiên này lại và lưu kết quả đối chiếu để xuất Excel. Số liệu kiểm kê KHÔNG tự động cập nhật vào tồn kho hệ thống. Tiếp tục?')) return;
         const btn = document.getElementById('st-close-btn');
         const originalHtml = btn.innerHTML;
         btn.disabled = true;
@@ -393,7 +787,8 @@
             });
             const result = await res.json();
             if (!result.success) { alert('Lỗi: ' + (result.error || 'Không thể chốt.')); return; }
-            alert('Đã chốt kiểm kê thành công.');
+            alert('Đã chốt kiểm kê thành công. Tồn kho hệ thống KHÔNG bị thay đổi - bấm "Xuất Excel" để lấy file kết quả.');
+            window.open(`/api/stocktake/${currentSession.id}/export`, '_blank');
             onStoreChange();
         } catch (networkErr) {
             console.error('Lỗi kết nối:', networkErr);
@@ -426,7 +821,10 @@
                 <td><span class="badge ${s.status === 'closed' ? 'bg-secondary' : (s.status === 'reopened' ? 'bg-warning text-dark' : 'bg-primary')}">${s.status}</span></td>
                 <td class="small">${s.created_by || ''}</td>
                 <td class="small">${s.closed_at || '-'}</td>
-                <td>${s.status === 'closed' ? `<button type="button" class="btn btn-outline-warning btn-sm" onclick="reopenSession(${s.id})">Mở lại</button>` : ''}</td>
+                <td class="text-nowrap">
+                    <a class="btn btn-outline-success btn-sm" href="/api/stocktake/${s.id}/export"><i class="bi bi-file-earmark-excel"></i> Xuất Excel</a>
+                    ${s.status === 'closed' ? `<button type="button" class="btn btn-outline-warning btn-sm ms-1" onclick="reopenSession(${s.id})">Mở lại</button>` : ''}
+                </td>
             </tr>
         `).join('') || '<tr><td colspan="7" class="text-center text-muted py-3">Chưa có phiên kiểm kê nào.</td></tr>';
     }
