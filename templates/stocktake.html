@@ -1,0 +1,395 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Kiểm Kê Kho</title>
+<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.0/font/bootstrap-icons.css">
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js" defer></script>
+<style>
+    body { background: #f5f6f8; }
+    .badge-matched { background: #198754; }
+    .badge-recount { background: #dc3545; }
+    .badge-notcounted { background: #6c757d; }
+    tr.row-recount { background: #fff5f5; }
+</style>
+</head>
+<body>
+<div class="container py-4">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <h4 class="fw-bold mb-0"><i class="bi bi-clipboard-check"></i> Kiểm Kê Kho</h4>
+        <a href="/" class="btn btn-outline-secondary btn-sm"><i class="bi bi-arrow-left"></i> Về trang chính</a>
+    </div>
+
+    <!-- Chọn cửa hàng + phiên hiện tại -->
+    <div class="card shadow-sm mb-3">
+        <div class="card-body">
+            <div class="row g-2 align-items-end">
+                <div class="col-6 col-md-3">
+                    <label class="form-label small text-secondary mb-1">Cửa hàng</label>
+                    <select id="st-store" class="form-select" onchange="onStoreChange()">
+                        <option value="">-- Chọn cửa hàng --</option>
+                        {% for s in stores %}<option value="{{ s }}">{{ s }}</option>{% endfor %}
+                    </select>
+                </div>
+                <div class="col-6 col-md-3">
+                    <button type="button" class="btn btn-primary w-100" id="st-start-btn" onclick="startSession()"><i class="bi bi-plus-lg"></i> Bắt Đầu Kiểm Kê</button>
+                </div>
+            </div>
+            <div id="st-session-info" class="mt-3"></div>
+        </div>
+    </div>
+
+    <!-- Nhập số đếm -->
+    <div class="card shadow-sm mb-3" id="st-count-card" style="display:none;">
+        <div class="card-body">
+            <h6 class="fw-semibold mb-2">Nhập Số Đếm</h6>
+            <div class="row g-2">
+                <div class="col-6 col-md-3"><input type="text" id="st-count-part" class="form-control" placeholder="Mã hàng"></div>
+                <div class="col-6 col-md-2"><input type="number" id="st-count-qty" class="form-control" placeholder="Số lượng đếm"></div>
+                <div class="col-6 col-md-3"><input type="text" id="st-count-area" class="form-control" placeholder="Khu vực (tuỳ chọn)"></div>
+                <div class="col-6 col-md-2"><button type="button" class="btn btn-success w-100" onclick="submitCount()"><i class="bi bi-check-lg"></i> Ghi Nhận</button></div>
+            </div>
+            <div id="st-count-msg" class="small mt-2"></div>
+        </div>
+    </div>
+
+    <!-- Bảng đối chiếu -->
+    <div class="card shadow-sm mb-3" id="st-summary-card" style="display:none;">
+        <div class="card-body">
+            <div class="d-flex flex-wrap justify-content-between align-items-center mb-2 gap-2">
+                <h6 class="fw-semibold mb-0">Bảng Đối Chiếu</h6>
+                <div class="d-flex gap-2">
+                    <a class="btn btn-outline-success btn-sm" id="st-export-link" href="#"><i class="bi bi-file-earmark-excel"></i> Xuất Excel</a>
+                    <button type="button" class="btn btn-danger btn-sm" id="st-close-btn" onclick="closeSession()"><i class="bi bi-lock-fill"></i> Chốt Kiểm Kê</button>
+                </div>
+            </div>
+            <div class="small text-muted mb-2" id="st-summary-stats"></div>
+            <div class="table-responsive">
+                <table class="table table-sm table-hover align-middle">
+                    <thead class="table-light">
+                        <tr>
+                            <th>Mã Hàng</th><th>Tên Hàng</th>
+                            <th class="text-end">Tồn Sổ Sách</th>
+                            <th class="text-end">Phát Sinh</th>
+                            <th class="text-end">Tồn Kỳ Vọng</th>
+                            <th class="text-end">Số Đếm</th>
+                            <th class="text-end">Chênh Lệch</th>
+                            <th>Trạng Thái</th>
+                            <th></th>
+                        </tr>
+                    </thead>
+                    <tbody id="st-summary-body"></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- Lịch sử -->
+    <div class="card shadow-sm">
+        <div class="card-body">
+            <h6 class="fw-semibold mb-2">Lịch Sử Kiểm Kê</h6>
+            <div class="table-responsive">
+                <table class="table table-sm">
+                    <thead class="table-light"><tr><th>Mã</th><th>Cửa Hàng</th><th>Chốt Sổ</th><th>Trạng Thái</th><th>Người Tạo</th><th>Chốt Lúc</th><th></th></tr></thead>
+                    <tbody id="st-history-body"></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Modal Báo Phát Sinh -->
+<div class="modal fade" id="st-adj-modal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h6 class="modal-title fw-semibold">Báo Phát Sinh Sau Khi Đếm - <span id="st-adj-part-code"></span></h6>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="alert alert-warning small py-2">Dùng khi mã này đã bán ra hoặc nhập thêm SAU thời điểm đã đếm trong phiên - hệ thống sẽ tự cập nhật lại Chênh Lệch, không cần đếm lại.</div>
+                <div class="row g-2 mb-3">
+                    <div class="col-6">
+                        <label class="form-label small text-secondary mb-1">Loại phát sinh</label>
+                        <select id="st-adj-type" class="form-select">
+                            <option value="sold">Bán ra</option>
+                            <option value="received_other">Nhập thêm</option>
+                        </select>
+                    </div>
+                    <div class="col-6">
+                        <label class="form-label small text-secondary mb-1">Số lượng</label>
+                        <input type="number" id="st-adj-qty" class="form-control" min="0" step="any">
+                    </div>
+                    <div class="col-12">
+                        <label class="form-label small text-secondary mb-1">Ghi chú (tuỳ chọn)</label>
+                        <input type="text" id="st-adj-note" class="form-control" placeholder="VD: bán lẻ buổi chiều">
+                    </div>
+                </div>
+                <button type="button" class="btn btn-success w-100 mb-3" onclick="submitAdjustment()"><i class="bi bi-plus-lg"></i> Ghi Nhận Phát Sinh</button>
+                <div id="st-adj-msg" class="small mb-2"></div>
+                <hr>
+                <h6 class="small fw-semibold text-secondary">Lịch sử đã báo cho mã này</h6>
+                <div id="st-adj-history" class="small"></div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    let currentSession = null;
+
+    function onStoreChange() {
+        const store = document.getElementById('st-store').value;
+        document.getElementById('st-count-card').style.display = 'none';
+        document.getElementById('st-summary-card').style.display = 'none';
+        document.getElementById('st-session-info').innerHTML = '';
+        currentSession = null;
+        if (!store) { loadHistory(); return; }
+        loadCurrent(store);
+        loadHistory(store);
+    }
+
+    async function loadCurrent(store) {
+        const res = await fetch(`/api/stocktake/current?store_code=${store}`);
+        const result = await res.json();
+        if (result.session) {
+            currentSession = result.session;
+            renderSessionInfo();
+            document.getElementById('st-count-card').style.display = '';
+            document.getElementById('st-summary-card').style.display = '';
+            loadSummary();
+        } else {
+            document.getElementById('st-session-info').innerHTML = '<div class="text-muted small">Cửa hàng này chưa có phiên kiểm kê đang mở.</div>';
+        }
+    }
+
+    function renderSessionInfo() {
+        if (!currentSession) return;
+        document.getElementById('st-session-info').innerHTML = `
+            <div class="alert alert-info py-2 mb-0 d-flex justify-content-between align-items-center">
+                <div><b>Phiên #${currentSession.id}</b> - Chốt sổ lúc: ${currentSession.cutoff_time} - Đã đếm ${currentSession.counted_parts}/${currentSession.total_parts} mã</div>
+                <span class="badge ${currentSession.status === 'reopened' ? 'bg-warning text-dark' : 'bg-primary'}">${currentSession.status === 'reopened' ? 'Đã mở lại' : 'Đang mở'}</span>
+            </div>`;
+    }
+
+    async function startSession() {
+        const store = document.getElementById('st-store').value;
+        if (!store) { alert('Vui lòng chọn cửa hàng.'); return; }
+        if (!confirm(`Bắt đầu kiểm kê cho cửa hàng ${store}? Hệ thống sẽ chụp tồn kho hiện tại làm mốc đối chiếu.`)) return;
+
+        const btn = document.getElementById('st-start-btn');
+        const originalHtml = btn.innerHTML;
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Đang xử lý... (có thể mất vài giây với kho lớn)';
+
+        try {
+            const res = await fetch('/api/stocktake/start', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ store_code: store })
+            });
+            let result;
+            try {
+                result = await res.json();
+            } catch (parseErr) {
+                console.error('Server không trả JSON, status:', res.status, await res.text().catch(()=>''));
+                alert(`Lỗi máy chủ (HTTP ${res.status}). Xem tab Console/Network để biết chi tiết.`);
+                return;
+            }
+            if (!res.ok || !result.success) {
+                alert('Lỗi: ' + (result.error || `Không thể bắt đầu (HTTP ${res.status}).`));
+                return;
+            }
+            loadCurrent(store);
+        } catch (networkErr) {
+            console.error('Lỗi kết nối:', networkErr);
+            alert('Không kết nối được tới máy chủ. Kiểm tra mạng/console.');
+        } finally {
+            btn.disabled = false;
+            btn.innerHTML = originalHtml;
+        }
+    }
+
+    async function submitCount() {
+        const part_code = document.getElementById('st-count-part').value.trim();
+        const quantity = document.getElementById('st-count-qty').value;
+        const area_note = document.getElementById('st-count-area').value.trim();
+        const msgEl = document.getElementById('st-count-msg');
+        if (!currentSession || !part_code || quantity === '') { msgEl.innerHTML = '<span class="text-danger">Vui lòng nhập đủ mã hàng và số lượng.</span>'; return; }
+        const res = await fetch('/api/stocktake/count', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ session_id: currentSession.id, part_code, quantity, area_note })
+        });
+        const result = await res.json();
+        if (!result.success) { msgEl.innerHTML = `<span class="text-danger">${result.error}</span>`; return; }
+        msgEl.innerHTML = '<span class="text-success">Đã ghi nhận.</span>';
+        document.getElementById('st-count-part').value = '';
+        document.getElementById('st-count-qty').value = '';
+        document.getElementById('st-count-area').value = '';
+        document.getElementById('st-count-part').focus();
+        loadCurrent(document.getElementById('st-store').value);
+    }
+
+    function statusBadge(status) {
+        if (status === 'not_counted') return '<span class="badge badge-notcounted">Chưa đếm</span>';
+        if (status === 'needs_recount') return '<span class="badge badge-recount">Cần đếm lại</span>';
+        return '<span class="badge badge-matched">Khớp</span>';
+    }
+
+    function fmt(n) { return n === null || n === undefined ? '-' : Number(n).toLocaleString('vi-VN'); }
+
+    async function loadSummary() {
+        if (!currentSession) return;
+        const res = await fetch(`/api/stocktake/${currentSession.id}/summary`);
+        const result = await res.json();
+        if (!result.success) return;
+        document.getElementById('st-export-link').href = `/api/stocktake/${currentSession.id}/export`;
+        document.getElementById('st-summary-stats').textContent =
+            `Tổng ${result.total_parts} mã - Đã đếm ${result.counted_parts} - Cần đếm lại ${result.needs_recount}`;
+        document.getElementById('st-summary-body').innerHTML = result.items.map(it => `
+            <tr class="${it.status === 'needs_recount' ? 'row-recount' : ''}">
+                <td class="fw-semibold">${it.part_code}</td>
+                <td class="small">${it.part_name || ''} ${it.has_manual_adjustment ? '<i class="bi bi-info-circle-fill text-warning" title="Đã có báo phát sinh"></i>' : ''}</td>
+                <td class="text-end">${fmt(it.book_quantity)}</td>
+                <td class="text-end">${it.counted ? fmt(it.known_movement_qty) : '-'}</td>
+                <td class="text-end">${fmt(it.expected_quantity)}</td>
+                <td class="text-end fw-semibold">${it.counted ? fmt(it.counted_quantity) : '-'}</td>
+                <td class="text-end ${it.counted && it.diff_quantity !== 0 ? 'text-danger fw-semibold' : ''}">${it.counted ? fmt(it.diff_quantity) : '-'}</td>
+                <td>${statusBadge(it.status)}</td>
+                <td>${it.counted ? `<button type="button" class="btn btn-outline-warning btn-sm" title="Báo phát sinh sau khi đếm" onclick="openAdjustmentModal('${it.part_code}')"><i class="bi bi-arrow-repeat"></i></button>` : ''}</td>
+            </tr>
+        `).join('');
+    }
+
+    async function closeSession() {
+        if (!currentSession) return;
+        if (!confirm('Chốt kiểm kê sẽ CẬP NHẬT LUÔN tồn kho hệ thống theo số đếm thực tế (mã chưa đếm sẽ tính tồn = 0). Tiếp tục?')) return;
+        const btn = document.getElementById('st-close-btn');
+        const originalHtml = btn.innerHTML;
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Đang chốt... (có thể mất vài giây)';
+        try {
+            const res = await fetch(`/api/stocktake/${currentSession.id}/close`, {
+                method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({})
+            });
+            const result = await res.json();
+            if (!result.success) { alert('Lỗi: ' + (result.error || 'Không thể chốt.')); return; }
+            alert('Đã chốt kiểm kê thành công.');
+            onStoreChange();
+        } catch (networkErr) {
+            console.error('Lỗi kết nối:', networkErr);
+            alert('Không kết nối được tới máy chủ. Kiểm tra mạng/console.');
+        } finally {
+            btn.disabled = false;
+            btn.innerHTML = originalHtml;
+        }
+    }
+
+    async function reopenSession(id) {
+        const reason = prompt('Nhập lý do mở lại phiên kiểm kê này:');
+        if (!reason) return;
+        const res = await fetch(`/api/stocktake/${id}/reopen`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ reason })
+        });
+        const result = await res.json();
+        if (!result.success) { alert('Lỗi: ' + (result.error || 'Không thể mở lại.')); return; }
+        onStoreChange();
+    }
+
+    async function loadHistory(store) {
+        const url = store ? `/api/stocktake/history?store_code=${store}` : '/api/stocktake/history';
+        const res = await fetch(url);
+        const result = await res.json();
+        if (!result.success) return;
+        document.getElementById('st-history-body').innerHTML = result.sessions.map(s => `
+            <tr>
+                <td>#${s.id}</td><td>${s.store_code}</td><td class="small">${s.cutoff_time}</td>
+                <td><span class="badge ${s.status === 'closed' ? 'bg-secondary' : (s.status === 'reopened' ? 'bg-warning text-dark' : 'bg-primary')}">${s.status}</span></td>
+                <td class="small">${s.created_by || ''}</td>
+                <td class="small">${s.closed_at || '-'}</td>
+                <td>${s.status === 'closed' ? `<button type="button" class="btn btn-outline-warning btn-sm" onclick="reopenSession(${s.id})">Mở lại</button>` : ''}</td>
+            </tr>
+        `).join('') || '<tr><td colspan="7" class="text-center text-muted py-3">Chưa có phiên kiểm kê nào.</td></tr>';
+    }
+
+    // ===== Báo Phát Sinh (bán/nhập thêm sau khi đã đếm) =====
+    let adjModal = null;
+    let currentAdjPartCode = null;
+
+    function openAdjustmentModal(partCode) {
+        if (!currentSession) return;
+        currentAdjPartCode = partCode;
+        document.getElementById('st-adj-part-code').textContent = partCode;
+        document.getElementById('st-adj-type').value = 'sold';
+        document.getElementById('st-adj-qty').value = '';
+        document.getElementById('st-adj-note').value = '';
+        document.getElementById('st-adj-msg').innerHTML = '';
+        loadAdjustmentHistory(partCode);
+        if (!adjModal) adjModal = new bootstrap.Modal(document.getElementById('st-adj-modal'));
+        adjModal.show();
+    }
+
+    function adjustmentTypeLabel(t) { return t === 'sold' ? 'Bán ra' : 'Nhập thêm'; }
+
+    async function loadAdjustmentHistory(partCode) {
+        const el = document.getElementById('st-adj-history');
+        el.innerHTML = '<span class="text-muted">Đang tải...</span>';
+        const res = await fetch(`/api/stocktake/adjustment/${currentSession.id}/${encodeURIComponent(partCode)}`);
+        const result = await res.json();
+        if (!result.success) { el.innerHTML = '<span class="text-danger">Không tải được.</span>'; return; }
+        if (!result.adjustments.length) { el.innerHTML = '<span class="text-muted">Chưa có lần báo nào.</span>'; return; }
+        el.innerHTML = result.adjustments.map(a => `
+            <div class="d-flex justify-content-between align-items-center border-bottom py-1">
+                <div>
+                    <b>${adjustmentTypeLabel(a.adjustment_type)}</b>: ${fmt(a.quantity)}
+                    ${a.note ? ` - <span class="text-muted">${a.note}</span>` : ''}
+                    <div class="text-muted" style="font-size:0.75rem;">${a.created_by || ''} lúc ${a.created_at}</div>
+                </div>
+                <button type="button" class="btn btn-sm btn-outline-danger" onclick="deleteAdjustment(${a.id})"><i class="bi bi-trash"></i></button>
+            </div>
+        `).join('');
+    }
+
+    async function submitAdjustment() {
+        const type = document.getElementById('st-adj-type').value;
+        const qty = document.getElementById('st-adj-qty').value;
+        const note = document.getElementById('st-adj-note').value.trim();
+        const msgEl = document.getElementById('st-adj-msg');
+        if (!qty || Number(qty) <= 0) { msgEl.innerHTML = '<span class="text-danger">Vui lòng nhập số lượng lớn hơn 0.</span>'; return; }
+        try {
+            const res = await fetch('/api/stocktake/adjustment', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ session_id: currentSession.id, part_code: currentAdjPartCode, adjustment_type: type, quantity: qty, note })
+            });
+            const result = await res.json();
+            if (!result.success) { msgEl.innerHTML = `<span class="text-danger">${result.error}</span>`; return; }
+            msgEl.innerHTML = '<span class="text-success">Đã ghi nhận.</span>';
+            document.getElementById('st-adj-qty').value = '';
+            document.getElementById('st-adj-note').value = '';
+            loadAdjustmentHistory(currentAdjPartCode);
+            loadSummary();
+        } catch (e) {
+            console.error(e);
+            msgEl.innerHTML = '<span class="text-danger">Không kết nối được tới máy chủ.</span>';
+        }
+    }
+
+    async function deleteAdjustment(id) {
+        if (!confirm('Xoá lần báo phát sinh này?')) return;
+        try {
+            const res = await fetch(`/api/stocktake/adjustment/${id}`, { method: 'DELETE' });
+            const result = await res.json();
+            if (!result.success) { alert('Lỗi: ' + (result.error || 'Không xoá được.')); return; }
+            loadAdjustmentHistory(currentAdjPartCode);
+            loadSummary();
+        } catch (e) {
+            console.error(e);
+            alert('Không kết nối được tới máy chủ.');
+        }
+    }
+
+    loadHistory();
+</script>
+</body>
+</html>

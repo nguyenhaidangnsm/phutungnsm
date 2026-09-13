@@ -316,6 +316,14 @@ def _valid_employee_for_store(name, store_code):
     allowed = STORE_EMPLOYEES.get((store_code or '').strip().upper(), [])
     return cleaned if cleaned in allowed else None
 
+def _current_actor_name():
+    """Tên hiển thị của người dùng đang đăng nhập, dùng để ghi vào các cột
+    "uploaded_by"/"updated_by" (thay vì lưu thẳng username như 'admin').
+    Ưu tiên full_name (cột full_name trong bảng users, admin tự đặt qua
+    trang Quản Lý User) - nếu tài khoản chưa có full_name thì tạm dùng lại
+    username như trước đây (session['user'])."""
+    return session.get('full_name') or session.get('user')
+
 # ----------------------------------------------------------------------------
 # GHI LOG LỊCH SỬ CHUYỂN KHO NỘI BỘ RA GOOGLE SHEETS (qua Apps Script)
 # ----------------------------------------------------------------------------
@@ -1028,7 +1036,11 @@ def init_db():
             cursor.execute('ALTER TABLE transfer_requests DROP COLUMN IF EXISTS quantity')
             cursor.execute('ALTER TABLE transfer_requests DROP COLUMN IF EXISTS prepare_status')
 
-        # 9. Seed default users nếu chưa có
+        # 9b. Bảng cho tính năng KIỂM KÊ KHO - tách trong stocktake.py để
+        # khỏi làm app.py dài thêm (xem hướng dẫn ở đầu file stocktake.py).
+        init_stocktake_tables(cursor)
+
+        # 10. Seed default users nếu chưa có
         cursor.execute("SELECT COUNT(*) FROM users")
         count = cursor.fetchone()['count']
         if count == 0:
@@ -1053,8 +1065,11 @@ def init_db():
         cursor.close()
 
 
-# Tự động gọi khởi tạo bảng khi chạy app
-init_db()
+# LƯU Ý: việc import + đăng ký blueprint stocktake, và gọi init_db(), đã
+# được CHUYỂN XUỐNG CUỐI FILE (ngay phía trên "if __name__ == '__main__':").
+# Lý do: stocktake.py cần import ngược lại _valid_store_codes từ app, mà
+# hàm đó lại được định nghĩa RẤT XA phía dưới trong file này - đặt import
+# ở đây (khi _valid_store_codes chưa tồn tại) sẽ gây ImportError.
 
 
 # ==== DỌN DẸP LỊCH SỬ PHIẾU CHUYỂN KHO QUÁ CŨ (tự động, chạy định kỳ) ====
@@ -2671,7 +2686,7 @@ def upload_inventory():
                 upload_time = EXCLUDED.upload_time,
                 total_parts = EXCLUDED.total_parts,
                 skipped_rows = EXCLUDED.skipped_rows
-        ''', (inventory_file.filename, session['user'], upload_time, distinct_parts, skipped_rows))
+        ''', (inventory_file.filename, _current_actor_name(), upload_time, distinct_parts, skipped_rows))
 
         db.commit()
         cursor.close()
@@ -2732,7 +2747,7 @@ def import_prices():
         except (TypeError, ValueError):
             skipped_rows += 1
             continue
-        rows.append((part_code, price, now, session['user']))
+        rows.append((part_code, price, now, _current_actor_name()))
 
     if not rows:
         return jsonify({'error': 'File không có dòng dữ liệu hợp lệ nào (mã hàng + giá bán >= 0).'}), 400
@@ -2765,7 +2780,7 @@ def import_prices():
                 upload_time = EXCLUDED.upload_time,
                 total_parts = EXCLUDED.total_parts,
                 skipped_rows = EXCLUDED.skipped_rows
-        ''', (price_file.filename, session['user'], now, len(rows), skipped_rows))
+        ''', (price_file.filename, _current_actor_name(), now, len(rows), skipped_rows))
 
         db.commit()
         return jsonify({'success': True, 'total_parts': len(rows), 'skipped_rows': skipped_rows})
@@ -2816,7 +2831,7 @@ def update_price():
                 sale_price = EXCLUDED.sale_price,
                 updated_at = EXCLUDED.updated_at,
                 updated_by = EXCLUDED.updated_by
-        ''', (part_code, price, now, session['user']))
+        ''', (part_code, price, now, _current_actor_name()))
         db.commit()
         return jsonify({'success': True, 'sale_price': price})
     except Exception as e:
@@ -6283,6 +6298,23 @@ def admin_truck_announcements_delete(announcement_id):
     return jsonify({'success': True})
 
 
+# Import + đăng ký blueprint stocktake - đặt Ở ĐÂY (cuối file) vì
+# stocktake.py cần import ngược lại get_db/vn_now/format_vi_datetime/
+# _valid_store_codes/STORE_REGIONS từ app, và tất cả các tên đó (đặc biệt
+# là _valid_store_codes) phải đã được định nghĩa xong ở phía trên trước khi
+# dòng import này chạy, nếu không sẽ lỗi ImportError.
+from stocktake import stocktake_bp, init_stocktake_tables
+app.register_blueprint(stocktake_bp)
+
+# Tự động gọi khởi tạo bảng khi chạy app (gọi SAU khi đã đăng ký blueprint
+# ở trên, vì init_db() bên trong có gọi init_stocktake_tables()).
+init_db()
+
 if __name__ == '__main__':
-    port = int(os.environ.get("PORT", 5000))
-    app.run(host="0.0.0.0", port=port)
+    # LƯU Ý: không chạy file này trực tiếp (`python3 app.py`) - hãy chạy
+    # `python3 run.py` ở thư mục gốc. Xem giải thích chi tiết trong run.py
+    # (đây là để tránh app.py bị Python nạp 2 lần, gây lỗi
+    # "cannot import name 'stocktake_bp' from 'stocktake'").
+    raise SystemExit(
+        "Đừng chạy app.py trực tiếp - hãy chạy: python3 run.py"
+    )

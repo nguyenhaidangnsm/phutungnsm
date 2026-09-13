@@ -991,6 +991,12 @@
                 <span class="ns-label">Hàng Cần Xử Lý</span>
             </button>
             {% endif %}
+            {% if role == 'admin' %}
+            <button type="button" class="ns-sidebar-item" onclick="window.location.href='/stocktake'">
+                <span class="ns-sidebar-icon"><i class="bi bi-clipboard-check"></i></span>
+                <span class="ns-label">Kiểm Kê Kho</span>
+            </button>
+            {% endif %}
         </div>
 
         <div class="ns-sidebar-group">
