@@ -1504,7 +1504,7 @@
                         <i class="bi bi-arrow-repeat me-2"></i>Cập Nhật Tồn Kho
                     </button>
                 </form>
-                <p class="text-muted small mt-2 mb-0"><i class="bi bi-exclamation-circle me-1"></i>Dữ liệu tồn kho sẽ được <strong>thay thế hoàn toàn</strong> (không cộng dồn). Chỉ lấy các mã kho KPT/KPK/KPTN của các cửa hàng (riêng NSM1 gồm cả hậu tố PI2, gộp chung vào tồn NSM1), các mã kho khác tự động bị bỏ qua.</p>
+                <p class="text-muted small mt-2 mb-0"><i class="bi bi-exclamation-circle me-1"></i>Dữ liệu tồn kho sẽ được <strong>thay thế hoàn toàn</strong> (không cộng dồn). Chỉ lấy các mã kho KPT/KPK/KPTN của các cửa hàng (riêng NSM1 gồm cả hậu tố PI2, gộp chung vào tồn NSM1) và mã kho "KHANGCHAMBAN" (hiển thị riêng dưới tên "Kho CB"), các mã kho khác tự động bị bỏ qua.</p>
             </div>
 
             <div class="card card-custom p-3 mb-3 mb-md-4">
@@ -1581,11 +1581,12 @@
                 <th class="text-end">NS4</th>
                 <th class="text-end">NS5</th>
                 <th class="text-end">NSM1</th>
+                <th class="text-end text-muted" title="Kho độc lập (mã kho KHANGCHAMBAN) - chỉ xem số lượng, không tính vào Tổng Tồn 6 CH">Kho CB</th>
                 <th class="text-end"><i class="bi bi-boxes me-1 text-primary"></i>Tổng Tồn</th>
             </tr>
         </thead>
         <tbody id="inventory-body">
-            <tr><td colspan="{% if role == 'store' %}12{% else %}11{% endif %}" class="text-center py-4 text-muted">Đang tải dữ liệu...</td></tr>
+            <tr><td colspan="{% if role == 'store' %}13{% else %}12{% endif %}" class="text-center py-4 text-muted">Đang tải dữ liệu...</td></tr>
         </tbody>
         <!-- Dòng TỔNG CỘNG THEO CỘT (chiều dọc) - cộng dồn tồn kho của TỪNG
              CỬA HÀNG (và tổng chung) trên TOÀN BỘ danh sách đang hiển thị
@@ -1604,6 +1605,7 @@
                 <td class="text-end" id="inv-total-NS4">0</td>
                 <td class="text-end" id="inv-total-NS5">0</td>
                 <td class="text-end" id="inv-total-NSM1">0</td>
+                <td class="text-end text-muted" id="inv-total-CB">0</td>
                 <td class="text-end text-primary" id="inv-total-grand">0</td>
             </tr>
         </tfoot>
@@ -2890,11 +2892,12 @@
                                 <th class="text-end">NS4</th>
                                 <th class="text-end">NS5</th>
                                 <th class="text-end">NSM1</th>
+                                <th class="text-end text-muted" title="Kho độc lập (mã kho KHANGCHAMBAN) - chỉ xem số lượng, không tính vào Tổng Tồn 6 CH">Kho CB</th>
                                 <th class="text-end"><i class="bi bi-boxes me-1 text-primary"></i>Tổng Tồn</th>
                             </tr>
                         </thead>
                         <tbody id="quick-lookup-body">
-                            <tr><td colspan="{% if role == 'store' %}12{% else %}11{% endif %}" class="text-center py-4 text-muted">Đang tải dữ liệu...</td></tr>
+                            <tr><td colspan="{% if role == 'store' %}13{% else %}12{% endif %}" class="text-center py-4 text-muted">Đang tải dữ liệu...</td></tr>
                         </tbody>
                     </table>
                 </div>
@@ -3636,6 +3639,7 @@
                     ${priceHtml}
                     ${locHtml}
                     ${INVENTORY_STORES.map(s => buildInvCellHtml(item, s)).join('')}
+                    <td class="text-end text-muted">${fmtInvQty(item.CB)}</td>
                     ${buildDamagedCellHtml(item)}
                 </tr>
             `;
@@ -3665,6 +3669,12 @@
         });
         const grandCell = document.getElementById('inv-total-grand');
         if (grandCell) grandCell.innerText = grandTotal.toLocaleString();
+
+        // "Kho CB" là kho ĐỘC LẬP - tính tổng riêng, KHÔNG cộng vào grandTotal
+        // (grandTotal chỉ đại diện đúng 6 cửa hàng NS1..NSM1 như tên cột ghi).
+        const cbTotal = data.reduce((sum, item) => sum + (Number(item.CB) || 0), 0);
+        const cbCell = document.getElementById('inv-total-CB');
+        if (cbCell) cbCell.innerText = cbTotal.toLocaleString();
     }
 
     function renderInventoryTable(data) {
@@ -3674,7 +3684,7 @@
             return;
         }
         const isStore = (CURRENT_ROLE === 'store');
-        const totalCols = isStore ? 12 : 11; // Bỏ cột Thao tác, có thêm cột Giá Bán + cột Hư Hỏng - 12 cột (nếu store) hoặc 11 cột (admin)
+        const totalCols = isStore ? 13 : 12; // Bỏ cột Thao tác, có thêm cột Giá Bán + cột Kho CB + cột Hư Hỏng - 13 cột (nếu store) hoặc 12 cột (admin)
 
         document.getElementById('inventory-visible-count').innerText = data.length.toLocaleString();
         renderInventoryTotalsRow(data);
@@ -3978,7 +3988,7 @@
         const countEl = document.getElementById('quick-lookup-visible-count');
         if (countEl) countEl.innerText = data.length.toLocaleString();
         const isStore = (CURRENT_ROLE === 'store');
-        const totalCols = isStore ? 12 : 11; // admin không có cột Vị Trí
+        const totalCols = isStore ? 13 : 12; // admin không có cột Vị Trí
 
         if (!data || data.length === 0) {
             tbody.innerHTML = `<tr><td colspan="${totalCols}" class="text-center py-4 text-muted">Không có dữ liệu tồn kho.</td></tr>`;
@@ -7380,6 +7390,7 @@ if (storeLocationForm) {
             'NS4': item.NS4 || 0,
             'NS5': item.NS5 || 0,
             'NSM1': item.NSM1 || 0,
+            'Kho CB': item.CB || 0,
         }));
 
         const ws = XLSX.utils.json_to_sheet(rows);

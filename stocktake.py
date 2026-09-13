@@ -27,6 +27,7 @@ from datetime import timedelta
 
 import pandas as pd
 from flask import Blueprint, render_template, request, jsonify, session, send_file
+from psycopg2.extras import execute_values
 
 # Import lại đúng những gì app.py đã có sẵn - KHÔNG định nghĩa lại, để tránh
 # 2 nguồn sự thật khác nhau về cách kết nối DB / format ngày giờ. Đây là
@@ -144,6 +145,14 @@ def init_stocktake_tables(cursor):
         'ON stocktake_manual_adjustments(session_id, part_code)'
     )
 
+    # Index cho inventory_items.store_code (bảng này định nghĩa bên app.py,
+    # vốn chỉ có sẵn index trên part_code) - câu SELECT lấy tồn kho theo
+    # từng cửa hàng lúc "Bắt Đầu Kiểm Kê" (stocktake_start) đang phải quét
+    # toàn bộ bảng nếu thiếu index này, càng chậm khi tồn kho hệ thống càng
+    # lớn. TRUNCATE (dùng khi admin tải lại file tồn kho) không xoá index,
+    # nên chỉ cần tạo 1 lần là dùng mãi.
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_inventory_store ON inventory_items(store_code)')
+
 
 def _require_admin():
     """Trả về response lỗi (jsonify, status) nếu không phải admin, hoặc
@@ -205,9 +214,14 @@ def stocktake_start():
     )
     items = cursor.fetchall()
     if items:
-        cursor.executemany(
+        # Insert gộp toàn bộ trong 1 câu lệnh (execute_values) thay vì
+        # executemany (vốn gửi 1 round-trip riêng cho từng dòng tới DB -
+        # rất chậm khi cửa hàng có vài nghìn mã hàng trở lên). Cùng dữ
+        # liệu, cùng bảng, chỉ khác cách gửi xuống DB nên không đổi hành vi.
+        execute_values(
+            cursor,
             "INSERT INTO stocktake_snapshot_items (session_id, part_code, part_name, unit, book_quantity) "
-            "VALUES (%s, %s, %s, %s, %s)",
+            "VALUES %s",
             [(new_id, it['part_code'], it['part_name'], it['unit'], it['quantity']) for it in items]
         )
 

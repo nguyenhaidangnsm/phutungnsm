@@ -1474,7 +1474,9 @@ def read_any(file_storage):
 # ----------------------------------------------------------------------------
 
 # Chỉ lấy các mã kho thuộc 3 nhóm này (tiền tố), các mã kho khác (KBD, KX,
-# KKM, KHO151, KHONDAKM, KHANGCHAMBAN, ...) sẽ bị bỏ qua.
+# KKM, KHO151, KHONDAKM, ...) sẽ bị bỏ qua - riêng "KHANGCHAMBAN" (1 kho độc
+# lập, không theo dạng tiền tố này) vẫn được lấy riêng, xem
+# _SINGLE_WORD_WAREHOUSES bên dưới.
 _INVENTORY_ALLOWED_PREFIXES = {'KPT', 'KPK', 'KPTN'}
 # Hậu tố tương ứng với 6 cửa hàng - trùng với store_code trong bảng users.
 _INVENTORY_ALLOWED_STORES = {'NS1', 'NS2', 'NS3', 'NS4', 'NS5', 'NSM1'}
@@ -1484,6 +1486,16 @@ _INVENTORY_ALLOWED_STORES = {'NS1', 'NS2', 'NS3', 'NS4', 'NS5', 'NSM1'}
 # quyền sửa vị trí kệ hàng cho các mã hàng này (quyền sửa vị trí của store
 # dựa theo đúng bảng inventory_items của store đó - xem save_location()).
 _SUFFIX_ALIAS_TO_STORE = {'PI2': 'NSM1'}
+
+# "KHANGCHAMBAN" là 1 kho ĐỘC LẬP, hiển thị dưới tên "Kho CB" trong bảng Tồn
+# Kho - KHÁC với các cửa hàng NS1..NSM1 ở chỗ: (1) cột "Mã kho" trong file
+# Excel chỉ có ĐÚNG 1 TỪ (không theo dạng "TIỀN TỐ HẬU TỐ" như "KPT NS1" nên
+# không đi qua bước tách prefix/suffix + lọc _INVENTORY_ALLOWED_PREFIXES/
+# _INVENTORY_ALLOWED_STORES ở dưới - tự nó đã là định danh đầy đủ); (2) đây
+# CHỈ là 1 kho để XEM số lượng tồn - không có tài khoản đăng nhập riêng,
+# không tham gia luân chuyển nội bộ/vị trí hàng hóa/kiểm kê như các cửa hàng
+# thật (NS1..NSM1), nên KHÔNG được thêm vào _valid_store_codes()/STORE_REGIONS.
+_SINGLE_WORD_WAREHOUSES = {'KHANGCHAMBAN': 'CB'}
 
 
 def _split_warehouse_code(raw_kho):
@@ -1582,6 +1594,17 @@ def parse_inventory_excel(file_storage):
     )
     data = data[valid_mask]
 
+    # Tách riêng các dòng "Mã kho" thuộc nhóm KHO ĐỘC LẬP 1-TỪ (vd
+    # "KHANGCHAMBAN" -> "Kho CB") ra khỏi luồng xử lý "TIỀN TỐ HẬU TỐ" thông
+    # thường bên dưới - phải làm TRƯỚC bước tách 2 từ (str.split()), vì các
+    # mã kho 1 từ này vốn dĩ sẽ bị coi là "sai định dạng" nếu để lẫn vào đó.
+    kho_upper_full = data['kho'].str.upper()
+    single_word_mask = kho_upper_full.isin(_SINGLE_WORD_WAREHOUSES.keys())
+    single_word_data = data[single_word_mask].copy()
+    single_word_data['store_code'] = kho_upper_full[single_word_mask].map(_SINGLE_WORD_WAREHOUSES)
+    single_word_data['is_pi2'] = False
+    data = data[~single_word_mask]
+
     # Tách "KPT NS1" -> prefix="KPT", suffix="NS1". Chỉ nhận dòng có đúng 2
     # từ (giống hệt logic _split_warehouse_code cũ).
     kho_parts = data['kho'].str.upper().str.split()
@@ -1602,6 +1625,15 @@ def parse_inventory_excel(file_storage):
     allowed_mask = data['prefix'].isin(_INVENTORY_ALLOWED_PREFIXES) & data['suffix'].isin(_INVENTORY_ALLOWED_STORES)
     skipped_rows += int((~allowed_mask).sum())
     data = data[allowed_mask]
+    data = data.rename(columns={'suffix': 'store_code'})
+    data = data.drop(columns=['prefix'])
+
+    # Gộp lại 2 nhóm (cửa hàng NS1..NSM1 theo tiền tố/hậu tố + kho độc lập
+    # 1-từ như "Kho CB") thành 1 DataFrame chung để cùng đi qua bước cộng
+    # dồn số lượng theo (Mã hàng, store_code) phía dưới.
+    if not single_word_data.empty:
+        single_word_data = single_word_data.drop(columns=['kho'], errors='ignore')
+        data = pd.concat([data, single_word_data], ignore_index=True, sort=False)
 
     data['part_name'] = data['part_name'].fillna('').astype(str).str.strip()
     data['unit'] = data['unit'].fillna('').astype(str).str.strip()
@@ -1618,11 +1650,12 @@ def parse_inventory_excel(file_storage):
             unit=('unit', 'first'),
         )
 
-        # Số lượng: cộng dồn theo (Mã hàng, Cửa hàng) - xử lý trường hợp 1 mã
-        # hàng xuất hiện ở nhiều nhóm tiền tố kho khác nhau nhưng cùng 1
-        # cửa hàng (cộng dồn thay vì ghi đè, giống logic cũ). is_pi2 = có ÍT
-        # NHẤT 1 dòng nguồn thuộc hậu tố PI2 hay không (any).
-        qty_grouped = data.groupby(['part_code', 'suffix'], sort=False).agg(
+        # Số lượng: cộng dồn theo (Mã hàng, Cửa hàng/Kho) - xử lý trường hợp 1
+        # mã hàng xuất hiện ở nhiều nhóm tiền tố kho khác nhau nhưng cùng 1
+        # cửa hàng, hoặc nhiều dòng cùng thuộc 1 kho độc lập như "Kho CB"
+        # (cộng dồn thay vì ghi đè, giống logic cũ). is_pi2 = có ÍT NHẤT 1
+        # dòng nguồn thuộc hậu tố PI2 hay không (any) - luôn False với "Kho CB".
+        qty_grouped = data.groupby(['part_code', 'store_code'], sort=False).agg(
             quantity=('qty', 'sum'),
             n=('qty', 'size'),
             is_pi2=('is_pi2', 'any'),
@@ -1630,12 +1663,11 @@ def parse_inventory_excel(file_storage):
 
         dup_rows = qty_grouped[qty_grouped['n'] > 1]
         warnings = [
-            f'Mã hàng {r.part_code} tại {r.suffix} xuất hiện ở nhiều nhóm kho khác nhau - đã cộng dồn số lượng.'
+            f'Mã hàng {r.part_code} tại {r.store_code} xuất hiện ở nhiều nhóm kho khác nhau - đã cộng dồn số lượng.'
             for r in dup_rows.itertuples()
         ]
 
         result = qty_grouped.merge(name_unit, left_on='part_code', right_index=True, how='left')
-        result = result.rename(columns={'suffix': 'store_code'})
         rows = result[['part_code', 'part_name', 'unit', 'store_code', 'quantity', 'is_pi2']].to_dict(orient='records')
 
     return rows, skipped_rows, warnings
@@ -2869,6 +2901,10 @@ def get_inventory():
             'unit': it['unit'],
             'sale_price': price_by_part.get(it['part_code']),
             'NS1': 0, 'NS2': 0, 'NS3': 0, 'NS4': 0, 'NS5': 0, 'NSM1': 0,
+            # "CB" (Kho CB / mã kho KHANGCHAMBAN) là kho ĐỘC LẬP, hiển thị
+            # tách riêng - KHÔNG tính vào "Tổng Tồn 6 CH" của 6 cửa hàng
+            # NS1..NSM1 (xem _SINGLE_WORD_WAREHOUSES trong parse_inventory_excel).
+            'CB': 0,
             '_is_pi2': False,
         })
         qty = float(it['quantity']) if it['quantity'] is not None else 0

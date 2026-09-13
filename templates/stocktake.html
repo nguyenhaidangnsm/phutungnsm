@@ -44,13 +44,17 @@
     <!-- Nhập số đếm -->
     <div class="card shadow-sm mb-3" id="st-count-card" style="display:none;">
         <div class="card-body">
-            <h6 class="fw-semibold mb-2">Nhập Số Đếm</h6>
+            <div class="d-flex justify-content-between align-items-center mb-2">
+                <h6 class="fw-semibold mb-0">Nhập Số Đếm</h6>
+                <button type="button" class="btn btn-outline-secondary btn-sm" id="st-sound-toggle" onclick="toggleSound()"></button>
+            </div>
             <div class="row g-2">
-                <div class="col-6 col-md-3"><input type="text" id="st-count-part" class="form-control" placeholder="Mã hàng"></div>
-                <div class="col-6 col-md-2"><input type="number" id="st-count-qty" class="form-control" placeholder="Số lượng đếm"></div>
+                <div class="col-6 col-md-3"><input type="text" id="st-count-part" class="form-control" placeholder="Mã hàng (scan hoặc gõ tay)" autocomplete="off"></div>
+                <div class="col-6 col-md-2"><input type="number" id="st-count-qty" class="form-control" placeholder="Số lượng đếm" min="0" step="any"></div>
                 <div class="col-6 col-md-3"><input type="text" id="st-count-area" class="form-control" placeholder="Khu vực (tuỳ chọn)"></div>
                 <div class="col-6 col-md-2"><button type="button" class="btn btn-success w-100" onclick="submitCount()"><i class="bi bi-check-lg"></i> Ghi Nhận</button></div>
             </div>
+            <div class="form-text mt-1">Dùng máy scan tay: quét mã → tự nhảy sang ô Số lượng (mặc định 1) → Enter để ghi nhận, hoặc sửa số rồi Enter.</div>
             <div id="st-count-msg" class="small mt-2"></div>
         </div>
     </div>
@@ -160,6 +164,9 @@
             document.getElementById('st-count-card').style.display = '';
             document.getElementById('st-summary-card').style.display = '';
             loadSummary();
+            // Focus sẵn ô Mã hàng để scan được ngay, không cần bấm chuột vào
+            // ô trước - áp dụng cả lần đầu mở phiên lẫn mỗi lần đổi cửa hàng.
+            document.getElementById('st-count-part').focus();
         } else {
             document.getElementById('st-session-info').innerHTML = '<div class="text-muted small">Cửa hàng này chưa có phiên kiểm kê đang mở.</div>';
         }
@@ -222,13 +229,124 @@
             body: JSON.stringify({ session_id: currentSession.id, part_code, quantity, area_note })
         });
         const result = await res.json();
-        if (!result.success) { msgEl.innerHTML = `<span class="text-danger">${result.error}</span>`; return; }
+        if (!result.success) {
+            msgEl.innerHTML = `<span class="text-danger">${result.error}</span>`;
+            speakError();
+            // Mã hàng scan sai/không tồn tại - giữ nguyên focus ở ô Mã hàng,
+            // bôi đen sẵn để scan/gõ lại đè lên ngay, không cần xoá tay.
+            const partEl = document.getElementById('st-count-part');
+            partEl.focus();
+            partEl.select();
+            return;
+        }
         msgEl.innerHTML = '<span class="text-success">Đã ghi nhận.</span>';
+        speakSuccess();
         document.getElementById('st-count-part').value = '';
         document.getElementById('st-count-qty').value = '';
         document.getElementById('st-count-area').value = '';
         document.getElementById('st-count-part').focus();
         loadCurrent(document.getElementById('st-store').value);
+    }
+
+    // ------------------------------------------------------------------
+    // ÂM BÁO KHI SCAN - để dùng 1 mình không cần nhìn màn hình vẫn biết
+    // ngay là ghi nhận thành công hay lỗi (mã sai/không có trong kho).
+    // Đọc thẳng thành lời "OK" / "Sai mã" bằng Web Speech API (SpeechSynthesis)
+    // - trình duyệt hỗ trợ sẵn, không cần file âm thanh riêng. Nếu trình
+    // duyệt không hỗ trợ (hiếm gặp), tự chuyển sang tiếng bíp bằng Web
+    // Audio API làm phương án dự phòng, để vẫn có phản hồi âm thanh.
+    // Có nút bật/tắt riêng (lưu lựa chọn vào localStorage của trình duyệt,
+    // nhớ lại cho lần mở trang sau).
+    // ------------------------------------------------------------------
+    let stSoundEnabled = localStorage.getItem('st_sound_enabled') !== '0';
+
+    function updateSoundToggleBtn() {
+        const btn = document.getElementById('st-sound-toggle');
+        if (!btn) return;
+        btn.innerHTML = stSoundEnabled
+            ? '<i class="bi bi-volume-up-fill"></i> Âm báo: Bật'
+            : '<i class="bi bi-volume-mute-fill"></i> Âm báo: Tắt';
+        btn.classList.toggle('btn-outline-secondary', stSoundEnabled);
+        btn.classList.toggle('btn-outline-danger', !stSoundEnabled);
+    }
+
+    function toggleSound() {
+        stSoundEnabled = !stSoundEnabled;
+        localStorage.setItem('st_sound_enabled', stSoundEnabled ? '1' : '0');
+        updateSoundToggleBtn();
+        if (stSoundEnabled) speakSuccess(); // phát thử "OK" để xác nhận vừa bật lại
+    }
+
+    let _stAudioCtx = null;
+    function _stGetAudioCtx() {
+        if (!_stAudioCtx) _stAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        if (_stAudioCtx.state === 'suspended') _stAudioCtx.resume();
+        return _stAudioCtx;
+    }
+    function _stBeep(freq, startTime, duration, volume) {
+        const ctx = _stGetAudioCtx();
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = 'sine';
+        osc.frequency.value = freq;
+        gain.gain.value = volume;
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start(startTime);
+        osc.stop(startTime + duration);
+    }
+    // Dự phòng khi trình duyệt không hỗ trợ đọc giọng nói.
+    function _stBeepFallbackSuccess() { _stBeep(1200, _stGetAudioCtx().currentTime, 0.12, 0.2); }
+    function _stBeepFallbackError() {
+        const ctx = _stGetAudioCtx();
+        _stBeep(300, ctx.currentTime, 0.15, 0.25);
+        _stBeep(300, ctx.currentTime + 0.2, 0.15, 0.25);
+    }
+
+    function speakText(text, fallbackFn) {
+        if (!stSoundEnabled) return;
+        try {
+            if (!('speechSynthesis' in window)) { fallbackFn(); return; }
+            window.speechSynthesis.cancel(); // huỷ câu đang đọc dở (lỡ scan quá nhanh) để câu mới luôn được đọc ngay, không dồn hàng đợi
+            const utter = new SpeechSynthesisUtterance(text);
+            utter.lang = 'vi-VN';
+            utter.rate = 1.1;
+            utter.volume = 1;
+            window.speechSynthesis.speak(utter);
+        } catch (e) {
+            try { fallbackFn(); } catch (e2) { /* trình duyệt không hỗ trợ cả 2 - bỏ qua, không chặn luồng ghi nhận */ }
+        }
+    }
+    function speakSuccess() { speakText('OK', _stBeepFallbackSuccess); }
+    function speakError() { speakText('Sai mã', _stBeepFallbackError); }
+
+    // ------------------------------------------------------------------
+    // HỖ TRỢ MÁY SCAN TAY (USB/Bluetooth, giả lập bàn phím: gõ thẳng mã
+    // vạch rồi tự gửi phím Enter) - luồng thao tác:
+    //   1. Scan mã -> Enter tự động từ máy scan -> KHÔNG ghi nhận ngay, mà
+    //      tự điền sẵn Số lượng = 1 rồi chuyển focus sang ô Số lượng, bôi
+    //      đen số để người dùng gõ đè lại nếu muốn sửa.
+    //   2. Người dùng bấm Enter ở ô Số lượng (giữ mặc định 1 hoặc sau khi
+    //      đã sửa) -> ghi nhận thật sự, rồi tự quay focus về ô Mã hàng để
+    //      sẵn sàng cho lượt scan tiếp theo - không cần chạm chuột/bàn phím
+    //      giữa các lần scan liên tục.
+    // ------------------------------------------------------------------
+    const stCountPartEl = document.getElementById('st-count-part');
+    const stCountQtyEl = document.getElementById('st-count-qty');
+    if (stCountPartEl && stCountQtyEl) {
+        stCountPartEl.addEventListener('keydown', (e) => {
+            if (e.key !== 'Enter') return;
+            e.preventDefault();
+            if (!stCountPartEl.value.trim()) return;
+            if (stCountQtyEl.value === '') stCountQtyEl.value = '1';
+            stCountQtyEl.focus();
+            stCountQtyEl.select();
+        });
+        stCountQtyEl.addEventListener('keydown', (e) => {
+            if (e.key !== 'Enter') return;
+            e.preventDefault();
+            submitCount();
+        });
     }
 
     function statusBadge(status) {
@@ -390,6 +508,7 @@
     }
 
     loadHistory();
+    updateSoundToggleBtn();
 </script>
 </body>
 </html>
