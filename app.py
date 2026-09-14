@@ -588,6 +588,16 @@ def init_db():
         # ngoài việc phải giống nhau ở mọi lần gọi init_db().
         cursor.execute("SELECT pg_advisory_xact_lock(727270001)")
 
+        # Giới hạn thời gian chờ khoá cho các câu ALTER/CREATE TABLE bên
+        # dưới (chỉ áp dụng trong TRANSACTION hiện tại - SET LOCAL tự huỷ khi
+        # transaction kết thúc). Nếu 1 câu DDL nào đó phải chờ khoá quá 10
+        # giây (VD: do trùng lúc traffic thật đang chạy trên instance cũ lúc
+        # rolling deploy), Postgres sẽ báo lỗi "lock not available" ngay thay
+        # vì chờ vô thời hạn rồi có thể rơi vào deadlock thật sự - lỗi này
+        # được _init_db_with_retry() ở cuối file bắt lại và tự thử lại sau
+        # vài giây.
+        cursor.execute("SET LOCAL lock_timeout = '10s'")
+
         # 1. Tạo bảng users
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS users (
@@ -6355,7 +6365,37 @@ app.register_blueprint(price_adjustment_bp)
 
 # Tự động gọi khởi tạo bảng khi chạy app (gọi SAU khi đã đăng ký blueprint
 # ở trên, vì init_db() bên trong có gọi init_stocktake_tables()).
-init_db()
+#
+# BỌC RETRY khi gặp deadlock: Render triển khai kiểu "rolling deploy" -
+# instance MỚI (đang chạy init_db() để migrate schema) có thể khởi động
+# trong lúc instance CŨ vẫn đang phục vụ traffic thật (đang có transaction
+# khác giữ khoá trên cùng bảng/table khác theo thứ tự ngược lại). Postgres
+# phát hiện ra vòng chờ chéo đó sẽ tự huỷ 1 trong 2 transaction bằng lỗi
+# "deadlock detected" - nếu chẳng may rơi vào transaction migrate của
+# init_db(), cả process gunicorn sập ngay lúc khởi động (không tự phục hồi).
+# Vì các câu lệnh trong init_db() đều là CREATE/ALTER ... IF NOT EXISTS (an
+# toàn để chạy lại nhiều lần), retry lại từ đầu vài lần với khoảng nghỉ tăng
+# dần là đủ để vượt qua tình huống va chạm ngắn hạn này mà không cần sửa gì
+# thêm ở phần logic migrate.
+def _init_db_with_retry(max_attempts=5, base_delay_seconds=3):
+    for attempt in range(1, max_attempts + 1):
+        try:
+            init_db()
+            return
+        except (psycopg2.errors.DeadlockDetected, psycopg2.errors.LockNotAvailable) as e:
+            try:
+                get_db().rollback()
+            except Exception:
+                pass
+            if attempt >= max_attempts:
+                raise
+            wait_seconds = base_delay_seconds * attempt
+            print(f'[init_db] Lần {attempt}/{max_attempts} gặp lỗi khoá DB ({e.__class__.__name__}) - '
+                  f'thử lại sau {wait_seconds}s...', flush=True)
+            time.sleep(wait_seconds)
+
+
+_init_db_with_retry()
 
 if __name__ == '__main__':
     # LƯU Ý: không chạy file này trực tiếp (`python3 app.py`) - hãy chạy
