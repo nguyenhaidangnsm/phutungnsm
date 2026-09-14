@@ -1869,6 +1869,7 @@
                             </button>
                             <ul class="dropdown-menu p-2 shadow-sm" style="min-width: 240px;">
                                 <li><label class="dropdown-item d-flex align-items-center gap-2 py-1 rounded"><input type="checkbox" class="form-check-input m-0 status-filter-checkbox" value="pending" onchange="onTransferStatusFilterChange('transfer-received-status-filter', renderReceivedTransfers)"> Chờ Xử Lý</label></li>
+                                <li><label class="dropdown-item d-flex align-items-center gap-2 py-1 rounded"><input type="checkbox" class="form-check-input m-0 status-filter-checkbox" value="approved_not_prepared" onchange="onTransferStatusFilterChange('transfer-received-status-filter', renderReceivedTransfers)"> Đã Đồng Ý (Chưa Soạn Hàng)</label></li>
                                 <li><label class="dropdown-item d-flex align-items-center gap-2 py-1 rounded"><input type="checkbox" class="form-check-input m-0 status-filter-checkbox" value="approved_pending_receipt" onchange="onTransferStatusFilterChange('transfer-received-status-filter', renderReceivedTransfers)"> Đã Đồng Ý (Chưa Nhận Đủ)</label></li>
                                 <li><label class="dropdown-item d-flex align-items-center gap-2 py-1 rounded"><input type="checkbox" class="form-check-input m-0 status-filter-checkbox" value="approved_received" onchange="onTransferStatusFilterChange('transfer-received-status-filter', renderReceivedTransfers)"> Đã Nhận Đủ Hàng</label></li>
                                 <li><label class="dropdown-item d-flex align-items-center gap-2 py-1 rounded"><input type="checkbox" class="form-check-input m-0 status-filter-checkbox" value="rejected" onchange="onTransferStatusFilterChange('transfer-received-status-filter', renderReceivedTransfers)"> Đã Từ Chối</label></li>
@@ -1978,6 +1979,7 @@
                             </button>
                             <ul class="dropdown-menu p-2 shadow-sm" style="min-width: 240px;">
                                 <li><label class="dropdown-item d-flex align-items-center gap-2 py-1 rounded"><input type="checkbox" class="form-check-input m-0 status-filter-checkbox" value="pending" onchange="onTransferStatusFilterChange('transfer-sent-status-filter', renderSentTransfers)"> Chờ Xử Lý</label></li>
+                                <li><label class="dropdown-item d-flex align-items-center gap-2 py-1 rounded"><input type="checkbox" class="form-check-input m-0 status-filter-checkbox" value="approved_not_prepared" onchange="onTransferStatusFilterChange('transfer-sent-status-filter', renderSentTransfers)"> Đã Đồng Ý (Chưa Soạn Hàng)</label></li>
                                 <li><label class="dropdown-item d-flex align-items-center gap-2 py-1 rounded"><input type="checkbox" class="form-check-input m-0 status-filter-checkbox" value="approved_pending_receipt" onchange="onTransferStatusFilterChange('transfer-sent-status-filter', renderSentTransfers)"> Đã Đồng Ý (Chưa Nhận Đủ)</label></li>
                                 <li><label class="dropdown-item d-flex align-items-center gap-2 py-1 rounded"><input type="checkbox" class="form-check-input m-0 status-filter-checkbox" value="approved_received" onchange="onTransferStatusFilterChange('transfer-sent-status-filter', renderSentTransfers)"> Đã Nhận Đủ Hàng</label></li>
                                 <li><label class="dropdown-item d-flex align-items-center gap-2 py-1 rounded"><input type="checkbox" class="form-check-input m-0 status-filter-checkbox" value="rejected" onchange="onTransferStatusFilterChange('transfer-sent-status-filter', renderSentTransfers)"> Đã Từ Chối</label></li>
@@ -2357,6 +2359,7 @@
                             </button>
                             <ul class="dropdown-menu p-2 shadow-sm" style="min-width: 240px;">
                                 <li><label class="dropdown-item d-flex align-items-center gap-2 py-1 rounded"><input type="checkbox" class="form-check-input m-0 status-filter-checkbox" value="pending" onchange="onTransferStatusFilterChange('transfer-admin-status-filter', renderAdminTransfers)"> Chờ Xử Lý</label></li>
+                                <li><label class="dropdown-item d-flex align-items-center gap-2 py-1 rounded"><input type="checkbox" class="form-check-input m-0 status-filter-checkbox" value="approved_not_prepared" onchange="onTransferStatusFilterChange('transfer-admin-status-filter', renderAdminTransfers)"> Đã Đồng Ý (Chưa Soạn Hàng)</label></li>
                                 <li><label class="dropdown-item d-flex align-items-center gap-2 py-1 rounded"><input type="checkbox" class="form-check-input m-0 status-filter-checkbox" value="approved_pending_receipt" onchange="onTransferStatusFilterChange('transfer-admin-status-filter', renderAdminTransfers)"> Đã Đồng Ý (Chưa Nhận Đủ)</label></li>
                                 <li><label class="dropdown-item d-flex align-items-center gap-2 py-1 rounded"><input type="checkbox" class="form-check-input m-0 status-filter-checkbox" value="approved_received" onchange="onTransferStatusFilterChange('transfer-admin-status-filter', renderAdminTransfers)"> Đã Nhận Đủ Hàng</label></li>
                                 <li><label class="dropdown-item d-flex align-items-center gap-2 py-1 rounded"><input type="checkbox" class="form-check-input m-0 status-filter-checkbox" value="rejected" onchange="onTransferStatusFilterChange('transfer-admin-status-filter', renderAdminTransfers)"> Đã Từ Chối</label></li>
@@ -5545,6 +5548,7 @@ if (storeLocationForm) {
     function transferMatchesStatusFilter(r, values) {
         if (!values || values.length === 0) return true;
         return values.some(value => {
+            if (value === 'approved_not_prepared') return r.status === 'approved' && !r.prepared;
             if (value === 'approved_pending_receipt') return r.status === 'approved' && !r.all_received;
             if (value === 'approved_received') return r.status === 'approved' && !!r.all_received;
             return r.status === value;
