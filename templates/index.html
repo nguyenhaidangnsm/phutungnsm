@@ -4816,7 +4816,8 @@ async function saveLocationRow(btn, partCode) {
                 const res = await fetch('/api/price-adjustment/import', { method: 'POST', body: formData });
                 const result = await res.json();
                 if (res.ok && result.success) {
-                    showToast('Đã import', `Đã nạp ${result.total_imported.toLocaleString()} mã hàng từ sheet "${result.sheet_name}" (bỏ qua ${result.skipped_rows.toLocaleString()} dòng không hợp lệ).`, 'success');
+                    const dupTxt = result.duplicate_skipped ? `, bỏ qua ${result.duplicate_skipped.toLocaleString()} dòng đã import trùng trước đó` : '';
+                    showToast('Đã import', `Đã nạp ${result.total_imported.toLocaleString()} mã hàng từ sheet "${result.sheet_name}" (bỏ qua ${result.skipped_rows.toLocaleString()} dòng không hợp lệ${dupTxt}).`, 'success');
                     document.getElementById('price-adj-import-file-name').innerText = '';
                     document.getElementById('price_adj_import_file').value = '';
                     loadPriceAdjustmentList();

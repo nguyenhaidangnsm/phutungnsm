@@ -76,6 +76,14 @@ def init_price_adjustment_tables(cursor):
     ''')
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_price_adj_proposals_part ON price_adjustment_proposals(part_code)')
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_price_adj_proposals_created ON price_adjustment_proposals(created_at DESC)')
+    # Index GHÉP (part_code, created_at DESC) - tối ưu riêng cho câu
+    # "DISTINCT ON (part_code) ... ORDER BY part_code, created_at DESC" ở CTE
+    # `latest` trong list_price_adjustments(): không có index này, Postgres
+    # phải tự sort toàn bộ bảng proposals theo (part_code, created_at) mỗi
+    # lần tải danh sách; có index này thì chỉ cần index-scan, đặc biệt quan
+    # trọng khi bảng phình to sau khi import hàng loạt (hàng chục nghìn dòng
+    # / lần import).
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_price_adj_proposals_part_created ON price_adjustment_proposals(part_code, created_at DESC)')
 
 
 def _round_to_thousand(value):
@@ -305,14 +313,44 @@ def price_adjustment_import():
         dedup = {r['part_code']: r for r in rows}
         rows = list(dedup.values())
 
-        execute_values(
-            cursor,
-            '''INSERT INTO price_adjustment_proposals
-                (part_code, part_name, thue, gia_de_xuat_hvn, gia_ban, store_code, created_by, created_at)
-               VALUES %s''',
-            [(r['part_code'], r['part_name'], r['thue'], r['gia_de_xuat_hvn'],
-              r['gia_ban'], None, created_by, r['created_at']) for r in rows]
-        )
+        # TỐI ƯU LƯU TRỮ: nếu admin import lại ĐÚNG file này lần nữa (vô
+        # tình hoặc để chắc chắn không sót mã), không ghi trùng thêm 1 dòng
+        # lịch sử giống hệt cho mỗi mã hàng - so khớp với các dòng do IMPORT
+        # tạo ra trước đó (created_by LIKE 'Import Excel%') có CÙNG mã hàng +
+        # CÙNG giá + CÙNG ngày điều chỉnh; chỉ những dòng thực sự mới/khác
+        # (giá thay đổi, ngày khác, hoặc mã chưa từng import) mới được ghi
+        # thêm. Không đụng tới các đề xuất NHẬP TAY (vẫn giữ nguyên hành vi
+        # "mỗi lần đề xuất là 1 dòng lịch sử" như trước).
+        part_codes = [r['part_code'] for r in rows]
+        cursor.execute('''
+            SELECT part_code, gia_ban, created_at
+            FROM price_adjustment_proposals
+            WHERE part_code = ANY(%s) AND created_by LIKE 'Import Excel%%'
+        ''', (part_codes,))
+        already_imported = {
+            (r['part_code'], round(float(r['gia_ban'])), r['created_at'].date())
+            for r in cursor.fetchall()
+        }
+        rows = [
+            r for r in rows
+            if (r['part_code'], round(float(r['gia_ban'])), r['created_at'].date()) not in already_imported
+        ]
+        duplicate_skipped = len(part_codes) - len(rows)
+
+        if rows:
+            # page_size lớn hơn mặc định (100) để giảm số round-trip DB khi
+            # import file lớn (file mẫu ~46,000 dòng) - vẫn dùng execute_values
+            # (gửi theo lô) chứ không insert từng dòng 1 (rất chậm với dữ
+            # liệu cỡ này).
+            execute_values(
+                cursor,
+                '''INSERT INTO price_adjustment_proposals
+                    (part_code, part_name, thue, gia_de_xuat_hvn, gia_ban, store_code, created_by, created_at)
+                   VALUES %s''',
+                [(r['part_code'], r['part_name'], r['thue'], r['gia_de_xuat_hvn'],
+                  r['gia_ban'], None, created_by, r['created_at']) for r in rows],
+                page_size=1000
+            )
 
         # Mã nào chưa có trong tồn kho hệ thống -> lưu vào "danh mục mã mới"
         # (giống hệt logic trong price_adjustment_propose()), để lần đề xuất
@@ -331,7 +369,8 @@ def price_adjustment_import():
                    ON CONFLICT (part_code) DO UPDATE SET
                        part_name = EXCLUDED.part_name,
                        thue = EXCLUDED.thue''',
-                new_code_rows
+                new_code_rows,
+                page_size=1000
             )
 
         db.commit()
@@ -339,6 +378,7 @@ def price_adjustment_import():
             'success': True,
             'sheet_name': sheet_name,
             'total_imported': len(rows),
+            'duplicate_skipped': duplicate_skipped,
             'skipped_rows': skipped_rows,
         })
     except Exception as e:
@@ -444,7 +484,11 @@ def price_adjustment_list():
     _cleanup_new_codes_dedup(cursor)
     db.commit()
 
-    base_cte = '''
+    # CTE dùng chung (catalog = hợp mọi mã hàng cần theo dõi, latest = lần đề
+    # xuất gần nhất của mỗi mã) - tách riêng phần "WITH ... )" này ra khỏi
+    # phần SELECT cụ thể để dùng lại cho CẢ câu đếm số lượng LẪN câu lấy dữ
+    # liệu phân trang bên dưới, tránh lặp lại 2 khối CTE giống hệt nhau.
+    catalog_and_latest_cte = '''
         WITH catalog AS (
             SELECT part_code, MIN(part_name) AS part_name
             FROM inventory_items
@@ -459,6 +503,8 @@ def price_adjustment_list():
             FROM price_adjustment_proposals
             ORDER BY part_code, created_at DESC
         )
+    '''
+    base_cte = catalog_and_latest_cte + '''
         SELECT c.part_code,
                COALESCE(l.proposal_part_name, c.part_name) AS part_name,
                l.thue, l.gia_de_xuat_hvn, l.gia_ban, l.store_code, l.created_by, l.created_at
@@ -483,6 +529,12 @@ def price_adjustment_list():
     # badge/tiêu đề trên giao diện, tính RIÊNG với đúng bộ lọc tìm kiếm q
     # (không phụ thuộc status đang chọn) để 2 con số này luôn khớp nhau dù
     # người dùng đang xem tab nào.
+    #
+    # TỐI ƯU: đếm bằng COUNT(*) FILTER (...) ngay trong SQL thay vì fetchall()
+    # toàn bộ danh mục (có thể tới hàng chục nghìn dòng, đủ 8 cột/dòng) về
+    # Python rồi mới đếm bằng vòng lặp - vừa tốn băng thông giữa app<->DB, vừa
+    # tốn RAM giữ tạm danh sách chỉ để lấy 2 con số. Câu này chỉ trả về đúng
+    # 1 dòng kết quả (2 số) bất kể danh mục lớn cỡ nào.
     count_where = []
     count_params = []
     if q:
@@ -492,12 +544,17 @@ def price_adjustment_list():
     count_where_sql = (' WHERE ' + ' AND '.join(count_where)) if count_where else ''
 
     cursor.execute(f'''
-        {base_cte}
+        {catalog_and_latest_cte}
+        SELECT
+            COUNT(*) FILTER (WHERE l.created_at IS NOT NULL) AS total_adjusted,
+            COUNT(*) FILTER (WHERE l.created_at IS NULL) AS total_not_adjusted
+        FROM catalog c
+        LEFT JOIN latest l ON l.part_code = c.part_code
         {count_where_sql}
     ''', count_params)
-    all_rows_for_count = cursor.fetchall()
-    total_adjusted = sum(1 for r in all_rows_for_count if r['created_at'] is not None)
-    total_not_adjusted = len(all_rows_for_count) - total_adjusted
+    count_row = cursor.fetchone()
+    total_adjusted = count_row['total_adjusted']
+    total_not_adjusted = count_row['total_not_adjusted']
 
     cursor.execute(f'''
         {base_cte}
