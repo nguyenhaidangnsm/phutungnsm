@@ -1860,7 +1860,7 @@
                         <input type="number" id="price-adj-thue" class="form-control form-control-sm" min="0" max="100" step="any" placeholder="VD: 8" required oninput="recalcPriceAdjGiaBan()">
                     </div>
                     <div class="col-6 col-md-2">
-                        <label class="form-label small mb-1">Giá cũ</label>
+                        <label class="form-label small mb-1">Giá đề xuất HVN</label>
                         <input type="number" id="price-adj-gia-hvn" class="form-control form-control-sm" min="0" step="any" placeholder="0" required oninput="recalcPriceAdjGiaBan()">
                     </div>
                     <div class="col-6 col-md-2">
@@ -1874,7 +1874,7 @@
                         <button type="submit" class="btn btn-primary btn-sm w-100 fw-semibold"><i class="bi bi-save me-1"></i>Lưu Đề Xuất</button>
                     </div>
                 </form>
-                <p class="text-muted small mt-2 mb-0"><i class="bi bi-info-circle me-1"></i>Giá bán = (Giá đề xuất HVN × Thuế) + Giá đề xuất HVN, làm tròn đến hàng nghìn. Mã hàng chưa có trong hệ thống sẽ được tự động lưu vào danh mục để lần sau tự hiện lại Tên/Thuế.</p>
+                <p class="text-muted small mt-2 mb-0"><i class="bi bi-info-circle me-1"></i>Giá cũ = (Giá đề xuất HVN × Thuế) + Giá đề xuất HVN. Giá bán = Giá cũ + 5% Giá cũ, làm tròn đến hàng nghìn. Mã hàng chưa có trong hệ thống sẽ được tự động lưu vào danh mục để lần sau tự hiện lại Tên/Thuế.</p>
             </div>
 
             {% if role == 'admin' %}
@@ -1928,8 +1928,8 @@
                             <tr>
                                 <th>Mã Hàng</th>
                                 <th>Tên Hàng</th>
-                                <th class="text-end">Thuế</th>
-                                <th class="text-end">Giá Đề Xuất HVN</th>
+                                <th class="text-end">% Tăng Giá</th>
+                                <th class="text-end">Giá Cũ</th>
                                 <th class="text-end">Giá Bán</th>
                                 <th>Người Đề Xuất</th>
                                 <th>Ngày Điều Chỉnh</th>
@@ -4749,13 +4749,21 @@ async function saveLocationRow(btn, partCode) {
         const thue = parseFloat(document.getElementById('price-adj-thue').value);
         const giaHvn = parseFloat(document.getElementById('price-adj-gia-hvn').value);
         const out = document.getElementById('price-adj-gia-ban');
+        const hintEl = document.getElementById('price-adj-hint');
         if (isNaN(thue) || isNaN(giaHvn) || giaHvn <= 0) {
             out.value = '-';
             return;
         }
-        const raw = (giaHvn * (thue / 100)) + giaHvn;
-        const rounded = Math.round(raw / 1000) * 1000;
-        out.value = rounded.toLocaleString() + 'đ';
+        // Bước 1: Giá cũ = (Giá đề xuất HVN * Thuế) + Giá đề xuất HVN
+        const rawGiaCu = (giaHvn * (thue / 100)) + giaHvn;
+        const giaCu = Math.round(rawGiaCu / 1000) * 1000;
+        // Bước 2: Giá bán = Giá cũ + 5% Giá cũ (5% cố định, không dùng Thuế)
+        const rawGiaBan = (giaCu * 0.05) + giaCu;
+        const giaBan = Math.round(rawGiaBan / 1000) * 1000;
+        out.value = giaBan.toLocaleString() + 'đ';
+        if (hintEl) {
+            hintEl.innerHTML = `<span class="text-muted">Giá cũ: ${giaCu.toLocaleString()}đ &rarr; Giá bán (+5%): ${giaBan.toLocaleString()}đ</span>`;
+        }
     }
 
     async function submitPriceAdjustmentProposal(event) {
@@ -4782,7 +4790,7 @@ async function saveLocationRow(btn, partCode) {
             });
             const result = await res.json();
             if (res.ok && result.success) {
-                showToast('Đã lưu', `Đã đề xuất tăng giá cho mã ${result.part_code} - Giá bán: ${fmtPriceAdjMoney(result.gia_ban)}`, 'success');
+                showToast('Đã lưu', `Đã đề xuất tăng giá cho mã ${result.part_code} - Giá cũ: ${fmtPriceAdjMoney(result.gia_cu)} → Giá bán: ${fmtPriceAdjMoney(result.gia_ban)}`, 'success');
                 document.getElementById('price-adj-form').reset();
                 document.getElementById('price-adj-gia-ban').value = '-';
                 document.getElementById('price-adj-hint').innerHTML = '';

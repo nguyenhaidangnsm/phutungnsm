@@ -86,6 +86,13 @@ def init_price_adjustment_tables(cursor):
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_price_adj_proposals_part_created ON price_adjustment_proposals(part_code, created_at DESC)')
 
 
+_GIA_TANG_RATE = 0.05  # Mức % tăng giá cố định áp dụng ở Bước 2 của form đề
+                        # xuất 1 mã (Giá bán = Giá cũ + 5% Giá cũ), và cũng
+                        # là ý nghĩa thống nhất của cột "thue" trong bảng
+                        # price_adjustment_proposals cho MỌI dòng (thủ công
+                        # lẫn import) - xem price_adjustment_propose().
+
+
 def _round_to_thousand(value):
     """Làm tròn đến hàng nghìn (VD: 1607550 -> 1608000), khớp với quy ước
     'GIÁ BÁN (ĐÃ VAT) LÀM TRÒN' luôn là số tròn 1,000đ trong file Excel mẫu
@@ -96,8 +103,29 @@ def _round_to_thousand(value):
 def _compute_gia_ban(gia_de_xuat_hvn, thue_frac):
     """Gía bán = (Giá đề xuất HVN * Thuế) + Giá đề xuất HVN, làm tròn đến
     hàng nghìn. thue_frac là số thập phân (0.08 = 8%), KHÔNG phải số phần
-    trăm nguyên (8)."""
+    trăm nguyên (8). Dùng cho IMPORT HÀNG LOẠT từ file Excel "ĐÃ ĐIỀU
+    CHỈNH" (ở đó cột "Giá cũ" trong file + "% tăng giá" đã trực tiếp cho ra
+    giá bán lịch sử, đúng 1 bước) - KHÔNG dùng hàm này cho form đề xuất 1 mã
+    (xem _compute_gia_cu / _compute_gia_ban_tu_gia_cu bên dưới, dùng công
+    thức 2 bước riêng)."""
     raw = (gia_de_xuat_hvn * thue_frac) + gia_de_xuat_hvn
+    return _round_to_thousand(raw)
+
+
+def _compute_gia_cu(gia_de_xuat_hvn, thue_frac):
+    """BƯỚC 1 (dùng cho form "Đề Xuất Tăng Giá 1 Mã Hàng"):
+    Giá cũ = (Giá đề xuất HVN * Thuế) + Giá đề xuất HVN, làm tròn đến hàng
+    nghìn. Đây là giá bán hiện tại (đã gồm thuế) TRƯỚC KHI cộng thêm 5% tăng
+    giá ở bước 2."""
+    return _compute_gia_ban(gia_de_xuat_hvn, thue_frac)
+
+
+def _compute_gia_ban_tu_gia_cu(gia_cu):
+    """BƯỚC 2 (dùng cho form "Đề Xuất Tăng Giá 1 Mã Hàng"):
+    Giá bán (giá tăng) = (Giá cũ * 5%) + Giá cũ, làm tròn đến hàng nghìn.
+    Mức 5% ở bước này CỐ ĐỊNH, không liên quan tới Thuế (%) mà người dùng
+    nhập ở bước 1 - Thuế chỉ dùng để tính ra Giá cũ."""
+    raw = (gia_cu * _GIA_TANG_RATE) + gia_cu
     return _round_to_thousand(raw)
 
 
@@ -153,6 +181,17 @@ def _find_existing_part_name(cursor, part_code):
 
 _IMPORT_SHEET_NAME_CANDIDATES = ('đã điều chỉnh', 'da dieu chinh')
 
+# Vị trí cột CỐ ĐỊNH trong file Excel mẫu "ĐÃ ĐIỀU CHỈNH ... KHI ĐÃ TẠO
+# HÀNG KHẢN..." mà admin dùng để import hàng loạt: cột B = Mã hàng, cột E =
+# Giá cũ (có VAT), cột F = % Tăng giá (Thuế). Dùng vị trí cột cố định thay
+# vì dò theo tên tiêu đề cho 3 cột này, vì file có nhiều cột trùng/gần
+# giống tên (VD cột C cũng chứa Mã hàng nhưng không có tiêu đề) dễ gây dò
+# nhầm; Tên hàng/Giá bán/Ngày cập nhật vẫn dò theo tên tiêu đề như cũ vì vị
+# trí các cột này có thể đổi chỗ giữa các lần xuất file.
+_IMPORT_COL_PART_CODE = openpyxl.utils.column_index_from_string('B')
+_IMPORT_COL_GIA_CU = openpyxl.utils.column_index_from_string('E')
+_IMPORT_COL_THUE = openpyxl.utils.column_index_from_string('F')
+
 
 def _norm_header(v):
     return str(v or '').strip().lower()
@@ -201,22 +240,17 @@ def _parse_price_adjustment_import(file_storage):
     if header_row_idx is None:
         raise ValueError('Không tìm thấy dòng tiêu đề (cần có cột "Mã hàng") trong file.')
 
-    col_part_code = _find_header_col(header_cells, ['mã hàng'])
+    col_part_code = _IMPORT_COL_PART_CODE
     col_part_name = _find_header_col(header_cells, ['tên hàng'])
-    col_gia_cu = (_find_header_col(header_cells, ['giá cũ'])
-                  or _find_header_col(header_cells, ['giá đề xuất']))
-    col_thue = (_find_header_col(header_cells, ['tăng giá'])
-                or _find_header_col(header_cells, ['thuế']))
+    col_gia_cu = _IMPORT_COL_GIA_CU
+    col_thue = _IMPORT_COL_THUE
     col_gia_ban = (_find_header_col(header_cells, ['giá bán', 'làm tròn'])
                    or _find_header_col(header_cells, ['giá bán']))
     col_ngay = (_find_header_col(header_cells, ['ngày cập nhật'])
                 or _find_header_col(header_cells, ['ngày']))
 
-    if not col_part_code or not col_gia_cu or not col_thue:
-        raise ValueError(
-            'File thiếu cột bắt buộc: cần có "Mã hàng", "Giá cũ (có VAT)" '
-            '(hoặc "Giá đề xuất") và "Tăng giá"/"Thuế".'
-        )
+    if header_cells.get(col_part_code) is None or 'mã hàng' not in (header_cells.get(col_part_code) or ''):
+        raise ValueError('Cột B trong file không phải là "Mã hàng" - kiểm tra lại cấu trúc file.')
 
     rows = []
     skipped_rows = 0
@@ -626,17 +660,34 @@ def price_adjustment_propose():
         if not part_name:
             return jsonify({'error': 'Mã hàng này chưa có trong hệ thống - vui lòng nhập Tên hàng.'}), 400
 
-        gia_ban = _compute_gia_ban(gia_de_xuat_hvn, thue_frac)
+        # Công thức 2 bước cho form đề xuất 1 mã (KHÁC với import hàng loạt):
+        #   Bước 1 - Giá cũ = (Giá đề xuất HVN * Thuế) + Giá đề xuất HVN
+        #   Bước 2 - Giá bán = (Giá cũ * 5%) + Giá cũ, làm tròn hàng nghìn
+        gia_cu = _compute_gia_cu(gia_de_xuat_hvn, thue_frac)
+        gia_ban = _compute_gia_ban_tu_gia_cu(gia_cu)
         now = vn_now()
         actor = _current_actor_name()
         store_code = session.get('store_code') if session.get('role') == 'store' else None
 
+        # QUAN TRỌNG: bảng price_adjustment_proposals (lịch sử) chỉ có 2 cột
+        # số dùng chung cho cả đề xuất thủ công lẫn import hàng loạt: "thue"
+        # và "gia_de_xuat_hvn". Để 2 cột này LUÔN mang đúng 1 ý nghĩa nhất
+        # quán dù dữ liệu đến từ đâu (tránh hiển thị sai như khi trước: cột
+        # "THUẾ" trên UI hoá ra lại là % tăng giá, cột "GIÁ ĐỀ XUẤT HVN" hoá
+        # ra lại là Giá cũ), ta LƯU:
+        #   - "thue"            = _GIA_TANG_RATE (5% - đúng % tăng giá đã áp
+        #                          dụng ở Bước 2, GIỐNG cột "TĂNG GIÁ 5%" của
+        #                          file import) - KHÔNG lưu Thuế (%) người
+        #                          dùng gõ ở Bước 1 (giá trị đó chỉ là bước
+        #                          đệm để tính ra Giá cũ, không cần giữ lại).
+        #   - "gia_de_xuat_hvn" = gia_cu (Giá cũ đã tính ở Bước 1) - KHÔNG
+        #                          lưu Giá đề xuất HVN người dùng gõ.
         cursor.execute('''
             INSERT INTO price_adjustment_proposals
                 (part_code, part_name, thue, gia_de_xuat_hvn, gia_ban, store_code, created_by, created_at)
             VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
             RETURNING id
-        ''', (part_code, part_name, thue_frac, gia_de_xuat_hvn, gia_ban, store_code, actor, now))
+        ''', (part_code, part_name, _GIA_TANG_RATE, gia_cu, gia_ban, store_code, actor, now))
         new_id = cursor.fetchone()['id']
 
         # Mã mới (chưa có trong tồn kho hệ thống) -> tự động lưu vào danh mục
@@ -660,6 +711,7 @@ def price_adjustment_propose():
             'part_name': part_name,
             'thue': thue_percent,
             'gia_de_xuat_hvn': gia_de_xuat_hvn,
+            'gia_cu': gia_cu,
             'gia_ban': gia_ban,
             'created_by': actor,
             'created_at': now.strftime('%d/%m/%Y %H:%M'),
