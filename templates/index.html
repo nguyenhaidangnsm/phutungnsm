@@ -1878,7 +1878,8 @@
                             </ul>
                         </div>
                     </div>
-                    <div class="col-12 col-md-4 d-flex justify-content-md-end">
+                    <div class="col-12 col-md-4 d-flex justify-content-md-end gap-2">
+                        <button class="btn btn-outline-success btn-sm text-nowrap" onclick="exportSelectedTransfersToExcel()"><i class="bi bi-file-earmark-excel me-1"></i> Xuất Excel</button>
                         <button class="btn btn-outline-primary btn-sm text-nowrap" onclick="printSelectedTransfers()"><i class="bi bi-printer me-1"></i> In Phiếu Đã Chọn (<span id="transfer-selected-count">0</span>)</button>
                     </div>
                 </div>
@@ -1986,7 +1987,8 @@
                             </ul>
                         </div>
                     </div>
-                    <div class="col-12 col-md-4 d-flex justify-content-md-end">
+                    <div class="col-12 col-md-4 d-flex justify-content-md-end gap-2">
+                        <button class="btn btn-outline-success btn-sm text-nowrap" onclick="exportSelectedTransfersToExcel()"><i class="bi bi-file-earmark-excel me-1"></i> Xuất Excel</button>
                         <button class="btn btn-outline-primary btn-sm text-nowrap" onclick="printSelectedTransfers()"><i class="bi bi-printer me-1"></i> In Phiếu Đã Chọn (<span id="transfer-selected-count-2">0</span>)</button>
                     </div>
                 </div>
@@ -5758,6 +5760,59 @@ if (storeLocationForm) {
         const printArea = document.getElementById('print-area');
         printArea.innerHTML = toPrint.map(buildPrintPageForTransfer).join('');
         window.print();
+    }
+
+    // Xuất Excel các phiếu luân chuyển nội bộ ĐANG ĐƯỢC TICK CHỌN (dùng
+    // chung bộ chọn selectedTransferIds với nút "In Phiếu Đã Chọn" ở trên -
+    // tick 1 lần, dùng được cho cả in lẫn xuất Excel). Mỗi mã hàng trong
+    // phiếu là 1 dòng riêng (phiếu nào nhiều mã hàng thì các thông tin
+    // chung của phiếu lặp lại ở từng dòng) để dễ lọc/tổng hợp trong Excel;
+    // phiếu không có mã hàng nào vẫn xuất ra đúng 1 dòng (cột mã hàng để
+    // trống) để không bị mất khỏi file.
+    function exportSelectedTransfersToExcel() {
+        if (selectedTransferIds.size === 0) {
+            alert('Vui lòng tick chọn ít nhất 1 phiếu ở cột đầu bảng để xuất Excel.');
+            return;
+        }
+        const all = window._lastTransferRequests || [];
+        const toExport = all.filter(r => selectedTransferIds.has(r.id));
+        if (toExport.length === 0) {
+            alert('Không tìm thấy phiếu đã chọn (dữ liệu có thể vừa được tải lại), vui lòng chọn lại.');
+            return;
+        }
+
+        const rows = [];
+        toExport.forEach(r => {
+            const noteText = r.status === 'rejected' ? (r.reject_reason || '') : (r.note || '');
+            const baseInfo = {
+                'Mã Phiếu': r.id,
+                'Cửa Hàng Chuyển': r.to_store || '',
+                'Cửa Hàng Nhận': r.from_store || '',
+                'Trạng Thái': TRANSFER_STATUS_LABELS_PLAIN[r.status] || r.status || '',
+                'Người Tạo': r.created_employee || '',
+                'Người Xác Nhận': r.confirmed_employee || '',
+                'Thời Gian Gửi': r.created_at || '',
+                'Ghi Chú': noteText,
+            };
+            const items = (r.items && r.items.length) ? r.items : [null];
+            items.forEach(it => {
+                rows.push({
+                    ...baseInfo,
+                    'Mã Hàng': it ? it.part_code : '',
+                    'Tên Hàng': it ? (it.part_name || '') : '',
+                    'Số Lượng Xin': it ? Number(it.quantity || 0) : '',
+                    'Số Lượng Duyệt': it
+                        ? (it.quantity_adjusted ? Number(it.approved_quantity || 0) : Number(it.quantity || 0))
+                        : '',
+                    'Đã Nhận': it ? (it.received ? 'Đã nhận' : 'Chưa nhận') : '',
+                });
+            });
+        });
+
+        const ws = XLSX.utils.json_to_sheet(rows);
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, ws, 'PhieuLuanChuyen');
+        XLSX.writeFile(wb, `Phieu_Luan_Chuyen_Da_Chon_${new Date().toISOString().slice(0,10)}.xlsx`);
     }
 
     function printSingleTransfer(id) {

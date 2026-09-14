@@ -135,6 +135,8 @@
             <div class="d-flex flex-wrap justify-content-between align-items-center mb-2 gap-2">
                 <h6 class="fw-semibold mb-0">Bảng Đối Chiếu</h6>
                 <div class="d-flex gap-2">
+                    <input type="file" id="st-import-sales-file" accept=".xlsx,.xls" style="display:none" onchange="importSalesFile(this)">
+                    <button type="button" class="btn btn-outline-primary btn-sm" onclick="document.getElementById('st-import-sales-file').click()"><i class="bi bi-upload"></i> Import Xuất Kho (Bán Ra)</button>
                     <a class="btn btn-outline-success btn-sm" id="st-export-link" href="#"><i class="bi bi-file-earmark-excel"></i> Xuất Excel</a>
                     <button type="button" class="btn btn-danger btn-sm" id="st-close-btn" onclick="closeSession()"><i class="bi bi-lock-fill"></i> Chốt Kiểm Kê</button>
                 </div>
@@ -205,7 +207,10 @@
     <!-- Lịch sử -->
     <div class="card shadow-sm">
         <div class="card-body">
-            <h6 class="fw-semibold mb-2">Lịch Sử Kiểm Kê</h6>
+            <div class="d-flex justify-content-between align-items-center mb-2">
+                <h6 class="fw-semibold mb-0">Lịch Sử Kiểm Kê</h6>
+                <button type="button" class="btn btn-outline-danger btn-sm" onclick="purgeStoreData()"><i class="bi bi-trash3"></i> Xoá Dữ Liệu Kiểm Kê Cửa Hàng</button>
+            </div>
             <div class="table-responsive">
                 <table class="table table-sm">
                     <thead class="table-light"><tr><th>Mã</th><th>Cửa Hàng</th><th>Chốt Sổ</th><th>Trạng Thái</th><th>Người Tạo</th><th>Chốt Lúc</th><th></th></tr></thead>
@@ -774,6 +779,32 @@
     document.getElementById('st-filter-part').addEventListener('input', applyLogFilters);
     document.getElementById('st-filter-area').addEventListener('change', applyLogFilters);
 
+    async function importSalesFile(input) {
+        const file = input.files[0];
+        input.value = ''; // cho phép chọn lại đúng file đó lần sau nếu cần
+        if (!file || !currentSession) return;
+
+        const fd = new FormData();
+        fd.append('file', file);
+
+        try {
+            const res = await fetch(`/api/stocktake/${currentSession.id}/import-sales`, {
+                method: 'POST', body: fd
+            });
+            const result = await res.json();
+            if (!res.ok || !result.success) { alert('Lỗi: ' + (result.error || 'Không import được.')); return; }
+
+            let msg = `Đã cộng "Bán ra" cho ${result.imported} mã hàng.`;
+            if (result.skipped > 0) msg += `\nBỏ qua ${result.skipped} mã (không có trong tồn sổ sách của phiên kiểm kê này).`;
+            if (result.period_note) msg += `\n\nKhoảng ngày trong file: ${result.period_note}\n(Tự kiểm tra lại có đúng khớp với khoảng thời gian kiểm kê của phiên này không - hệ thống không tự đối chiếu được.)`;
+            alert(msg);
+            loadSummary();
+        } catch (networkErr) {
+            console.error('Lỗi kết nối:', networkErr);
+            alert('Không kết nối được tới máy chủ. Kiểm tra mạng/console.');
+        }
+    }
+
     async function closeSession() {
         if (!currentSession) return;
         if (!confirm('Chốt kiểm kê sẽ khoá phiên này lại và lưu kết quả đối chiếu để xuất Excel. Số liệu kiểm kê KHÔNG tự động cập nhật vào tồn kho hệ thống. Tiếp tục?')) return;
@@ -808,6 +839,54 @@
         const result = await res.json();
         if (!result.success) { alert('Lỗi: ' + (result.error || 'Không thể mở lại.')); return; }
         onStoreChange();
+    }
+
+    async function purgeStoreData() {
+        const store = document.getElementById('st-store').value;
+        if (!store) { alert('Chọn cửa hàng cần xoá dữ liệu kiểm kê trước.'); return; }
+
+        let preview;
+        try {
+            const res = await fetch(`/api/stocktake/store/${store}/purge`);
+            preview = await res.json();
+            if (!res.ok || !preview.success) { alert('Lỗi: ' + (preview.error || 'Không lấy được thông tin.')); return; }
+        } catch (e) {
+            alert('Lỗi kết nối, thử lại sau.');
+            return;
+        }
+
+        if (preview.session_count === 0) {
+            alert(`Cửa hàng ${store} chưa có dữ liệu kiểm kê nào để xoá.`);
+            return;
+        }
+        if (preview.open_session_count > 0) {
+            alert(`Cửa hàng ${store} đang có ${preview.open_session_count} phiên kiểm kê CHƯA CHỐT. Phải chốt (hoặc mở lại rồi chốt) hết các phiên đó trước khi xoá dữ liệu.`);
+            return;
+        }
+
+        const typed = prompt(
+            `Sắp XOÁ VĨNH VIỄN toàn bộ dữ liệu kiểm kê của cửa hàng ${store}:\n` +
+            `- ${preview.session_count} phiên kiểm kê đã chốt\n` +
+            `- Toàn bộ nhật ký đếm, biên bản kết quả, lịch sử mở lại đi kèm\n\n` +
+            `KHÔNG THỂ khôi phục sau khi xoá - nếu cần giữ lại, hãy xuất Excel từng phiên TRƯỚC.\n\n` +
+            `Gõ đúng mã cửa hàng "${store}" để xác nhận xoá:`
+        );
+        if (typed === null) return;
+        if (typed.trim().toUpperCase() !== store.toUpperCase()) { alert('Mã cửa hàng gõ không khớp, đã huỷ xoá.'); return; }
+
+        try {
+            const res = await fetch(`/api/stocktake/store/${store}/purge`, {
+                method: 'DELETE',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ confirm_code: typed.trim() })
+            });
+            const result = await res.json();
+            if (!res.ok || !result.success) { alert('Lỗi: ' + (result.error || 'Không xoá được.')); return; }
+            alert(`Đã xoá ${result.deleted_sessions} phiên kiểm kê (và toàn bộ dữ liệu đi kèm) của cửa hàng ${store}.`);
+            onStoreChange();
+        } catch (e) {
+            alert('Lỗi kết nối, thử lại sau.');
+        }
     }
 
     async function loadHistory(store) {

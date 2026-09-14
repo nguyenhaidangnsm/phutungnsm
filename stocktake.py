@@ -33,7 +33,10 @@ from psycopg2.extras import execute_values
 # 2 nguồn sự thật khác nhau về cách kết nối DB / format ngày giờ. Đây là
 # import "vòng" nhưng an toàn vì app.py import stocktake SAU KHI các hàm này
 # đã được định nghĩa (xem hướng dẫn ở đầu file).
-from app import get_db, vn_now, format_vi_datetime, _valid_store_codes, STORE_REGIONS
+from app import (
+    get_db, vn_now, format_vi_datetime, _valid_store_codes, STORE_REGIONS,
+    _INVENTORY_ALLOWED_PREFIXES, _INVENTORY_ALLOWED_STORES, _SUFFIX_ALIAS_TO_STORE,
+)
 
 stocktake_bp = Blueprint('stocktake', __name__)
 
@@ -192,6 +195,107 @@ def _require_admin():
 def _get_session_or_404(cursor, session_id):
     cursor.execute('SELECT * FROM stocktake_sessions WHERE id = %s', (session_id,))
     return cursor.fetchone()
+
+
+def _parse_xuat_kho_excel(file_storage):
+    """Đọc CÙNG định dạng file "Tổng hợp tồn kho" mà app.py::parse_inventory_excel
+    đọc (dùng để nạp Tồn Sổ Sách lúc bắt đầu kiểm), nhưng lấy cột "Xuất kho -
+    Số lượng" thay vì "Cuối kỳ - Số lượng" - phục vụ import số bán ra
+    (phát sinh) vào phiên kiểm kê SAU KHI đã đếm xong, TRƯỚC khi chốt.
+
+    Tái dùng ĐÚNG bộ tiền tố/hậu tố kho hợp lệ (_INVENTORY_ALLOWED_PREFIXES /
+    _INVENTORY_ALLOWED_STORES / _SUFFIX_ALIAS_TO_STORE) import từ app.py -
+    để không lệch với cách hệ thống đang lọc "KPT/KPK/KPTN <cửa hàng>" khi
+    nạp tồn kho gốc, chỉ khác đúng 1 chỗ là cột số lượng đọc ra.
+
+    Trả về (rows, period_note):
+      - rows: list dict {part_code, store_code, quantity} - đã cộng dồn
+        theo (mã hàng, cửa hàng) qua các nhóm kho KPT/KPK/KPTN, chỉ giữ
+        dòng có xuất > 0.
+      - period_note: dòng text mô tả khoảng ngày ghi trong file (dòng 2),
+        trả về để FE hiển thị cho admin TỰ đối chiếu với khoảng thời gian
+        của phiên kiểm kê - hệ thống KHÔNG tự chặn nếu không khớp, vì định
+        dạng ngày trong dòng này không cố định (do người dùng tự chọn lúc
+        xuất báo cáo), tự parse rồi chặn nhầm còn rủi ro hơn để admin tự
+        nhìn bằng mắt.
+    """
+    file_storage.seek(0)
+    try:
+        raw = pd.read_excel(
+            file_storage, header=None, dtype=object,
+            engine='openpyxl', engine_kwargs={'read_only': True},
+        )
+    except TypeError:
+        file_storage.seek(0)
+        raw = pd.read_excel(file_storage, header=None, dtype=object)
+
+    period_note = None
+    if len(raw) > 1 and raw.iat[1, 0] is not None:
+        period_note = str(raw.iat[1, 0]).strip()
+
+    header_row = None
+    for i in range(min(15, len(raw))):
+        first_cell = raw.iat[i, 0]
+        if first_cell is not None and str(first_cell).strip().upper() == 'MÃ KHO':
+            header_row = i
+            break
+    if header_row is None:
+        raise ValueError('Không tìm thấy dòng tiêu đề "Mã kho" trong file. Vui lòng kiểm tra lại đúng file "Tổng hợp tồn kho".')
+
+    group_row = raw.iloc[header_row]
+    sub_row = raw.iloc[header_row + 1] if header_row + 1 < len(raw) else None
+
+    qty_col = None
+    current_group = ''
+    for c in range(raw.shape[1]):
+        cell = group_row.iat[c]
+        if cell is not None and str(cell).strip() != '' and str(cell).strip().lower() != 'nan':
+            current_group = str(cell).strip().lower()
+        if 'xuất kho' in current_group and sub_row is not None:
+            sub_cell = sub_row.iat[c]
+            if sub_cell is not None and 'số lượng' in str(sub_cell).strip().lower():
+                qty_col = c
+                break
+    if qty_col is None:
+        raise ValueError('Không tìm thấy cột "Xuất kho - Số lượng" trong file.')
+
+    data_start = header_row + 2
+    kho_col, part_col = 0, 1
+
+    data = raw.iloc[data_start:, [kho_col, part_col, qty_col]].copy()
+    data.columns = ['kho', 'part_code', 'qty']
+    data['kho'] = data['kho'].astype(str).str.strip()
+    data['part_code'] = data['part_code'].astype(str).str.strip()
+    valid_mask = (
+        data['kho'].notna() & data['part_code'].notna()
+        & (data['kho'] != '') & (data['kho'].str.lower() != 'none')
+        & (data['part_code'] != '') & (data['part_code'].str.lower() != 'none')
+    )
+    data = data[valid_mask]
+
+    # Tách "KPT NS1" -> prefix="KPT", suffix="NS1" - bỏ qua kho 1-từ như
+    # "KHANGCHAMBAN" (không phải cửa hàng thật, không liên quan kiểm kê) và
+    # dòng "Tổng cộng" - cả 2 đều không tách được đúng 2 từ nên tự bị loại.
+    kho_parts = data['kho'].str.upper().str.split()
+    valid_len_mask = kho_parts.str.len() == 2
+    data = data[valid_len_mask]
+    kho_parts = kho_parts[valid_len_mask]
+    data['prefix'] = kho_parts.str[0]
+    data['suffix'] = kho_parts.str[1]
+    data['suffix'] = data['suffix'].replace(_SUFFIX_ALIAS_TO_STORE)
+
+    allowed_mask = data['prefix'].isin(_INVENTORY_ALLOWED_PREFIXES) & data['suffix'].isin(_INVENTORY_ALLOWED_STORES)
+    data = data[allowed_mask]
+    data = data.rename(columns={'suffix': 'store_code'})
+
+    data['qty'] = pd.to_numeric(data['qty'], errors='coerce').fillna(0.0)
+    data = data[data['qty'] > 0]  # xuất = 0 thì khỏi tạo báo phát sinh rỗng
+
+    if data.empty:
+        return [], period_note
+
+    grouped = data.groupby(['part_code', 'store_code'], sort=False)['qty'].sum().reset_index()
+    return grouped.to_dict(orient='records'), period_note
 
 
 @stocktake_bp.route('/stocktake')
@@ -407,6 +511,81 @@ def stocktake_adjustment_create():
     db.commit()
     cursor.close()
     return jsonify({'success': True})
+
+
+@stocktake_bp.route('/api/stocktake/<int:session_id>/import-sales', methods=['POST'])
+def stocktake_import_sales(session_id):
+    """Import số 'Xuất kho' (bán ra) từ file "Tổng hợp tồn kho" - xuất RIÊNG
+    cho đúng khoảng ngày của phiên kiểm kê này (từ lúc bắt đầu tới lúc sắp
+    chốt) - cộng dồn thẳng vào "Bán ra" (stocktake_manual_adjustments,
+    adjustment_type='sold') CẠNH các lần báo tay của nhân viên, KHÔNG thay
+    thế/ghi đè (theo yêu cầu: giữ cả 2, cộng dồn lại).
+
+    Chỉ cho làm khi phiên còn MỞ (giống mọi thao tác báo phát sinh khác) -
+    phải import xong rồi mới bấm Chốt, để số vừa import được tính vào Tồn
+    Kỳ Vọng lúc chốt."""
+    err = _require_admin()
+    if err:
+        return err
+
+    db = get_db()
+    cursor = db.cursor()
+    sess = _get_session_or_404(cursor, session_id)
+    if not sess:
+        cursor.close()
+        return jsonify({'error': 'Không tìm thấy phiên kiểm kê.'}), 404
+    if sess['status'] not in ('open', 'reopened'):
+        cursor.close()
+        return jsonify({'error': 'Phiên kiểm kê đã chốt, không thể import thêm phát sinh.'}), 400
+
+    file = request.files.get('file')
+    if not file:
+        cursor.close()
+        return jsonify({'error': 'Chưa chọn file.'}), 400
+
+    try:
+        rows, period_note = _parse_xuat_kho_excel(file)
+    except ValueError as e:
+        cursor.close()
+        return jsonify({'error': str(e)}), 400
+    except Exception:
+        cursor.close()
+        return jsonify({'error': 'Không đọc được file. Kiểm tra lại đúng file "Tổng hợp tồn kho" (.xlsx).'}), 400
+
+    # File là báo cáo TOÀN CHUỖI (nhiều cửa hàng) - chỉ lấy đúng cửa hàng
+    # của phiên đang import, các cửa hàng khác trong file không liên quan.
+    store_rows = [r for r in rows if r['store_code'] == sess['store_code']]
+
+    # Chỉ nhận mã hàng CÓ trong snapshot của phiên (đúng mã hàng cửa hàng
+    # đó đang kiểm tại thời điểm bắt đầu) - mã lạ thì bỏ qua, đếm lại để
+    # báo cho admin biết (không chặn cả file vì vài mã lạ).
+    cursor.execute(
+        "SELECT part_code FROM stocktake_snapshot_items WHERE session_id = %s",
+        (session_id,)
+    )
+    valid_parts = {r['part_code'] for r in cursor.fetchall()}
+    accepted = [r for r in store_rows if r['part_code'] in valid_parts]
+    skipped = len(store_rows) - len(accepted)
+
+    if accepted:
+        note = 'Import từ file Tổng Hợp Tồn Kho (cột Xuất kho)'
+        if period_note:
+            note += f' - {period_note}'
+        execute_values(
+            cursor,
+            "INSERT INTO stocktake_manual_adjustments "
+            "(session_id, part_code, adjustment_type, quantity, note, created_by) VALUES %s",
+            [(session_id, r['part_code'], 'sold', r['qty'], note, session['user']) for r in accepted]
+        )
+        db.commit()
+    cursor.close()
+
+    return jsonify({
+        'success': True,
+        'imported': len(accepted),
+        'skipped': skipped,
+        'period_note': period_note,
+    })
 
 
 @stocktake_bp.route('/api/stocktake/adjustment/<int:session_id>/<path:part_code>', methods=['GET'])
@@ -673,6 +852,7 @@ def stocktake_close(session_id):
     summary = _build_summary(rows)
 
     now = vn_now()
+    adjustment_rows = []
     for it in summary:
         # Đếm thiếu -> tồn = 0 (theo yêu cầu), không tính phát sinh vì
         # không có mốc thời gian đếm để quy đổi.
@@ -680,26 +860,39 @@ def stocktake_close(session_id):
         movement = it['known_movement_qty'] if it['counted'] else 0
         expected = it['expected_quantity'] if it['counted'] else it['book_quantity']
         diff = it['diff_quantity'] if it['counted'] else (counted - expected)
-
-        cursor.execute('''
-            INSERT INTO stocktake_adjustments
-                (session_id, part_code, part_name, book_quantity, known_movement_qty,
-                 expected_quantity, counted_quantity, diff_quantity)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
-            ON CONFLICT (session_id, part_code) DO UPDATE SET
-                book_quantity = EXCLUDED.book_quantity,
-                known_movement_qty = EXCLUDED.known_movement_qty,
-                expected_quantity = EXCLUDED.expected_quantity,
-                counted_quantity = EXCLUDED.counted_quantity,
-                diff_quantity = EXCLUDED.diff_quantity
-        ''', (session_id, it['part_code'], it['part_name'], it['book_quantity'], movement,
-              expected, counted, diff))
+        adjustment_rows.append((
+            session_id, it['part_code'], it['part_name'], it['book_quantity'], movement,
+            expected, counted, diff
+        ))
 
         # LƯU Ý: theo yêu cầu, chốt phiên KHÔNG tự động cập nhật tồn kho hệ
         # thống (inventory_items) nữa - chỉ lưu kết quả đối chiếu vào
         # stocktake_adjustments và cho xuất Excel. Nếu muốn áp số liệu kiểm
         # kê vào tồn hệ thống, admin phải tự làm việc đó bằng cách khác
         # (vd upload lại file tồn kho), không phải qua thao tác chốt này.
+
+    if adjustment_rows:
+        # Gộp toàn bộ vào 1 câu lệnh (execute_values) thay vì 1 INSERT
+        # riêng cho từng mã hàng trong vòng lặp - đây chính là lý do nút
+        # "Chốt" bị chậm khi cửa hàng có vài trăm/nghìn mã: mỗi INSERT
+        # riêng là 1 round-trip mạng tới DB, cộng dồn lại rất lâu. Cùng dữ
+        # liệu, cùng bảng, chỉ khác cách gửi xuống DB nên không đổi hành vi.
+        execute_values(
+            cursor,
+            '''
+            INSERT INTO stocktake_adjustments
+                (session_id, part_code, part_name, book_quantity, known_movement_qty,
+                 expected_quantity, counted_quantity, diff_quantity)
+            VALUES %s
+            ON CONFLICT (session_id, part_code) DO UPDATE SET
+                book_quantity = EXCLUDED.book_quantity,
+                known_movement_qty = EXCLUDED.known_movement_qty,
+                expected_quantity = EXCLUDED.expected_quantity,
+                counted_quantity = EXCLUDED.counted_quantity,
+                diff_quantity = EXCLUDED.diff_quantity
+            ''',
+            adjustment_rows
+        )
 
     cursor.execute(
         "UPDATE stocktake_sessions SET status = 'closed', closed_by = %s, closed_at = %s, note = %s WHERE id = %s",
@@ -748,6 +941,78 @@ def stocktake_reopen(session_id):
     db.commit()
     cursor.close()
     return jsonify({'success': True})
+
+
+@stocktake_bp.route('/api/stocktake/store/<store_code>/purge', methods=['GET'])
+def stocktake_purge_preview(store_code):
+    """Xem trước sẽ xoá bao nhiêu trước khi admin bấm xoá thật - tránh
+    xoá nhầm mà không biết mình sắp mất gì."""
+    err = _require_admin()
+    if err:
+        return err
+    store_code = store_code.strip().upper()
+
+    db = get_db()
+    cursor = db.cursor()
+    cursor.execute(
+        "SELECT COUNT(*) AS total, COUNT(*) FILTER (WHERE status != 'closed') AS open_count, "
+        "MIN(created_at) AS oldest, MAX(created_at) AS newest "
+        "FROM stocktake_sessions WHERE store_code = %s",
+        (store_code,)
+    )
+    row = cursor.fetchone()
+    cursor.close()
+    return jsonify({
+        'success': True,
+        'store_code': store_code,
+        'session_count': row['total'] or 0,
+        'open_session_count': row['open_count'] or 0,
+        'oldest': row['oldest'].strftime('%d/%m/%Y %H:%M') if row['oldest'] else None,
+        'newest': row['newest'].strftime('%d/%m/%Y %H:%M') if row['newest'] else None,
+    })
+
+
+@stocktake_bp.route('/api/stocktake/store/<store_code>/purge', methods=['DELETE'])
+def stocktake_purge(store_code):
+    """XOÁ VĨNH VIỄN toàn bộ dữ liệu kiểm kê (mọi phiên, kể cả nhật ký
+    đếm/biên bản kết quả/lịch sử mở lại đi kèm) của 1 cửa hàng - dùng khi
+    cần giải phóng bớt dữ liệu cũ cho nhẹ DB. Xoá ở stocktake_sessions là
+    đủ, các bảng con đều có ON DELETE CASCADE nên tự dọn theo.
+
+    An toàn:
+    - Từ chối nếu cửa hàng đang có phiên CHƯA CHỐT (tránh mất dữ liệu
+      đang đếm dở, chưa kịp chốt/xuất Excel) - phải chốt hết trước.
+    - Bắt gõ đúng store_code để xác nhận, vì thao tác này không thể
+      hoàn tác (không giống chốt/mở lại vẫn còn sửa được).
+    """
+    err = _require_admin()
+    if err:
+        return err
+    store_code = store_code.strip().upper()
+    data = request.get_json(silent=True) or {}
+    confirm_code = (data.get('confirm_code') or '').strip().upper()
+    if confirm_code != store_code:
+        return jsonify({'error': 'Mã cửa hàng xác nhận không khớp.'}), 400
+
+    db = get_db()
+    cursor = db.cursor()
+    cursor.execute(
+        "SELECT COUNT(*) AS c FROM stocktake_sessions WHERE store_code = %s AND status != 'closed'",
+        (store_code,)
+    )
+    open_count = cursor.fetchone()['c']
+    if open_count:
+        cursor.close()
+        return jsonify({
+            'error': f'Cửa hàng này đang có {open_count} phiên kiểm kê CHƯA CHỐT. '
+                     'Phải chốt hết mới được xoá dữ liệu.'
+        }), 400
+
+    cursor.execute("DELETE FROM stocktake_sessions WHERE store_code = %s", (store_code,))
+    deleted = cursor.rowcount
+    db.commit()
+    cursor.close()
+    return jsonify({'success': True, 'deleted_sessions': deleted})
 
 
 @stocktake_bp.route('/api/stocktake/history', methods=['GET'])
