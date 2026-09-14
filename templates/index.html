@@ -991,6 +991,10 @@
                 <span class="ns-label">Hàng Cần Xử Lý</span>
             </button>
             {% endif %}
+            <button type="button" class="ns-sidebar-item" data-target-tab="price-adjustment-tab" onclick="megaNavClick('price-adjustment-tab', this)">
+                <span class="ns-sidebar-icon"><i class="bi bi-graph-up-arrow"></i></span>
+                <span class="ns-label">Đề Xuất Tăng Giá</span>
+            </button>
             {% if role == 'admin' %}
             <button type="button" class="ns-sidebar-item" onclick="window.location.href='/stocktake'">
                 <span class="ns-sidebar-icon"><i class="bi bi-clipboard-check"></i></span>
@@ -1070,6 +1074,11 @@
         </button>
     </li>
     {% endif %}
+    <li class="nav-item" role="presentation">
+        <button class="nav-link" id="price-adjustment-tab" data-bs-toggle="pill" data-bs-target="#price-adjustment-pane" onclick="loadPriceAdjustmentList(); if (globalInventory.length === 0) loadInventory();">
+            <i class="bi bi-graph-up-arrow me-2"></i>Đề Xuất Tăng Giá
+        </button>
+    </li>
     <li class="nav-item" role="presentation">
         <button class="nav-link" id="history-tab" data-bs-toggle="pill" data-bs-target="#history-pane" onclick="loadHistory()">
             <i class="bi bi-clock-history me-2"></i>Lịch Sử Tải Lên
@@ -1825,6 +1834,115 @@
     </div>
 </div>
 {% endif %}
+
+        <!-- ĐỀ XUẤT TĂNG GIÁ PANE - dùng chung cho cả admin lẫn store (mọi
+             tài khoản đều đề xuất được, không giới hạn quyền). Gồm 1 form
+             đề xuất tăng giá cho 1 mã hàng bất kỳ, và 2 danh sách "Đã Điều
+             Chỉnh" / "Chưa Điều Chỉnh" lọc theo status ở API
+             /api/price-adjustment/list. -->
+        <div class="tab-pane fade" id="price-adjustment-pane">
+
+            <div class="card card-custom p-3 mb-3 mb-md-4">
+                <h5 class="fw-bold mb-3 fs-6 fs-md-5"><i class="bi bi-graph-up-arrow me-2 text-primary"></i>Đề Xuất Tăng Giá 1 Mã Hàng</h5>
+                <form id="price-adj-form" class="row g-2 align-items-end" onsubmit="return submitPriceAdjustmentProposal(event)">
+                    <div class="col-12 col-md-3">
+                        <label class="form-label small mb-1">Mã hàng</label>
+                        <input type="text" id="price-adj-part-code" class="form-control form-control-sm" list="transfer-part-list"
+                               placeholder="Nhập mã hàng..." autocomplete="off" required
+                               oninput="onPriceAdjPartCodeChange()" onblur="onPriceAdjPartCodeChange()">
+                    </div>
+                    <div class="col-12 col-md-3">
+                        <label class="form-label small mb-1">Tên hàng</label>
+                        <input type="text" id="price-adj-part-name" class="form-control form-control-sm" placeholder="Tự hiện nếu mã đã có trong hệ thống...">
+                    </div>
+                    <div class="col-6 col-md-2">
+                        <label class="form-label small mb-1">Thuế (%)</label>
+                        <input type="number" id="price-adj-thue" class="form-control form-control-sm" min="0" max="100" step="any" placeholder="VD: 8" required oninput="recalcPriceAdjGiaBan()">
+                    </div>
+                    <div class="col-6 col-md-2">
+                        <label class="form-label small mb-1">Giá đề xuất HVN</label>
+                        <input type="number" id="price-adj-gia-hvn" class="form-control form-control-sm" min="0" step="any" placeholder="0" required oninput="recalcPriceAdjGiaBan()">
+                    </div>
+                    <div class="col-6 col-md-2">
+                        <label class="form-label small mb-1">Giá bán (làm tròn)</label>
+                        <input type="text" id="price-adj-gia-ban" class="form-control form-control-sm fw-bold text-success" readonly value="-">
+                    </div>
+                    <div class="col-12">
+                        <div id="price-adj-hint" class="small mt-1"></div>
+                    </div>
+                    <div class="col-12 col-md-3">
+                        <button type="submit" class="btn btn-primary btn-sm w-100 fw-semibold"><i class="bi bi-save me-1"></i>Lưu Đề Xuất</button>
+                    </div>
+                </form>
+                <p class="text-muted small mt-2 mb-0"><i class="bi bi-info-circle me-1"></i>Giá bán = (Giá đề xuất HVN × Thuế) + Giá đề xuất HVN, làm tròn đến hàng nghìn. Mã hàng chưa có trong hệ thống sẽ được tự động lưu vào danh mục để lần sau tự hiện lại Tên/Thuế.</p>
+            </div>
+
+            {% if role == 'admin' %}
+            <div class="card card-custom p-3 mb-3 mb-md-4">
+                <h5 class="fw-bold mb-3 fs-6 fs-md-5"><i class="bi bi-file-earmark-arrow-up me-2 text-primary"></i>Import Hàng Loạt Từ File Excel</h5>
+                <form id="price-adj-import-form" class="d-flex flex-column flex-md-row align-items-stretch align-items-md-center gap-2">
+                    <div class="drop-zone drop-zone-compact d-flex align-items-center gap-2 flex-grow-1" onclick="document.getElementById('price_adj_import_file').click()">
+                        <i class="bi bi-cloud-arrow-up text-primary fs-5 flex-shrink-0"></i>
+                        <div class="flex-grow-1 overflow-hidden">
+                            <div class="small fw-semibold mb-0 text-truncate">Chọn hoặc kéo thả file "Đã Điều Chỉnh Giá" (.xlsx)</div>
+                            <div class="file-name text-primary fw-semibold text-truncate" style="font-size: 0.78rem;" id="price-adj-import-file-name"></div>
+                        </div>
+                        <input type="file" id="price_adj_import_file" accept=".xlsx, .xls" style="display: none;">
+                    </div>
+                    <button type="submit" class="btn btn-primary fw-semibold px-4 flex-shrink-0">
+                        <i class="bi bi-upload me-2"></i>Import
+                    </button>
+                </form>
+                <p class="text-muted small mt-2 mb-0"><i class="bi bi-exclamation-circle me-1"></i>Tự dò sheet "ĐÃ ĐIỀU CHỈNH" trong file (hoặc sheet đầu tiên nếu không có). Mỗi mã hàng hợp lệ trong file sẽ được lưu thành 1 lần đề xuất (dùng đúng "Ngày cập nhật" trong file), tự chuyển sang trạng thái "Đã điều chỉnh". Không ghi đè - có thể import nhiều lần, các lần đề xuất trước đó (nhập tay hoặc import) vẫn được giữ trong lịch sử.</p>
+            </div>
+            {% endif %}
+
+            <div class="card card-custom p-3 p-md-4">
+                <div class="d-flex flex-column flex-md-row align-items-start align-items-md-center justify-content-between gap-2 mb-3">
+                    <h5 class="fw-bold mb-0 fs-6 fs-md-5"><i class="bi bi-list-check me-2 text-primary"></i>Danh Sách Mã Hàng</h5>
+                    <span class="text-muted small">Số dòng: <strong id="price-adj-visible-count">0</strong></span>
+                </div>
+                <ul class="nav nav-pills mb-3 gap-2" id="price-adj-status-tabs">
+                    <li class="nav-item">
+                        <button type="button" class="nav-link active" data-status="all" onclick="setPriceAdjStatusFilter('all', this)">Tất cả</button>
+                    </li>
+                    <li class="nav-item">
+                        <button type="button" class="nav-link" data-status="not_adjusted" onclick="setPriceAdjStatusFilter('not_adjusted', this)">
+                            Chưa điều chỉnh <span class="badge bg-secondary ms-1" id="price-adj-count-not-adjusted">0</span>
+                        </button>
+                    </li>
+                    <li class="nav-item">
+                        <button type="button" class="nav-link" data-status="adjusted" onclick="setPriceAdjStatusFilter('adjusted', this)">
+                            Đã điều chỉnh <span class="badge bg-success ms-1" id="price-adj-count-adjusted">0</span>
+                        </button>
+                    </li>
+                </ul>
+                <div class="row g-2 mb-3">
+                    <div class="col-12 col-md-5">
+                        <input type="text" id="price-adj-search" class="form-control form-control-sm" placeholder="Tìm mã hàng / tên hàng..." autocomplete="off" oninput="debouncedLoadPriceAdjustmentList()">
+                    </div>
+                </div>
+                <div class="table-responsive border rounded-3">
+                    <table class="table table-hover align-middle mb-0 text-nowrap">
+                        <thead>
+                            <tr>
+                                <th>Mã Hàng</th>
+                                <th>Tên Hàng</th>
+                                <th class="text-end">Thuế</th>
+                                <th class="text-end">Giá Đề Xuất HVN</th>
+                                <th class="text-end">Giá Bán</th>
+                                <th>Người Đề Xuất</th>
+                                <th>Ngày Điều Chỉnh</th>
+                                <th>Trạng Thái</th>
+                            </tr>
+                        </thead>
+                        <tbody id="price-adj-body">
+                            <tr><td colspan="8" class="text-center py-4 text-muted">Đang tải dữ liệu...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
 
         <!-- HISTORY PANE -->
         <div class="tab-pane fade" id="history-pane">
@@ -4511,6 +4629,203 @@ async function saveLocationRow(btn, partCode) {
         } catch (e) {
             alert('Lỗi kết nối server.');
         }
+    }
+
+    // ============================================================
+    // ĐỀ XUẤT TĂNG GIÁ (1 mã hàng) - dùng chung cho admin lẫn store.
+    // ============================================================
+    function fmtPriceAdjMoney(v) {
+        return (v === null || v === undefined || v === '') ? '-' : Math.round(v).toLocaleString() + 'đ';
+    }
+
+    // Debounce ô tìm kiếm mã/tên hàng ở bảng danh sách - giống mẫu
+    // debouncedFilterInventory() đang dùng ở tab Tồn Kho.
+    let priceAdjSearchTimer = null;
+    function debouncedLoadPriceAdjustmentList() {
+        clearTimeout(priceAdjSearchTimer);
+        priceAdjSearchTimer = setTimeout(loadPriceAdjustmentList, 350);
+    }
+
+    let priceAdjStatusFilter = 'all';
+    function setPriceAdjStatusFilter(status, btn) {
+        priceAdjStatusFilter = status;
+        document.querySelectorAll('#price-adj-status-tabs .nav-link').forEach(el => el.classList.remove('active'));
+        if (btn) btn.classList.add('active');
+        loadPriceAdjustmentList();
+    }
+
+    async function loadPriceAdjustmentList() {
+        const tbody = document.getElementById('price-adj-body');
+        if (!tbody) return;
+        const q = (document.getElementById('price-adj-search') || {}).value || '';
+        try {
+            const params = new URLSearchParams({ status: priceAdjStatusFilter, q: q, limit: 500 });
+            const res = await fetch('/api/price-adjustment/list?' + params.toString());
+            const result = await res.json();
+            if (!res.ok || !result.success) {
+                tbody.innerHTML = `<tr><td colspan="8" class="text-center py-4 text-danger">Lỗi: ${escapeHtmlAttr(result.error || 'Không tải được dữ liệu.')}</td></tr>`;
+                return;
+            }
+            renderPriceAdjustmentTable(result.data);
+            document.getElementById('price-adj-visible-count').innerText = result.data.length.toLocaleString();
+            const countAdjEl = document.getElementById('price-adj-count-adjusted');
+            const countNotAdjEl = document.getElementById('price-adj-count-not-adjusted');
+            if (countAdjEl) countAdjEl.innerText = result.total_adjusted.toLocaleString();
+            if (countNotAdjEl) countNotAdjEl.innerText = result.total_not_adjusted.toLocaleString();
+        } catch (e) {
+            tbody.innerHTML = `<tr><td colspan="8" class="text-center py-4 text-danger">Lỗi kết nối server.</td></tr>`;
+        }
+    }
+
+    function renderPriceAdjustmentTable(data) {
+        const tbody = document.getElementById('price-adj-body');
+        if (data.length === 0) {
+            tbody.innerHTML = `<tr><td colspan="8" class="text-center py-4 text-muted">Không có mã hàng nào khớp.</td></tr>`;
+            return;
+        }
+        tbody.innerHTML = data.map(r => `
+            <tr>
+                <td class="fw-semibold">${escapeHtmlAttr(r.part_code)}</td>
+                <td>${escapeHtmlAttr(r.part_name || '-')}</td>
+                <td class="text-end">${r.thue !== null && r.thue !== undefined ? r.thue + '%' : '-'}</td>
+                <td class="text-end">${fmtPriceAdjMoney(r.gia_de_xuat_hvn)}</td>
+                <td class="text-end fw-semibold text-success">${fmtPriceAdjMoney(r.gia_ban)}</td>
+                <td>${escapeHtmlAttr(r.created_by || '-')}</td>
+                <td>${escapeHtmlAttr(r.created_at || '-')}</td>
+                <td>${r.is_adjusted
+                    ? '<span class="badge bg-success">Đã điều chỉnh</span>'
+                    : '<span class="badge bg-secondary">Chưa điều chỉnh</span>'}
+                </td>
+            </tr>
+        `).join('');
+    }
+
+    // Gõ/rời khỏi ô Mã hàng: tự điền Tên hàng (ưu tiên tra nhanh trong
+    // globalInventory đang có sẵn ở trình duyệt cho tức thì), sau đó gọi API
+    // /api/price-adjustment/lookup để lấy thêm Thuế đã dùng lần gần nhất và
+    // cảnh báo nếu mã này đã từng được đề xuất tăng giá trước đó.
+    let priceAdjLookupTimer = null;
+    function onPriceAdjPartCodeChange() {
+        const partCode = (document.getElementById('price-adj-part-code').value || '').trim();
+        const nameInput = document.getElementById('price-adj-part-name');
+        const hintEl = document.getElementById('price-adj-hint');
+        if (!partCode) {
+            hintEl.innerHTML = '';
+            return;
+        }
+        // Tra nhanh cục bộ trước (không cần chờ mạng) nếu mã đã có trong tồn kho.
+        const localName = (typeof findInventoryPartName === 'function') ? findInventoryPartName(partCode) : '';
+        if (localName && !nameInput.value) nameInput.value = localName;
+
+        clearTimeout(priceAdjLookupTimer);
+        priceAdjLookupTimer = setTimeout(async () => {
+            try {
+                const res = await fetch('/api/price-adjustment/lookup?part_code=' + encodeURIComponent(partCode));
+                const result = await res.json();
+                if (!res.ok || !result.success) return;
+
+                if (result.part_name && !nameInput.value) nameInput.value = result.part_name;
+                if (result.thue_suggest !== null && result.thue_suggest !== undefined) {
+                    const thueInput = document.getElementById('price-adj-thue');
+                    if (thueInput && !thueInput.value) {
+                        thueInput.value = result.thue_suggest;
+                        recalcPriceAdjGiaBan();
+                    }
+                }
+
+                if (result.already_adjusted && result.last_proposal) {
+                    const lp = result.last_proposal;
+                    hintEl.innerHTML = `<span class="text-warning-emphasis"><i class="bi bi-exclamation-circle-fill me-1"></i>Mã này đã được đề xuất tăng giá lúc ${escapeHtmlAttr(lp.created_at || '')} bởi ${escapeHtmlAttr(lp.created_by || '')} - Giá bán lần trước: ${fmtPriceAdjMoney(lp.gia_ban)}. Lưu tiếp sẽ ghi thêm 1 lần đề xuất mới.</span>`;
+                } else if (!result.in_catalog) {
+                    hintEl.innerHTML = `<span class="text-muted"><i class="bi bi-info-circle me-1"></i>Mã hàng chưa có trong tồn kho hệ thống - vui lòng nhập đủ Tên hàng, hệ thống sẽ tự lưu vào danh mục.</span>`;
+                } else {
+                    hintEl.innerHTML = '';
+                }
+            } catch (e) { /* bỏ qua lỗi tra cứu - không chặn người dùng nhập tiếp */ }
+        }, 300);
+    }
+
+    function recalcPriceAdjGiaBan() {
+        const thue = parseFloat(document.getElementById('price-adj-thue').value);
+        const giaHvn = parseFloat(document.getElementById('price-adj-gia-hvn').value);
+        const out = document.getElementById('price-adj-gia-ban');
+        if (isNaN(thue) || isNaN(giaHvn) || giaHvn <= 0) {
+            out.value = '-';
+            return;
+        }
+        const raw = (giaHvn * (thue / 100)) + giaHvn;
+        const rounded = Math.round(raw / 1000) * 1000;
+        out.value = rounded.toLocaleString() + 'đ';
+    }
+
+    async function submitPriceAdjustmentProposal(event) {
+        event.preventDefault();
+        const partCode = document.getElementById('price-adj-part-code').value.trim();
+        const partName = document.getElementById('price-adj-part-name').value.trim();
+        const thue = document.getElementById('price-adj-thue').value;
+        const giaHvn = document.getElementById('price-adj-gia-hvn').value;
+
+        if (!partCode) { alert('Vui lòng nhập mã hàng.'); return false; }
+        if (thue === '' || isNaN(Number(thue))) { alert('Vui lòng nhập Thuế hợp lệ.'); return false; }
+        if (giaHvn === '' || isNaN(Number(giaHvn)) || Number(giaHvn) <= 0) { alert('Vui lòng nhập Giá đề xuất HVN hợp lệ.'); return false; }
+
+        try {
+            const res = await fetch('/api/price-adjustment/propose', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    part_code: partCode,
+                    part_name: partName,
+                    thue: Number(thue),
+                    gia_de_xuat_hvn: Number(giaHvn),
+                })
+            });
+            const result = await res.json();
+            if (res.ok && result.success) {
+                showToast('Đã lưu', `Đã đề xuất tăng giá cho mã ${result.part_code} - Giá bán: ${fmtPriceAdjMoney(result.gia_ban)}`, 'success');
+                document.getElementById('price-adj-form').reset();
+                document.getElementById('price-adj-gia-ban').value = '-';
+                document.getElementById('price-adj-hint').innerHTML = '';
+                loadPriceAdjustmentList();
+            } else {
+                alert('Lỗi: ' + (result.error || 'Không thể lưu đề xuất.'));
+            }
+        } catch (e) {
+            alert('Lỗi kết nối server.');
+        }
+        return false;
+    }
+
+    // Import hàng loạt từ file Excel "ĐÃ ĐIỀU CHỈNH" (chỉ admin) - đọc trực
+    // tiếp cấu trúc file nội bộ, tự dò sheet/cột phù hợp ở backend, nạp mỗi
+    // dòng hợp lệ thành 1 lần đề xuất mới rồi tải lại bảng danh sách.
+    const priceAdjImportForm = document.getElementById('price-adj-import-form');
+    if (priceAdjImportForm) {
+        priceAdjImportForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const file = document.getElementById('price_adj_import_file').files[0];
+            if (!file) {
+                alert('Vui lòng chọn file Excel để import.');
+                return;
+            }
+            const formData = new FormData();
+            formData.append('file', file);
+
+            document.getElementById('loading-overlay').style.display = 'flex';
+            try {
+                const res = await fetch('/api/price-adjustment/import', { method: 'POST', body: formData });
+                const result = await res.json();
+                if (res.ok && result.success) {
+                    showToast('Đã import', `Đã nạp ${result.total_imported.toLocaleString()} mã hàng từ sheet "${result.sheet_name}" (bỏ qua ${result.skipped_rows.toLocaleString()} dòng không hợp lệ).`, 'success');
+                    document.getElementById('price-adj-import-file-name').innerText = '';
+                    document.getElementById('price_adj_import_file').value = '';
+                    loadPriceAdjustmentList();
+                } else {
+                    alert('Lỗi: ' + (result.error || 'Không thể import file.'));
+                }
+            } catch (e) { alert('Lỗi kết nối server.'); }
+            finally { document.getElementById('loading-overlay').style.display = 'none'; }
+        });
     }
 
     // -------- Admin: bảng PIVOT (1 dòng/mã hàng, cột theo cửa hàng) --------
@@ -7373,7 +7688,8 @@ if (storeLocationForm) {
     { id: 'price_file', nameId: 'price-file-name' },
     { id: 'location_file', nameId: 'location-file-name' },
     { id: 'location_file_store', nameId: 'location-file-name-store' },  // <-- thêm dòng này
-    { id: 'damaged_file', nameId: 'damaged-file-name' }
+    { id: 'damaged_file', nameId: 'damaged-file-name' },
+    { id: 'price_adj_import_file', nameId: 'price-adj-import-file-name' }
 ];
 
         fileInputs.forEach(item => {

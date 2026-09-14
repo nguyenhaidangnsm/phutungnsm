@@ -1040,6 +1040,10 @@ def init_db():
         # khỏi làm app.py dài thêm (xem hướng dẫn ở đầu file stocktake.py).
         init_stocktake_tables(cursor)
 
+        # 9c. Bảng cho tính năng ĐỀ XUẤT TĂNG GIÁ - tách trong
+        # price_adjustment.py cùng lý do (xem hướng dẫn ở đầu file đó).
+        init_price_adjustment_tables(cursor)
+
         # 10. Seed default users nếu chưa có
         cursor.execute("SELECT COUNT(*) FROM users")
         count = cursor.fetchone()['count']
@@ -6341,6 +6345,13 @@ def admin_truck_announcements_delete(announcement_id):
 # dòng import này chạy, nếu không sẽ lỗi ImportError.
 from stocktake import stocktake_bp, init_stocktake_tables
 app.register_blueprint(stocktake_bp)
+
+# Import + đăng ký blueprint price_adjustment (tính năng Đề Xuất Tăng Giá) -
+# cùng lý do/vị trí như stocktake_bp ở trên: price_adjustment.py cần import
+# ngược lại get_db/vn_now/_current_actor_name từ app, nên phải đặt SAU khi
+# các tên đó đã được định nghĩa xong ở phía trên.
+from price_adjustment import price_adjustment_bp, init_price_adjustment_tables
+app.register_blueprint(price_adjustment_bp)
 
 # Tự động gọi khởi tạo bảng khi chạy app (gọi SAU khi đã đăng ký blueprint
 # ở trên, vì init_db() bên trong có gọi init_stocktake_tables()).
