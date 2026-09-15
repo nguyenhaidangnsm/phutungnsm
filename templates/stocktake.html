@@ -121,7 +121,7 @@
             <div class="small text-muted mb-2">Ghi lại đầy đủ từng lần quét/nhập số đếm - dùng bộ lọc bên dưới (mã hàng, vị trí) để tra cứu. Log này tự động xoá 5 ngày sau khi phiên được CHỐT, nên nhớ xuất Excel (sheet "Nhat Ky Dem") sớm nếu cần lưu lại lâu dài.</div>
             <div class="table-responsive" style="max-height: 320px;">
                 <table class="table table-sm">
-                    <thead class="table-light"><tr><th>Thời Gian</th><th>Mã Hàng</th><th>Tên Hàng</th><th class="text-end">Số Lượng</th><th>Vị Trí</th><th>Người Đếm</th></tr></thead>
+                    <thead class="table-light"><tr><th>Thời Gian</th><th>Mã Hàng</th><th>Tên Hàng</th><th class="text-end">Số Lượng</th><th>Vị Trí</th><th>Vị Trí Trước Đó</th><th class="text-end">Tổng Đã Quét</th><th>Thừa/Thiếu/Đủ</th><th>Người Đếm</th></tr></thead>
                     <tbody id="st-log-body"></tbody>
                 </table>
             </div>
@@ -755,9 +755,12 @@
                 <td class="small">${r.part_name || ''}</td>
                 <td class="text-end fw-semibold">${fmt(r.counted_quantity)}</td>
                 <td class="small">${r.area_note ? `<span class="area-chip">${r.area_note}</span>` : '-'}</td>
+                <td class="small">${r.prev_area_note ? `<span class="area-chip">${r.prev_area_note}</span>` : '<span class="text-muted">-</span>'}</td>
+                <td class="text-end">${fmt(r.running_total)}</td>
+                <td>${r.vs_expected_status ? statusBadge(r.vs_expected_status) : '<span class="text-muted small">-</span>'}</td>
                 <td class="small">${r.counted_by || ''}</td>
             </tr>
-        `).join('') || '<tr><td colspan="6" class="text-center text-muted py-3">Không có lượt đếm nào khớp bộ lọc.</td></tr>';
+        `).join('') || '<tr><td colspan="9" class="text-center text-muted py-3">Không có lượt đếm nào khớp bộ lọc.</td></tr>';
 
         const noteEl = document.getElementById('st-log-note');
         noteEl.textContent = filtered.length > LOG_DISPLAY_LIMIT

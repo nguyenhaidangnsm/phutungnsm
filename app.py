@@ -6396,7 +6396,29 @@ def _init_db_with_retry(max_attempts=5, base_delay_seconds=3):
 
 
 _init_db_with_retry()
+# Import + đăng ký blueprint orders (Danh Sách Đặt Hàng) - LƯU Ý: khác
+# stocktake_bp/price_adjustment_bp, module này dùng CSDL Supabase RIÊNG
+# BIỆT (xem orders.py), nên có pool/khởi tạo bảng/retry độc lập, KHÔNG
+# gộp vào init_db() ở trên.
+from orders import orders_bp, init_orders_tables
+app.register_blueprint(orders_bp)
 
+
+def _init_orders_with_retry(max_attempts=5, base_delay_seconds=3):
+    for attempt in range(1, max_attempts + 1):
+        try:
+            init_orders_tables()
+            return
+        except (psycopg2.errors.DeadlockDetected, psycopg2.errors.LockNotAvailable) as e:
+            if attempt >= max_attempts:
+                raise
+            wait_seconds = base_delay_seconds * attempt
+            print(f'[init_orders_tables] Lần {attempt}/{max_attempts} gặp lỗi khoá DB '
+                  f'({e.__class__.__name__}) - thử lại sau {wait_seconds}s...', flush=True)
+            time.sleep(wait_seconds)
+
+
+_init_orders_with_retry()
 if __name__ == '__main__':
     # LƯU Ý: không chạy file này trực tiếp (`python3 app.py`) - hãy chạy
     # `python3 run.py` ở thư mục gốc. Xem giải thích chi tiết trong run.py

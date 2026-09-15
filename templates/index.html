@@ -995,12 +995,21 @@
                 <span class="ns-sidebar-icon"><i class="bi bi-graph-up-arrow"></i></span>
                 <span class="ns-label">Đề Xuất Tăng Giá</span>
             </button>
+
             {% if role == 'admin' %}
             <button type="button" class="ns-sidebar-item" onclick="window.location.href='/stocktake'">
                 <span class="ns-sidebar-icon"><i class="bi bi-clipboard-check"></i></span>
                 <span class="ns-label">Kiểm Kê Kho</span>
             </button>
             {% endif %}
+        </div>
+
+        <div class="ns-sidebar-group">
+            <div class="ns-sidebar-group-title"><span class="ns-label">Đặt Hàng Khách Hàng</span></div>
+            <button type="button" class="ns-sidebar-item" onclick="window.location.href='/orders'">
+                <span class="ns-sidebar-icon"><i class="bi bi-cart-check-fill"></i></span>
+                <span class="ns-label">Danh Sách Đặt Hàng</span>
+            </button>
         </div>
 
         <div class="ns-sidebar-group">
