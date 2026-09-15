@@ -253,7 +253,22 @@
         font-weight: 800 !important; 
         text-align: center !important; 
     }
-    .part-code { font-weight: 700; color: #1e3a8a; background: #eef2ff; border: 1px solid #e0e7ff; padding: 3px 10px; border-radius: 6px; font-size: 0.9rem; white-space: nowrap; }
+    .part-code { font-weight: 700; color: #1e3a8a; background: #eef2ff; border: 1px solid #e0e7ff; padding: 3px 10px; border-radius: 6px; font-size: 0.9rem; white-space: nowrap; position: relative; }
+    /* Icon phân loại tần suất bán (TX/TB/CB) - góc trên-phải mã hàng. Bấm
+       vào badge dùng CHUNG cơ chế tooltip #inv-tooltip đã có sẵn (position:
+       fixed, tự đo vị trí bằng getBoundingClientRect - xem showInvTooltip())
+       thay vì tự vẽ tooltip lồng trong bảng bằng CSS :hover, vì tooltip lồng
+       trong bảng có scroll/sticky header rất dễ bị clip/che lên header.
+       Dùng click-to-toggle thay vì hover cũng để dùng tốt trên mobile. */
+    .freq-badge {
+        position: absolute; top: -7px; right: -7px; font-size: 8.5px; font-weight: 800;
+        line-height: 1; padding: 2px 4px; border-radius: 7px; color: #fff;
+        cursor: pointer; letter-spacing: .2px; box-shadow: 0 1px 3px rgba(0,0,0,.25);
+        z-index: 2;
+    }
+    .freq-badge.freq-tx { background: #22c55e; }
+    .freq-badge.freq-tb { background: #f59e0b; }
+    .freq-badge.freq-cb { background: #ef4444; }
 
     /* Badge màu riêng cho từng cửa hàng (nhạt, không chói) - giúp nhận ra
        ngay cửa hàng nào mà không cần đọc chữ, nhất quán ở mọi bảng. */
@@ -980,6 +995,12 @@
                 <span class="ns-label">{% if role == 'store' %}Tồn Kho &amp; Vị Trí{% else %}Tồn Kho Hệ Thống{% endif %}</span>
             </button>
             {% if role == 'admin' %}
+            <button type="button" class="ns-sidebar-item" data-target-tab="sales-freq-tab" onclick="megaNavClick('sales-freq-tab', this)">
+                <span class="ns-sidebar-icon"><i class="bi bi-graph-down-arrow"></i></span>
+                <span class="ns-label">Thống Kê Tần Suất Bán</span>
+            </button>
+            {% endif %}
+            {% if role == 'admin' %}
             <button type="button" class="ns-sidebar-item" data-target-tab="location-tab" onclick="megaNavClick('location-tab', this)">
                 <span class="ns-sidebar-icon"><i class="bi bi-geo-alt-fill"></i></span>
                 <span class="ns-label">Vị Trí Hàng Hóa</span>
@@ -1069,6 +1090,13 @@
             <i class="bi bi-boxes me-2"></i>{% if role == 'store' %}Tồn kho & Vị trí{% else %}Tồn Kho Hệ Thống{% endif %}
         </button>
     </li>
+    {% if role == 'admin' %}
+    <li class="nav-item" role="presentation">
+        <button class="nav-link" id="sales-freq-tab" data-bs-toggle="pill" data-bs-target="#sales-freq-pane" onclick="loadSalesFreqStats()">
+            <i class="bi bi-graph-down-arrow me-2"></i>Thống Kê Tần Suất Bán
+        </button>
+    </li>
+    {% endif %}
     {% if role == 'admin' %}
     <li class="nav-item" role="presentation">
         <button class="nav-link" id="location-tab" data-bs-toggle="pill" data-bs-target="#location-pane" onclick="loadLocations()">
@@ -1631,6 +1659,92 @@
 </div>
             </div>
         </div>
+
+       {% if role == 'admin' %}
+<!-- SALES FREQUENCY STATS PANE (Thống Kê Tần Suất Bán TX/TB/CB) -->
+<div class="tab-pane fade" id="sales-freq-pane">
+    <div class="card card-custom p-3 mb-3 mb-md-4">
+        <div class="d-flex flex-wrap justify-content-between align-items-center mb-3 gap-2">
+            <h5 class="mb-0"><i class="bi bi-graph-down-arrow me-2 text-primary"></i>Thống Kê Tần Suất Bán</h5>
+            <div class="d-flex align-items-center gap-2">
+                <input type="file" id="salesExportFileInput" accept=".xlsx,.xls" class="d-none" onchange="uploadSalesExportFile(this)">
+                <button class="btn btn-outline-primary btn-sm" onclick="document.getElementById('salesExportFileInput').click()">
+                    <i class="bi bi-cloud-arrow-up me-1"></i>Import Số Liệu Xuất Bán
+                </button>
+                <button class="btn btn-outline-success btn-sm" onclick="exportSalesFreqStats()">
+                    <i class="bi bi-file-earmark-excel me-1"></i>Xuất Excel
+                </button>
+            </div>
+        </div>
+        <div id="salesFreqMetaInfo" class="small text-muted mb-3"></div>
+
+        <!-- 3 thẻ tổng quan TX/TB/CB -->
+        <div class="row g-2 mb-3" id="salesFreqSummaryCards">
+            <div class="col-6 col-md-4">
+                <div class="p-3 rounded-3 text-white" style="background:#22c55e;cursor:pointer;" onclick="setSalesFreqGroupFilter('TX')">
+                    <div class="small opacity-75">Thường xuyên (TX)</div>
+                    <div class="fs-4 fw-bold" id="freqCountTX">0</div>
+                </div>
+            </div>
+            <div class="col-6 col-md-4">
+                <div class="p-3 rounded-3 text-white" style="background:#f59e0b;cursor:pointer;" onclick="setSalesFreqGroupFilter('TB')">
+                    <div class="small opacity-75">Trung bình (TB)</div>
+                    <div class="fs-4 fw-bold" id="freqCountTB">0</div>
+                </div>
+            </div>
+            <div class="col-6 col-md-4">
+                <div class="p-3 rounded-3 text-white" style="background:#ef4444;cursor:pointer;" onclick="setSalesFreqGroupFilter('CB')">
+                    <div class="small opacity-75">Chậm bán (CB)</div>
+                    <div class="fs-4 fw-bold" id="freqCountCB">0</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Bộ lọc -->
+        <div class="d-flex flex-wrap gap-2 align-items-center mb-3">
+            <select class="form-select form-select-sm" style="width:auto;" id="salesFreqStoreFilter" onchange="loadSalesFreqStats()">
+                <option value="">Tất cả kho/cửa hàng</option>
+                <option value="NS1">NS1</option>
+                <option value="NS2">NS2</option>
+                <option value="NS3">NS3</option>
+                <option value="NS4">NS4</option>
+                <option value="NS5">NS5</option>
+                <option value="NSM1">NSM1</option>
+                <option value="CB">Kho CB</option>
+            </select>
+            <select class="form-select form-select-sm" style="width:auto;" id="salesFreqGroupFilter" onchange="loadSalesFreqStats()">
+                <option value="">Tất cả phân loại</option>
+                <option value="TX">Thường xuyên (TX)</option>
+                <option value="TB">Trung bình (TB)</option>
+                <option value="CB">Chậm bán (CB)</option>
+            </select>
+            <input type="text" class="form-control form-control-sm" style="width:220px;" id="salesFreqSearchInput"
+                   placeholder="Tìm theo mã/tên hàng..." oninput="debouncedLoadSalesFreqStats()">
+            <span class="text-muted small ms-auto" id="salesFreqVisibleCount"></span>
+        </div>
+
+        <div class="table-responsive" style="max-height:65vh;">
+            <table class="table table-hover align-middle mb-0 text-nowrap">
+                <thead>
+                    <tr>
+                        <th>Mã Hàng</th>
+                        <th>Tên Hàng</th>
+                        <th>ĐVT</th>
+                        <th class="text-end">Tồn Hiện Tại</th>
+                        <th class="text-end">Xuất Kho (kỳ)</th>
+                        <th class="text-end">TB Bán/Tháng</th>
+                        <th class="text-end">Số Tháng Tồn</th>
+                        <th>Phân Loại</th>
+                    </tr>
+                </thead>
+                <tbody id="sales-freq-body">
+                    <tr><td colspan="8" class="text-center py-4 text-muted">Đang tải dữ liệu...</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endif %}
 
        {% if role == 'admin' %}
 <!-- LOCATION PANE (Vị Trí Hàng Hóa) -->
@@ -3627,7 +3741,7 @@
     }
 
     document.addEventListener('click', (e) => {
-        const cell = e.target.closest('.inv-hl');
+        const cell = e.target.closest('.inv-hl, .freq-badge');
         const tip = document.getElementById('inv-tooltip');
         if (cell) {
             e.stopPropagation();
@@ -3739,6 +3853,43 @@
     // Dựng HTML các dòng <tr> của bảng Tồn Kho - dùng chung cho cả bảng
     // chính (#inventory-body) lẫn modal "Tra Cứu Nhanh" (#quick-lookup-body)
     // để 2 nơi luôn hiển thị giống hệt nhau, không lặp code.
+    // Icon nhỏ phân loại tần suất bán (TX/TB/CB) gắn ở góc trên-phải mã
+    // hàng - dữ liệu lấy từ field item.sales_freq (hệ thống) và
+    // item.sales_freq_by_store (từng kho/cửa hàng) do /api/inventory trả về
+    // (rỗng/null nếu chưa import số liệu xuất bán, hoặc mã hàng đó tồn = 0).
+    // Icon dùng phân loại HỆ THỐNG để tô màu (đại diện chung cho cả dòng),
+    // nhưng bấm vào hiện tooltip so sánh CẢ tần suất của "cửa hàng đang xem"
+    // (CURRENT_STORE_CODE, với user cửa hàng) LẪN tần suất hệ thống - dùng
+    // chung cơ chế tooltip #inv-tooltip (xem showInvTooltip/hideInvTooltip
+    // và phần event delegation ".freq-badge" bên dưới), tránh bị table
+    // scroll/sticky header che mất như tooltip CSS lồng trong bảng cũ.
+    function _fmtMonthsText(monthsOfStock) {
+        return (monthsOfStock === null || monthsOfStock === undefined)
+            ? 'không xác định (chưa bán trong kỳ)'
+            : `${monthsOfStock} tháng`;
+    }
+
+    function buildFreqBadgeHtml(item) {
+        const f = item.sales_freq;
+        if (!f || !f.code) return '';
+        const cls = 'freq-' + f.code.toLowerCase();
+
+        const lines = [];
+        // Dòng riêng cho cửa hàng đang xem (chỉ có ý nghĩa với user cửa hàng,
+        // hoặc admin đang "mượn quyền" xem 1 cửa hàng cụ thể - lúc đó
+        // CURRENT_STORE_CODE cũng đã được set đúng theo cửa hàng đó).
+        const storeFreq = (item.sales_freq_by_store || {})[CURRENT_STORE_CODE];
+        if (CURRENT_STORE_CODE && storeFreq) {
+            lines.push(`Cửa hàng ${CURRENT_STORE_CODE}: ${storeFreq.code} - ${storeFreq.label}`);
+            lines.push(`  Tồn đủ bán: ${_fmtMonthsText(storeFreq.months_of_stock)} | TB bán/tháng: ${storeFreq.avg_month}`);
+        }
+        lines.push(`Toàn hệ thống: ${f.code} - ${f.label}`);
+        lines.push(`  Tồn đủ bán: ${_fmtMonthsText(f.months_of_stock)} | TB bán/tháng: ${f.avg_month}`);
+        const tipText = lines.join('\n');
+
+        return `<span class="freq-badge ${cls}" data-tip="${escapeHtmlAttr(tipText)}">${f.code}</span>`;
+    }
+
     function buildInventoryRowsHtml(data, renderLimit, totalCols) {
         const isStore = (CURRENT_ROLE === 'store');
         const truncated = !!renderLimit && data.length > renderLimit;
@@ -3765,7 +3916,7 @@
 
             return `
                 <tr>
-                    <td><span class="part-code">${partCode}</span></td>
+                    <td><span class="part-code">${partCode}${buildFreqBadgeHtml(item)}</span></td>
                     <td class="inv-name-col" title="${escapeHtmlAttr(item.part_name || '')}">${item.part_name || ''}</td>
                     <td class="text-muted small">${item.unit || ''}</td>
                     ${priceHtml}
@@ -3845,6 +3996,114 @@
     function debouncedFilterInventory() {
         clearTimeout(_inventoryFilterDebounceTimer);
         _inventoryFilterDebounceTimer = setTimeout(filterInventory, 250);
+    }
+
+    // ------------------------------------------------------------------
+    // THỐNG KÊ TẦN SUẤT BÁN (TX/TB/CB) - trang riêng cho admin.
+    // ------------------------------------------------------------------
+    let _salesFreqDebounceTimer = null;
+    function debouncedLoadSalesFreqStats() {
+        clearTimeout(_salesFreqDebounceTimer);
+        _salesFreqDebounceTimer = setTimeout(loadSalesFreqStats, 300);
+    }
+
+    function setSalesFreqGroupFilter(groupCode) {
+        const sel = document.getElementById('salesFreqGroupFilter');
+        if (sel) sel.value = (sel.value === groupCode) ? '' : groupCode;
+        loadSalesFreqStats();
+    }
+
+    function _buildSalesFreqQuery() {
+        const store = document.getElementById('salesFreqStoreFilter')?.value || '';
+        const group = document.getElementById('salesFreqGroupFilter')?.value || '';
+        const q = document.getElementById('salesFreqSearchInput')?.value.trim() || '';
+        const params = new URLSearchParams();
+        if (store) params.set('store', store);
+        if (group) params.set('group', group);
+        if (q) params.set('q', q);
+        return params.toString();
+    }
+
+    async function loadSalesFreqStats() {
+        const tbody = document.getElementById('sales-freq-body');
+        if (!tbody) return;
+        try {
+            const res = await fetch('/api/admin/sales-frequency-stats?' + _buildSalesFreqQuery());
+            const json = await res.json();
+            if (!json.success) {
+                tbody.innerHTML = `<tr><td colspan="8" class="text-center py-4 text-danger">${json.error || 'Lỗi tải dữ liệu.'}</td></tr>`;
+                return;
+            }
+
+            document.getElementById('freqCountTX').innerText = (json.summary.TX || 0).toLocaleString();
+            document.getElementById('freqCountTB').innerText = (json.summary.TB || 0).toLocaleString();
+            document.getElementById('freqCountCB').innerText = (json.summary.CB || 0).toLocaleString();
+            document.getElementById('salesFreqVisibleCount').innerText = `${json.total.toLocaleString()} mã hàng`;
+
+            const metaInfo = document.getElementById('salesFreqMetaInfo');
+            if (metaInfo) {
+                metaInfo.innerHTML = `Kỳ số liệu xuất bán: <strong>${json.period_months} tháng</strong> gần nhất` +
+                    (json.store ? ` — đang lọc theo kho <strong>${json.store}</strong>` : ' — tổng hợp toàn hệ thống');
+            }
+
+            if (!json.data || json.data.length === 0) {
+                tbody.innerHTML = `<tr><td colspan="8" class="text-center py-4 text-muted">Không có mã hàng nào khớp bộ lọc.</td></tr>`;
+                return;
+            }
+
+            const groupBadgeClass = { TX: 'bg-success', TB: 'bg-warning text-dark', CB: 'bg-danger' };
+            tbody.innerHTML = json.data.map(r => `
+                <tr>
+                    <td><span class="part-code">${escapeHtmlAttr(r.part_code)}</span></td>
+                    <td class="inv-name-col" title="${escapeHtmlAttr(r.part_name || '')}">${r.part_name || ''}</td>
+                    <td class="text-muted small">${r.unit || ''}</td>
+                    <td class="text-end">${fmtInvQty(r.qty_on_hand)}</td>
+                    <td class="text-end">${fmtInvQty(r.qty_sold_period)}</td>
+                    <td class="text-end">${r.avg_month}</td>
+                    <td class="text-end">${r.months_of_stock === null ? '—' : r.months_of_stock}</td>
+                    <td><span class="badge ${groupBadgeClass[r.group] || 'bg-secondary'}">${r.group} - ${r.group_label}</span></td>
+                </tr>
+            `).join('');
+        } catch (err) {
+            console.error('Lỗi loadSalesFreqStats:', err);
+            tbody.innerHTML = `<tr><td colspan="8" class="text-center py-4 text-danger">Lỗi kết nối máy chủ.</td></tr>`;
+        }
+    }
+
+    function exportSalesFreqStats() {
+        window.location.href = '/api/admin/sales-frequency-stats/export?' + _buildSalesFreqQuery();
+    }
+
+    async function uploadSalesExportFile(input) {
+        const file = input.files && input.files[0];
+        if (!file) return;
+        const formData = new FormData();
+        formData.append('sales_file', file);
+
+        const overlay = document.getElementById('loading-overlay');
+        if (overlay) overlay.style.display = 'flex';
+        try {
+            const res = await fetch('/api/admin/import-sales-export', { method: 'POST', body: formData });
+            const json = await res.json();
+            input.value = '';
+            if (!json.success) {
+                alert(json.error || 'Import thất bại.');
+                return;
+            }
+            let msg = `Đã import ${json.total_parts.toLocaleString()} mã hàng (kỳ ${json.period_months} tháng, bỏ qua ${json.skipped_rows.toLocaleString()} dòng không hợp lệ).`;
+            if (json.warnings && json.warnings.length) {
+                msg += '\n\nCảnh báo:\n' + json.warnings.slice(0, 10).join('\n');
+            }
+            alert(msg);
+            loadSalesFreqStats();
+            loadInventory(); // để icon phân loại ở bảng Tồn Kho được cập nhật ngay
+        } catch (err) {
+            input.value = '';
+            console.error('Lỗi uploadSalesExportFile:', err);
+            alert('Lỗi kết nối máy chủ khi import.');
+        } finally {
+            if (overlay) overlay.style.display = 'none';
+        }
     }
 
     // ------------------------------------------------------------------

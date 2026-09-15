@@ -789,6 +789,34 @@ def init_db():
             )
         ''')
 
+        # 6z. Bảng lưu số liệu XUẤT BÁN (import RIÊNG, KHI CẦN bởi admin từ
+        #     file "Tổng hợp tồn kho" - cột Xuất kho) để phục vụ phân loại
+        #     tần suất bán TX/TB/CB. Ghi đè toàn bộ mỗi lần import mới,
+        #     giống cách inventory_items được ghi đè khi cập nhật tồn kho.
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS sales_export_items (
+                id SERIAL PRIMARY KEY,
+                part_code VARCHAR(100) NOT NULL,
+                part_name TEXT,
+                unit VARCHAR(50),
+                store_code VARCHAR(20) NOT NULL,
+                qty_sold NUMERIC NOT NULL DEFAULT 0
+            )
+        ''')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_sales_export_part ON sales_export_items(part_code)')
+
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS sales_export_meta (
+                id INTEGER PRIMARY KEY DEFAULT 1,
+                filename TEXT,
+                uploaded_by VARCHAR(50),
+                upload_time TIMESTAMP,
+                period_months INTEGER,
+                total_parts INTEGER,
+                skipped_rows INTEGER
+            )
+        ''')
+
         # 6a. Bảng lưu GIÁ BÁN của từng mã hàng - tách RIÊNG khỏi
         #     inventory_items (vốn bị TRUNCATE + nạp lại toàn bộ mỗi lần
         #     admin cập nhật file tồn kho, xem upload_inventory()) để giá bán
@@ -1685,6 +1713,188 @@ def parse_inventory_excel(file_storage):
         rows = result[['part_code', 'part_name', 'unit', 'store_code', 'quantity', 'is_pi2']].to_dict(orient='records')
 
     return rows, skipped_rows, warnings
+
+
+# ---------------------------------------------------------------------------
+# THỐNG KÊ TẦN SUẤT BÁN (Thường xuyên / Trung bình / Chậm bán)
+# ---------------------------------------------------------------------------
+# Ngưỡng phân loại theo "số tháng tồn" = Tồn hiện tại / (Tổng xuất kho trong
+# kỳ / số tháng của kỳ). Đây là chỉ số chuẩn "Months of Inventory" dùng phổ
+# biến trong ngành phụ tùng/bán lẻ để đánh giá tốc độ quay vòng hàng tồn.
+SALES_FREQ_TX_MAX_MONTHS = 2   # Tồn đủ bán <= 2 tháng -> Thường xuyên (TX)
+SALES_FREQ_TB_MAX_MONTHS = 6   # Tồn đủ bán 2-6 tháng -> Trung bình (TB); > 6 -> Chậm bán (CB)
+
+SALES_FREQ_LABELS = {
+    'TX': 'Thường xuyên',
+    'TB': 'Trung bình',
+    'CB': 'Chậm bán',
+}
+
+
+def classify_sales_frequency(qty_on_hand, qty_sold_period, period_months):
+    """Phân loại 1 mã hàng theo tần suất bán, dựa trên tồn hiện tại và tổng
+    số lượng đã bán trong kỳ (period_months tháng, mặc định kỳ nhập là 3
+    tháng theo file "Tổng hợp tồn kho").
+
+    Trả về dict {code, label, avg_month, months_of_stock} hoặc None nếu
+    không đủ điều kiện hiển thị icon (tồn <= 0 - theo đúng yêu cầu: mã còn
+    tồn mới cần theo dõi phân loại chậm/nhanh bán).
+    """
+    qty_on_hand = float(qty_on_hand or 0)
+    qty_sold_period = float(qty_sold_period or 0)
+    period_months = float(period_months or 3) or 3
+
+    if qty_on_hand <= 0:
+        return None  # Không có tồn -> không hiện icon
+
+    avg_month = qty_sold_period / period_months
+
+    # Bán = 0 trong cả kỳ nhưng vẫn còn tồn -> luôn CB (không chia cho 0,
+    # và rõ ràng không có nhu cầu dù tồn ít).
+    if qty_sold_period <= 0:
+        return {'code': 'CB', 'label': SALES_FREQ_LABELS['CB'], 'avg_month': 0.0, 'months_of_stock': None}
+
+    months_of_stock = qty_on_hand / avg_month
+
+    if months_of_stock <= SALES_FREQ_TX_MAX_MONTHS:
+        code = 'TX'
+    elif months_of_stock <= SALES_FREQ_TB_MAX_MONTHS:
+        code = 'TB'
+    else:
+        code = 'CB'
+
+    return {
+        'code': code,
+        'label': SALES_FREQ_LABELS[code],
+        'avg_month': round(avg_month, 2),
+        'months_of_stock': round(months_of_stock, 2),
+    }
+
+
+def parse_sales_export_excel(file_storage):
+    """Đọc file "Tổng hợp tồn kho" (CÙNG định dạng với parse_inventory_excel)
+    nhưng lấy cột "Xuất kho - SL bán hàng" thay vì "Cuối kỳ - Số lượng", để
+    nạp số liệu bán ra phục vụ thống kê tần suất bán. File này do admin
+    import RIÊNG, KHI CẦN (không tự động theo tuần/tháng), nên cần cho biết
+    kỳ báo cáo trong file tương ứng bao nhiêu tháng (period_months) - đọc từ
+    dòng "Từ ngày ... đến ngày ..." ở đầu file nếu có, mặc định 3 tháng nếu
+    không dò được.
+
+    Trả về (rows, skipped_rows, warnings, period_months) - rows là danh sách
+    dict {part_code, part_name, unit, store_code, qty_sold}.
+    """
+    import re
+
+    file_storage.seek(0)
+    try:
+        raw = pd.read_excel(
+            file_storage, header=None, dtype=object,
+            engine='openpyxl', engine_kwargs={'read_only': True},
+        )
+    except TypeError:
+        file_storage.seek(0)
+        raw = pd.read_excel(file_storage, header=None, dtype=object)
+
+    # 0) Dò số tháng của kỳ báo cáo từ dòng "Từ ngày dd/mm/yyyy đến ngày
+    #    dd/mm/yyyy" (thường ở dòng thứ 2 của file, phía trên header).
+    period_months = 3
+    for i in range(min(5, len(raw))):
+        cell = raw.iat[i, 0]
+        if cell is None:
+            continue
+        text = str(cell)
+        m = re.search(r'(\d{2})/(\d{2})/(\d{4}).*?(\d{2})/(\d{2})/(\d{4})', text)
+        if m:
+            d1, mo1, y1, d2, mo2, y2 = (int(x) for x in m.groups())
+            months = (y2 - y1) * 12 + (mo2 - mo1) + 1
+            if months > 0:
+                period_months = months
+            break
+
+    header_row = None
+    for i in range(min(15, len(raw))):
+        first_cell = raw.iat[i, 0]
+        if first_cell is not None and str(first_cell).strip().upper() == 'MÃ KHO':
+            header_row = i
+            break
+    if header_row is None:
+        raise ValueError('Không tìm thấy dòng tiêu đề "Mã kho" trong file. Vui lòng kiểm tra lại đúng file "Tổng hợp tồn kho".')
+
+    group_row = raw.iloc[header_row]
+    sub_row = raw.iloc[header_row + 1] if header_row + 1 < len(raw) else None
+
+    export_col = None
+    current_group = ''
+    for c in range(raw.shape[1]):
+        cell = group_row.iat[c]
+        if cell is not None and str(cell).strip() != '' and str(cell).strip().lower() != 'nan':
+            current_group = str(cell).strip().lower()
+        if 'xuất kho' in current_group and sub_row is not None:
+            sub_cell = sub_row.iat[c]
+            if sub_cell is not None and 'bán hàng' in str(sub_cell).strip().lower():
+                export_col = c
+                break
+    if export_col is None:
+        raise ValueError('Không tìm thấy cột "Xuất kho - SL bán hàng" trong file.')
+
+    data_start = header_row + 2
+    kho_col, part_col, name_col, unit_col = 0, 1, 2, 3
+
+    data = raw.iloc[data_start:, [kho_col, part_col, name_col, unit_col, export_col]].copy()
+    data.columns = ['kho', 'part_code', 'part_name', 'unit', 'qty']
+
+    data['kho'] = data['kho'].astype(str).str.strip()
+    data['part_code'] = data['part_code'].astype(str).str.strip()
+    valid_mask = (
+        data['kho'].notna() & data['part_code'].notna()
+        & (data['kho'] != '') & (data['kho'].str.lower() != 'none')
+        & (data['part_code'] != '') & (data['part_code'].str.lower() != 'none')
+    )
+    data = data[valid_mask]
+
+    kho_upper_full = data['kho'].str.upper()
+    single_word_mask = kho_upper_full.isin(_SINGLE_WORD_WAREHOUSES.keys())
+    single_word_data = data[single_word_mask].copy()
+    single_word_data['store_code'] = kho_upper_full[single_word_mask].map(_SINGLE_WORD_WAREHOUSES)
+    data = data[~single_word_mask]
+
+    kho_parts = data['kho'].str.upper().str.split()
+    valid_len_mask = kho_parts.str.len() == 2
+    skipped_rows = int((~valid_len_mask).sum())
+    data = data[valid_len_mask]
+    kho_parts = kho_parts[valid_len_mask]
+    data['prefix'] = kho_parts.str[0]
+    data['suffix'] = kho_parts.str[1]
+    data['suffix'] = data['suffix'].replace(_SUFFIX_ALIAS_TO_STORE)
+
+    allowed_mask = data['prefix'].isin(_INVENTORY_ALLOWED_PREFIXES) & data['suffix'].isin(_INVENTORY_ALLOWED_STORES)
+    skipped_rows += int((~allowed_mask).sum())
+    data = data[allowed_mask]
+    data = data.rename(columns={'suffix': 'store_code'})
+    data = data.drop(columns=['prefix'])
+
+    if not single_word_data.empty:
+        single_word_data = single_word_data.drop(columns=['kho'], errors='ignore')
+        data = pd.concat([data, single_word_data], ignore_index=True, sort=False)
+
+    data['part_name'] = data['part_name'].fillna('').astype(str).str.strip()
+    data['unit'] = data['unit'].fillna('').astype(str).str.strip()
+    data['qty'] = pd.to_numeric(data['qty'], errors='coerce').fillna(0.0)
+
+    warnings = []
+    rows = []
+    if not data.empty:
+        name_unit = data.groupby('part_code', sort=False).agg(
+            part_name=('part_name', 'first'),
+            unit=('unit', 'first'),
+        )
+        qty_grouped = data.groupby(['part_code', 'store_code'], sort=False).agg(
+            qty_sold=('qty', 'sum'),
+        ).reset_index()
+        result = qty_grouped.merge(name_unit, left_on='part_code', right_index=True, how='left')
+        rows = result[['part_code', 'part_name', 'unit', 'store_code', 'qty_sold']].to_dict(orient='records')
+
+    return rows, skipped_rows, warnings, period_months
 
 
 def parse_location_excel(file_storage):
@@ -2754,6 +2964,206 @@ def upload_inventory():
         return jsonify({'error': str(e)}), 500
 
 
+@app.route('/api/admin/import-sales-export', methods=['POST'])
+def import_sales_export():
+    """Admin import file "Tổng hợp tồn kho" (dùng cột Xuất kho) để cập nhật
+    số liệu bán ra phục vụ thống kê tần suất bán TX/TB/CB. Import RIÊNG,
+    KHI CẦN - không tự động, không theo tuần. Ghi đè toàn bộ mỗi lần import,
+    giống hệt cơ chế của upload_inventory()."""
+    if 'user' not in session or session['role'] != 'admin':
+        return jsonify({'error': 'Forbidden'}), 403
+
+    sales_file = request.files.get('sales_file')
+    if not sales_file:
+        return jsonify({'error': 'Vui lòng chọn file để tải lên.'}), 400
+
+    try:
+        rows, skipped_rows, warnings, period_months = parse_sales_export_excel(sales_file)
+        if not rows:
+            return jsonify({'error': 'Không đọc được mã hàng nào thuộc các mã kho quy định trong file này.'}), 400
+
+        upload_time = vn_now()
+        db = get_db()
+        cursor = db.cursor()
+
+        cursor.execute('TRUNCATE TABLE sales_export_items')
+        execute_values(
+            cursor,
+            '''INSERT INTO sales_export_items (part_code, part_name, unit, store_code, qty_sold)
+               VALUES %s''',
+            [(r['part_code'], r['part_name'], r['unit'], r['store_code'], r['qty_sold']) for r in rows]
+        )
+
+        distinct_parts = len({r['part_code'] for r in rows})
+
+        cursor.execute('''
+            INSERT INTO sales_export_meta (id, filename, uploaded_by, upload_time, period_months, total_parts, skipped_rows)
+            VALUES (1, %s, %s, %s, %s, %s, %s)
+            ON CONFLICT (id) DO UPDATE SET
+                filename = EXCLUDED.filename,
+                uploaded_by = EXCLUDED.uploaded_by,
+                upload_time = EXCLUDED.upload_time,
+                period_months = EXCLUDED.period_months,
+                total_parts = EXCLUDED.total_parts,
+                skipped_rows = EXCLUDED.skipped_rows
+        ''', (sales_file.filename, _current_actor_name(), upload_time, period_months, distinct_parts, skipped_rows))
+
+        db.commit()
+        cursor.close()
+
+        return jsonify({
+            'success': True,
+            'total_parts': distinct_parts,
+            'skipped_rows': skipped_rows,
+            'period_months': period_months,
+            'warnings': warnings,
+        })
+    except ValueError as e:
+        return jsonify({'error': str(e)}), 400
+    except Exception as e:
+        app.logger.error("Lỗi /api/admin/import-sales-export: %s\n%s", e, traceback.format_exc())
+        try:
+            get_db().rollback()
+        except Exception:
+            pass
+        return jsonify({'error': str(e)}), 500
+
+
+def _compute_sales_frequency_rows(cursor, store_code=None):
+    """Hàm dùng chung cho endpoint thống kê (xem trên web) và xuất Excel:
+    gộp tồn kho + xuất bán theo mã hàng (toàn hệ thống, hoặc lọc theo 1
+    store_code cụ thể nếu truyền vào), rồi phân loại TX/TB/CB.
+    Trả về (rows, period_months)."""
+    cursor.execute('SELECT period_months FROM sales_export_meta WHERE id = 1')
+    meta_row = cursor.fetchone()
+    period_months = (meta_row['period_months'] if meta_row and meta_row.get('period_months') else 3) or 3
+
+    if store_code:
+        cursor.execute('''
+            SELECT part_code, part_name, unit, SUM(quantity) AS quantity
+            FROM inventory_items WHERE store_code = %s
+            GROUP BY part_code, part_name, unit
+        ''', (store_code,))
+    else:
+        cursor.execute('''
+            SELECT part_code, MAX(part_name) AS part_name, MAX(unit) AS unit, SUM(quantity) AS quantity
+            FROM inventory_items GROUP BY part_code
+        ''')
+    inventory_by_part = {r['part_code']: r for r in cursor.fetchall()}
+
+    if store_code:
+        cursor.execute('SELECT part_code, SUM(qty_sold) AS qty_sold FROM sales_export_items WHERE store_code = %s GROUP BY part_code', (store_code,))
+    else:
+        cursor.execute('SELECT part_code, SUM(qty_sold) AS qty_sold FROM sales_export_items GROUP BY part_code')
+    sold_by_part = {r['part_code']: float(r['qty_sold'] or 0) for r in cursor.fetchall()}
+
+    rows = []
+    for part_code, inv in inventory_by_part.items():
+        qty_on_hand = float(inv['quantity'] or 0)
+        qty_sold = sold_by_part.get(part_code, 0.0)
+        classification = classify_sales_frequency(qty_on_hand, qty_sold, period_months)
+        if classification is None:
+            continue  # Tồn <= 0 -> không thuộc thống kê tần suất bán
+        rows.append({
+            'part_code': part_code,
+            'part_name': inv['part_name'],
+            'unit': inv['unit'],
+            'qty_on_hand': qty_on_hand,
+            'qty_sold_period': qty_sold,
+            'avg_month': classification['avg_month'],
+            'months_of_stock': classification['months_of_stock'],
+            'group': classification['code'],
+            'group_label': classification['label'],
+        })
+
+    return rows, period_months
+
+
+@app.route('/api/admin/sales-frequency-stats', methods=['GET'])
+def sales_frequency_stats():
+    """Thống kê các mã hàng theo tần suất bán TX/TB/CB, cho trang admin
+    riêng. Hỗ trợ lọc theo kho/cửa hàng (?store=NS1) và theo nhóm
+    (?group=CB), search theo mã/tên hàng (?q=...)."""
+    if 'user' not in session or session['role'] != 'admin':
+        return jsonify({'error': 'Forbidden'}), 403
+
+    store_code = (request.args.get('store') or '').strip().upper() or None
+    group_filter = (request.args.get('group') or '').strip().upper() or None
+    q = (request.args.get('q') or '').strip().lower()
+
+    db = get_db()
+    cursor = db.cursor()
+    rows, period_months = _compute_sales_frequency_rows(cursor, store_code)
+    cursor.close()
+
+    summary = {'TX': 0, 'TB': 0, 'CB': 0}
+    for r in rows:
+        summary[r['group']] = summary.get(r['group'], 0) + 1
+
+    if group_filter in ('TX', 'TB', 'CB'):
+        rows = [r for r in rows if r['group'] == group_filter]
+    if q:
+        rows = [r for r in rows if q in r['part_code'].lower() or q in (r['part_name'] or '').lower()]
+
+    rows.sort(key=lambda r: (r['months_of_stock'] is None, -(r['months_of_stock'] or 0)))
+
+    return jsonify({
+        'success': True,
+        'data': rows,
+        'summary': summary,
+        'total': len(rows),
+        'period_months': period_months,
+        'store': store_code,
+    })
+
+
+@app.route('/api/admin/sales-frequency-stats/export', methods=['GET'])
+def sales_frequency_stats_export():
+    """Xuất Excel danh sách thống kê tần suất bán, áp dụng đúng bộ lọc
+    hiện tại trên màn hình (store/group/q), giống logic sales_frequency_stats()."""
+    if 'user' not in session or session['role'] != 'admin':
+        return jsonify({'error': 'Forbidden'}), 403
+
+    store_code = (request.args.get('store') or '').strip().upper() or None
+    group_filter = (request.args.get('group') or '').strip().upper() or None
+    q = (request.args.get('q') or '').strip().lower()
+
+    db = get_db()
+    cursor = db.cursor()
+    rows, period_months = _compute_sales_frequency_rows(cursor, store_code)
+    cursor.close()
+
+    if group_filter in ('TX', 'TB', 'CB'):
+        rows = [r for r in rows if r['group'] == group_filter]
+    if q:
+        rows = [r for r in rows if q in r['part_code'].lower() or q in (r['part_name'] or '').lower()]
+    rows.sort(key=lambda r: (r['months_of_stock'] is None, -(r['months_of_stock'] or 0)))
+
+    df = pd.DataFrame([{
+        'Mã hàng': r['part_code'],
+        'Tên hàng': r['part_name'],
+        'ĐVT': r['unit'],
+        'Tồn hiện tại': r['qty_on_hand'],
+        f'Xuất kho ({period_months} tháng)': r['qty_sold_period'],
+        'TB bán/tháng': r['avg_month'],
+        'Số tháng tồn': r['months_of_stock'],
+        'Phân loại': f"{r['group']} - {r['group_label']}",
+    } for r in rows])
+
+    output = io.BytesIO()
+    with pd.ExcelWriter(output, engine='openpyxl') as writer:
+        df.to_excel(writer, index=False, sheet_name='Tần suất bán')
+    output.seek(0)
+
+    filename_suffix = store_code or 'tat-ca'
+    return send_file(
+        output,
+        as_attachment=True,
+        download_name=f'thong-ke-tan-suat-ban-{filename_suffix}.xlsx',
+        mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    )
+
+
 @app.route('/api/admin/import-prices', methods=['POST'])
 def import_prices():
     """Admin import GIÁ BÁN của các mã hàng từ 1 file Excel/CSV đơn giản
@@ -2935,6 +3345,46 @@ def get_inventory():
     for row in data:
         row.pop('_is_pi2', None)
 
+    # Gắn kèm phân loại tần suất bán (TX/TB/CB) cho icon góc trên-phải mỗi
+    # mã hàng - tính CẢ 2 mức: 'sales_freq' (tổng toàn hệ thống, không phân
+    # biệt kho) và 'sales_freq_by_store' (riêng từng kho/cửa hàng, dùng
+    # đúng tồn + xuất bán của kho đó) - để FE hiển thị tooltip so sánh
+    # "cửa hàng đó" vs "hệ thống". Chỉ có nếu admin đã từng import số liệu
+    # xuất bán (sales_export_items) - nếu chưa import lần nào, các field
+    # này sẽ là None/rỗng và FE tự hiểu là "chưa có dữ liệu, không hiện icon".
+    cursor.execute('SELECT COUNT(*) AS c FROM sales_export_items')
+    has_sales_data = (cursor.fetchone() or {}).get('c', 0) > 0
+    if has_sales_data:
+        cursor.execute('SELECT period_months FROM sales_export_meta WHERE id = 1')
+        meta_row = cursor.fetchone()
+        period_months = (meta_row['period_months'] if meta_row and meta_row.get('period_months') else 3) or 3
+
+        cursor.execute('SELECT part_code, SUM(qty_sold) AS qty_sold FROM sales_export_items GROUP BY part_code')
+        sold_by_part = {r['part_code']: float(r['qty_sold'] or 0) for r in cursor.fetchall()}
+
+        cursor.execute('SELECT part_code, store_code, SUM(qty_sold) AS qty_sold FROM sales_export_items GROUP BY part_code, store_code')
+        sold_by_part_store = {}
+        for r in cursor.fetchall():
+            sold_by_part_store.setdefault(r['part_code'], {})[r['store_code']] = float(r['qty_sold'] or 0)
+
+        store_codes = ('NS1', 'NS2', 'NS3', 'NS4', 'NS5', 'NSM1', 'CB')
+        for row in data:
+            total_qty = sum(float(row.get(sc) or 0) for sc in store_codes)
+            row['sales_freq'] = classify_sales_frequency(total_qty, sold_by_part.get(row['part_code'], 0.0), period_months)
+
+            by_store = {}
+            sold_map = sold_by_part_store.get(row['part_code'], {})
+            for sc in store_codes:
+                qty_sc = float(row.get(sc) or 0)
+                cls = classify_sales_frequency(qty_sc, sold_map.get(sc, 0.0), period_months)
+                if cls is not None:
+                    by_store[sc] = cls
+            row['sales_freq_by_store'] = by_store
+    else:
+        for row in data:
+            row['sales_freq'] = None
+            row['sales_freq_by_store'] = {}
+
     cursor.execute('SELECT filename, uploaded_by, upload_time, total_parts, skipped_rows FROM inventory_meta WHERE id = 1')
     meta_row = cursor.fetchone()
     meta = dict(meta_row) if meta_row else None
@@ -2947,9 +3397,15 @@ def get_inventory():
     if price_meta and price_meta.get('upload_time'):
         price_meta['upload_time'] = price_meta['upload_time'].strftime('%d/%m/%Y %H:%M')
 
+    cursor.execute('SELECT filename, uploaded_by, upload_time, period_months FROM sales_export_meta WHERE id = 1')
+    sales_meta_row = cursor.fetchone()
+    sales_meta = dict(sales_meta_row) if sales_meta_row else None
+    if sales_meta and sales_meta.get('upload_time'):
+        sales_meta['upload_time'] = sales_meta['upload_time'].strftime('%d/%m/%Y %H:%M')
+
     cursor.close()
 
-    return jsonify({'success': True, 'data': data, 'meta': meta, 'price_meta': price_meta})
+    return jsonify({'success': True, 'data': data, 'meta': meta, 'price_meta': price_meta, 'sales_meta': sales_meta})
 
 
 @app.route('/api/locations', methods=['GET'])
