@@ -304,7 +304,18 @@ def _get_pool():
         # cần nhân thêm. Nếu sau này nâng cấp gói và tăng số --workers, nhớ
         # NHÂN số này với số --workers để không vượt giới hạn kết nối của
         # Neon (vượt sẽ gây lỗi "too many connections").
-        _db_pool = pg_pool.SimpleConnectionPool(1, 10, DATABASE_URL, cursor_factory=RealDictCursor)
+        # Dùng ThreadedConnectionPool thay vì SimpleConnectionPool: theo tài
+        # liệu chính thức của psycopg2, SimpleConnectionPool KHÔNG an toàn
+        # khi có nhiều luồng (thread) cùng gọi getconn()/putconn() đồng
+        # thời - nếu gunicorn chạy với nhiều thread (hoặc do 1 lỗi khác dẫn
+        # tới việc bị gọi song song), có thể xảy ra tình huống 2 request
+        # khác nhau cùng được cấp PHÁT TRÙNG 1 connection, dẫn tới 2 luồng
+        # cùng đọc/ghi trên chung 1 socket TLS - biểu hiện ra ngoài đúng
+        # kiểu lỗi khó hiểu như "SSL error: decryption failed or bad record
+        # mac" (dữ liệu 2 luồng bị xen kẽ làm hỏng khung mã hoá TLS).
+        # ThreadedConnectionPool dùng lock nội bộ để đảm bảo an toàn, chi
+        # phí thêm không đáng kể so với rủi ro trên.
+        _db_pool = pg_pool.ThreadedConnectionPool(1, 10, DATABASE_URL, cursor_factory=RealDictCursor)
     return _db_pool
 
 # Số ngày lưu trữ dữ liệu "Chi tiết PO" trước khi tự động dọn dẹp
@@ -587,17 +598,29 @@ def close_connection(exception):
     db = getattr(g, '_database', None)
     if db is not None:
         pool = _get_pool()
-        # Nếu có lỗi xảy ra giữa request mà chưa rollback, trả kết nối bẩn về
-        # pool sẽ làm hỏng transaction của request tiếp theo dùng lại nó.
         if exception is not None:
+            # Có lỗi xảy ra giữa request (bất kỳ Exception nào, kể cả lỗi
+            # tầng SSL/socket như "decryption failed or bad record mac") -
+            # AN TOÀN NHẤT là ĐÓNG HẲN connection này, không trả về pool để
+            # tái sử dụng nữa. Rollback() có thể tự nó cũng thất bại nếu
+            # connection đã hỏng ở tầng thấp (socket/SSL), lúc đó KHÔNG THỂ
+            # coi connection này còn dùng lại được - trả 1 connection "bẩn"
+            # về pool sẽ khiến request TIẾP THEO lấy trúng nó và lỗi lây
+            # lan tiếp, dù get_db() có pre-ping cũng chỉ bắt được ở lần gọi
+            # SAU, không cứu được request đó.
             try:
                 db.rollback()
             except Exception:
                 pass
-        try:
-            pool.putconn(db)
-        except Exception:
-            pass
+            try:
+                pool.putconn(db, close=True)
+            except Exception:
+                pass
+        else:
+            try:
+                pool.putconn(db)
+            except Exception:
+                pass
 
 
 def init_db():
