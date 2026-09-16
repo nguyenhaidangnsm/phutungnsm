@@ -1134,6 +1134,11 @@ def init_db():
         # price_adjustment.py cùng lý do (xem hướng dẫn ở đầu file đó).
         init_price_adjustment_tables(cursor)
 
+        # 9d. Bảng cho tính năng GỢI Ý NHẬP HÀNG / CẢNH BÁO HẾT HÀNG /
+        # DASHBOARD TỔNG QUAN - tách trong dashboard.py cùng lý do (xem
+        # hướng dẫn ở đầu file đó).
+        init_dashboard_tables(cursor)
+
         # 10. Seed default users nếu chưa có
         cursor.execute("SELECT COUNT(*) FROM users")
         count = cursor.fetchone()['count']
@@ -2997,6 +3002,21 @@ def upload_inventory():
         ''', (inventory_file.filename, _current_actor_name(), upload_time, distinct_parts, skipped_rows))
 
         db.commit()
+
+        # Tồn kho vừa đổi -> rà soát lại ngay các mã TX sắp hết hàng thay vì
+        # đợi lượt kiểm tra nền hằng ngày (xem dashboard.py). Import trong
+        # hàm (không phải đầu file) vì dashboard.py import ngược lại app.py -
+        # gọi lúc này (sau khi app.py đã load xong) là an toàn. Lỗi ở bước
+        # này (nếu có) không được làm hỏng kết quả upload tồn kho đã thành
+        # công - chỉ log lại để xem sau.
+        try:
+            from dashboard import check_and_notify_low_stock
+            check_and_notify_low_stock(cursor)
+            db.commit()
+        except Exception:
+            db.rollback()
+            traceback.print_exc()
+
         cursor.close()
         invalidate_inventory_cache()
 
@@ -3062,6 +3082,17 @@ def import_sales_export():
         ''', (sales_file.filename, _current_actor_name(), upload_time, period_months, distinct_parts, skipped_rows))
 
         db.commit()
+
+        # Số liệu bán ra vừa đổi -> rà soát lại ngay các mã TX sắp hết hàng,
+        # cùng lý do như trong upload_inventory() ở trên.
+        try:
+            from dashboard import check_and_notify_low_stock
+            check_and_notify_low_stock(cursor)
+            db.commit()
+        except Exception:
+            db.rollback()
+            traceback.print_exc()
+
         cursor.close()
         invalidate_inventory_cache()
 
@@ -6889,6 +6920,14 @@ app.register_blueprint(stocktake_bp)
 # các tên đó đã được định nghĩa xong ở phía trên.
 from price_adjustment import price_adjustment_bp, init_price_adjustment_tables
 app.register_blueprint(price_adjustment_bp)
+
+# Import + đăng ký blueprint dashboard (Gợi Ý Nhập Hàng / Cảnh Báo Hết Hàng /
+# Dashboard Tổng Quan) - cùng lý do/vị trí như 2 blueprint ở trên: cần
+# get_db/_valid_store_codes/create_notification/ADMIN_NOTIF_STORE_CODE/
+# _get_app_setting/_set_app_setting/_compute_sales_frequency_rows/
+# SALES_FREQ_LABELS đã định nghĩa xong ở phía trên.
+from dashboard import dashboard_bp, init_dashboard_tables
+app.register_blueprint(dashboard_bp)
 
 # Tự động gọi khởi tạo bảng khi chạy app (gọi SAU khi đã đăng ký blueprint
 # ở trên, vì init_db() bên trong có gọi init_stocktake_tables()).

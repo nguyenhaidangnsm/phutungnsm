@@ -1028,6 +1028,12 @@
                 <span class="ns-label">Thống Kê Tần Suất Bán</span>
             </button>
             {% endif %}
+            {% if role == 'admin' or role == 'store' %}
+            <button type="button" class="ns-sidebar-item" data-target-tab="reorder-tab" onclick="megaNavClick('reorder-tab', this)">
+                <span class="ns-sidebar-icon"><i class="bi bi-cart-plus-fill"></i></span>
+                <span class="ns-label">Gợi Ý Nhập Hàng</span>
+            </button>
+            {% endif %}
             {% if role == 'admin' %}
             <button type="button" class="ns-sidebar-item" data-target-tab="location-tab" onclick="megaNavClick('location-tab', this)">
                 <span class="ns-sidebar-icon"><i class="bi bi-geo-alt-fill"></i></span>
@@ -1122,6 +1128,13 @@
     <li class="nav-item" role="presentation">
         <button class="nav-link" id="sales-freq-tab" data-bs-toggle="pill" data-bs-target="#sales-freq-pane" onclick="loadSalesFreqStats()">
             <i class="bi bi-graph-down-arrow me-2"></i>Thống Kê Tần Suất Bán
+        </button>
+    </li>
+    {% endif %}
+    {% if role == 'admin' or role == 'store' %}
+    <li class="nav-item" role="presentation">
+        <button class="nav-link" id="reorder-tab" data-bs-toggle="pill" data-bs-target="#reorder-pane" onclick="loadReorderSuggestions(); {% if role == 'admin' %}loadLowStockSettings();{% endif %}">
+            <i class="bi bi-cart-plus-fill me-2"></i>Gợi Ý Nhập Hàng
         </button>
     </li>
     {% endif %}
@@ -1310,6 +1323,44 @@
                     </div>
                 </div>
             </div>
+
+            {% if role == 'admin' %}
+            <!-- Dashboard Tổng Quan Cho Admin (gộp số liệu rải rác) -->
+            <div class="card card-custom p-3 mb-3 mb-md-4">
+                <h6 class="fw-bold mb-3"><i class="bi bi-speedometer2 me-2 text-primary"></i>Tổng Quan Toàn Hệ Thống</h6>
+                <div class="row g-2 g-md-3">
+                    <div class="col-6 col-md-3">
+                        <div class="p-2 p-md-3 rounded-3 bg-primary bg-opacity-10 text-center" style="cursor:pointer;"
+                             onclick="megaNavClick('inventory-tab', document.querySelector('[data-target-tab=inventory-tab]'))">
+                            <div class="fw-bold fs-5 text-primary" id="ov-admin-inventory-value">0</div>
+                            <div class="small text-muted">Tổng Giá Trị Tồn Kho</div>
+                        </div>
+                    </div>
+                    <div class="col-6 col-md-3">
+                        <div class="p-2 p-md-3 rounded-3 bg-warning bg-opacity-10 text-center" style="cursor:pointer;"
+                             onclick="megaNavClick('transfer-tab', document.querySelector('[data-target-tab=transfer-tab]'))">
+                            <div class="fw-bold fs-4 text-warning" id="ov-admin-transfer-pending">0</div>
+                            <div class="small text-muted">Phiếu Chuyển Đang Chờ Xử Lý</div>
+                        </div>
+                    </div>
+                    <div class="col-6 col-md-3">
+                        <div class="p-2 p-md-3 rounded-3 bg-danger bg-opacity-10 text-center" style="cursor:pointer;"
+                             onclick="megaNavClick('sales-freq-tab', document.querySelector('[data-target-tab=sales-freq-tab]'))">
+                            <div class="fw-bold fs-4 text-danger" id="ov-admin-cb-count">0</div>
+                            <div class="small text-muted">Mã CB (Chậm Bán) Tồn Đọng</div>
+                        </div>
+                    </div>
+                    <div class="col-6 col-md-3">
+                        <div class="p-2 p-md-3 rounded-3 bg-info bg-opacity-10 text-center" style="cursor:pointer;"
+                             onclick="megaNavClick('reorder-tab', document.querySelector('[data-target-tab=reorder-tab]'))">
+                            <div class="fw-bold fs-4 text-info" id="ov-admin-bo-due-soon">0</div>
+                            <div class="small text-muted">Đơn B0 Sắp Tới Hạn Giao</div>
+                        </div>
+                    </div>
+                </div>
+                <div class="small text-muted mt-2" id="ov-admin-summary-note"></div>
+            </div>
+            {% endif %}
 
             <!-- Mốc cập nhật + thông báo -->
             <div class="row g-2 g-md-3">
@@ -1766,6 +1817,85 @@
                     </tr>
                 </thead>
                 <tbody id="sales-freq-body">
+                    <tr><td colspan="8" class="text-center py-4 text-muted">Đang tải dữ liệu...</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+       {% if role == 'admin' or role == 'store' %}
+<!-- REORDER SUGGESTIONS PANE (Gợi Ý Nhập Hàng Tự Động) - admin xem toàn hệ
+     thống (lọc được theo kho/cửa hàng); user cửa hàng CHỈ xem đúng gợi ý
+     của cửa hàng mình (không có bộ lọc kho, không sửa được ngưỡng cảnh
+     báo chung - việc đó vẫn chỉ admin làm). -->
+<div class="tab-pane fade" id="reorder-pane">
+    {% if role == 'admin' %}
+    <!-- Cài đặt ngưỡng cảnh báo hết hàng -->
+    <div class="card card-custom p-3 mb-3 mb-md-4">
+        <h6 class="fw-bold mb-2"><i class="bi bi-bell-fill me-2 text-warning"></i>Ngưỡng Cảnh Báo Hết Hàng Tự Động</h6>
+        <div class="small text-muted mb-3">
+            Khi 1 mã hàng "Thường xuyên (TX)" hoặc "Trung bình (TB)" có tồn hiện tại chỉ còn đủ bán dưới
+            ngưỡng này, hệ thống tự gửi thông báo (icon chuông) cho đúng cửa hàng đó và admin. Áp dụng
+            ngay khi bạn lưu, và tự rà soát lại mỗi khi có tồn kho/số liệu bán mới được import.
+        </div>
+        <div class="d-flex flex-wrap align-items-center gap-2">
+            <label class="small mb-0">Ngưỡng (tháng tồn còn lại):</label>
+            <input type="number" step="0.1" min="0.1" class="form-control form-control-sm" style="width:100px;" id="lowStockMinMonthsInput">
+            <button class="btn btn-primary btn-sm" onclick="saveLowStockSettings()">
+                <i class="bi bi-check-lg me-1"></i>Lưu
+            </button>
+            <span class="small text-muted" id="lowStockSettingsStatus"></span>
+        </div>
+    </div>
+    {% endif %}
+
+    <div class="card card-custom p-3 mb-3 mb-md-4">
+        <div class="d-flex flex-wrap justify-content-between align-items-center mb-3 gap-2">
+            <h5 class="mb-0"><i class="bi bi-cart-plus-fill me-2 text-primary"></i>Gợi Ý Nhập Hàng Tự Động</h5>
+            <button class="btn btn-outline-success btn-sm" onclick="exportReorderSuggestions()">
+                <i class="bi bi-file-earmark-excel me-1"></i>Xuất Excel
+            </button>
+        </div>
+        <div id="reorderMetaInfo" class="small text-muted mb-3"></div>
+
+        <!-- Bộ lọc -->
+        <div class="d-flex flex-wrap gap-2 align-items-center mb-3">
+            {% if role == 'admin' %}
+            <select class="form-select form-select-sm" style="width:auto;" id="reorderStoreFilter" onchange="loadReorderSuggestions()">
+                <option value="">Tất cả kho/cửa hàng</option>
+                <option value="NS1">NS1</option>
+                <option value="NS2">NS2</option>
+                <option value="NS3">NS3</option>
+                <option value="NS4">NS4</option>
+                <option value="NS5">NS5</option>
+                <option value="NSM1">NSM1</option>
+                <option value="CB">Kho CB</option>
+            </select>
+            {% endif %}
+            <label class="small mb-0 ms-2">Đặt đủ bán trong:</label>
+            <input type="number" step="0.5" min="0.5" max="12" class="form-control form-control-sm" style="width:90px;"
+                   id="reorderBufferMonths" value="2" onchange="loadReorderSuggestions()">
+            <span class="small mb-0">tháng</span>
+            <span class="text-muted small ms-auto" id="reorderVisibleCount"></span>
+        </div>
+
+        <div class="table-responsive" style="max-height:65vh;">
+            <table class="table table-hover align-middle mb-0 text-nowrap">
+                <thead>
+                    <tr>
+                        <th>Mã Hàng</th>
+                        <th>Tên Hàng</th>
+                        <th>ĐVT</th>
+                        <th class="text-end">Tồn Hiện Tại</th>
+                        <th class="text-end">TB Bán/Tháng</th>
+                        <th class="text-end">Số Tháng Tồn</th>
+                        <th>Phân Loại</th>
+                        <th class="text-end">Gợi Ý Đặt Thêm</th>
+                    </tr>
+                </thead>
+                <tbody id="reorder-body">
                     <tr><td colspan="8" class="text-center py-4 text-muted">Đang tải dữ liệu...</td></tr>
                 </tbody>
             </table>
@@ -3468,6 +3598,39 @@
     function loadOverviewDashboard() {
         if (globalInventory.length === 0) loadInventory();
         renderTransferOverviewStats();
+        if (document.getElementById('ov-admin-inventory-value')) loadDashboardSummary();
+    }
+
+    // Nạp số liệu tổng quan cho admin (tổng giá trị tồn kho, phiếu chuyển
+    // đang chờ, mã CB tồn đọng, đơn B0 sắp tới hạn giao) - gộp từ nhiều
+    // nguồn rải rác qua đúng 1 API duy nhất (xem dashboard.py).
+    async function loadDashboardSummary() {
+        try {
+            const res = await fetch('/api/admin/dashboard-summary');
+            const json = await res.json();
+            if (!json.success) return;
+
+            const setText = (id, val) => { const el = document.getElementById(id); if (el) el.innerText = val; };
+            setText('ov-admin-inventory-value', Math.round(json.inventory_value).toLocaleString() + ' đ');
+            setText('ov-admin-transfer-pending', json.transfer_pending.toLocaleString());
+            setText('ov-admin-cb-count', json.cb_count.toLocaleString());
+
+            const bo = document.getElementById('ov-admin-bo-due-soon');
+            const note = document.getElementById('ov-admin-summary-note');
+            if (json.bo_error) {
+                if (bo) bo.innerText = '—';
+                if (note) note.innerText = 'Chưa lấy được số liệu Danh Sách Đặt Hàng (B0).';
+            } else {
+                if (bo) bo.innerText = (json.bo_due_soon || 0).toLocaleString();
+                if (note) {
+                    note.innerText = (json.bo_overdue || 0) > 0
+                        ? `Trong đó có ${json.bo_overdue.toLocaleString()} đơn đã TRỄ hạn giao - xem ở Danh Sách Đặt Hàng.`
+                        : '';
+                }
+            }
+        } catch (err) {
+            console.error('Lỗi loadDashboardSummary:', err);
+        }
     }
 
     // Đếm nhanh phiếu chuyển kho nội bộ theo trạng thái từ danh sách đã tải
@@ -4137,6 +4300,107 @@
             alert('Lỗi kết nối máy chủ khi import.');
         } finally {
             if (overlay) overlay.style.display = 'none';
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // GỢI Ý NHẬP HÀNG TỰ ĐỘNG + CÀI ĐẶT NGƯỠNG CẢNH BÁO HẾT HÀNG.
+    // ------------------------------------------------------------------
+    function _buildReorderQuery() {
+        const store = document.getElementById('reorderStoreFilter')?.value || '';
+        const buffer = document.getElementById('reorderBufferMonths')?.value || '2';
+        const params = new URLSearchParams();
+        if (store) params.set('store', store);
+        params.set('buffer_months', buffer);
+        return params.toString();
+    }
+
+    async function loadReorderSuggestions() {
+        const tbody = document.getElementById('reorder-body');
+        if (!tbody) return;
+        try {
+            const res = await fetch('/api/reorder-suggestions?' + _buildReorderQuery());
+            const json = await res.json();
+            if (!json.success) {
+                tbody.innerHTML = `<tr><td colspan="8" class="text-center py-4 text-danger">${json.error || 'Lỗi tải dữ liệu.'}</td></tr>`;
+                return;
+            }
+
+            document.getElementById('reorderVisibleCount').innerText = `${json.total.toLocaleString()} mã hàng cần đặt thêm`;
+            const metaInfo = document.getElementById('reorderMetaInfo');
+            if (metaInfo) {
+                metaInfo.innerHTML = `Chỉ hiện mã "Thường xuyên (TX)" hoặc "Trung bình (TB)" có tồn dưới <strong>${json.min_months} tháng</strong> bán` +
+                    (json.store ? ` — đang xem gợi ý của kho <strong>${json.store}</strong>` : ' — tổng hợp toàn hệ thống') +
+                    ` (kỳ số liệu xuất bán: ${json.period_months} tháng gần nhất).`;
+            }
+
+            if (!json.data || json.data.length === 0) {
+                tbody.innerHTML = `<tr><td colspan="8" class="text-center py-4 text-muted">Không có mã hàng nào cần đặt thêm.</td></tr>`;
+                return;
+            }
+
+            const groupBadgeClass = { TX: 'bg-success', TB: 'bg-warning text-dark' };
+            tbody.innerHTML = json.data.map(r => `
+                <tr>
+                    <td><span class="part-code">${escapeHtmlAttr(r.part_code)}</span></td>
+                    <td class="inv-name-col" title="${escapeHtmlAttr(r.part_name || '')}">${r.part_name || ''}</td>
+                    <td class="text-muted small">${r.unit || ''}</td>
+                    <td class="text-end">${fmtInvQty(r.qty_on_hand)}</td>
+                    <td class="text-end">${r.avg_month}</td>
+                    <td class="text-end text-danger fw-semibold">${r.months_of_stock}</td>
+                    <td><span class="badge ${groupBadgeClass[r.group] || 'bg-secondary'}">${r.group}</span></td>
+                    <td class="text-end fw-bold text-primary">${fmtInvQty(r.suggested_qty)}</td>
+                </tr>
+            `).join('');
+        } catch (err) {
+            console.error('Lỗi loadReorderSuggestions:', err);
+            tbody.innerHTML = `<tr><td colspan="8" class="text-center py-4 text-danger">Lỗi kết nối máy chủ.</td></tr>`;
+        }
+    }
+
+    function exportReorderSuggestions() {
+        window.location.href = '/api/reorder-suggestions/export?' + _buildReorderQuery();
+    }
+
+    async function loadLowStockSettings() {
+        const input = document.getElementById('lowStockMinMonthsInput');
+        if (!input) return;
+        try {
+            const res = await fetch('/api/admin/low-stock-settings');
+            const json = await res.json();
+            if (json.success) input.value = json.min_months;
+        } catch (err) {
+            console.error('Lỗi loadLowStockSettings:', err);
+        }
+    }
+
+    async function saveLowStockSettings() {
+        const input = document.getElementById('lowStockMinMonthsInput');
+        const status = document.getElementById('lowStockSettingsStatus');
+        const val = parseFloat(input?.value);
+        if (!val || val <= 0) {
+            alert('Vui lòng nhập ngưỡng hợp lệ (lớn hơn 0).');
+            return;
+        }
+        if (status) status.innerText = 'Đang lưu...';
+        try {
+            const res = await fetch('/api/admin/low-stock-settings', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ min_months: val }),
+            });
+            const json = await res.json();
+            if (!json.success) {
+                if (status) status.innerText = '';
+                alert(json.error || 'Lưu thất bại.');
+                return;
+            }
+            if (status) status.innerText = `Đã lưu. (${json.new_alerts || 0} cảnh báo mới, ${json.resolved_alerts || 0} cảnh báo đã hết)`;
+            loadReorderSuggestions();
+        } catch (err) {
+            if (status) status.innerText = '';
+            console.error('Lỗi saveLowStockSettings:', err);
+            alert('Lỗi kết nối máy chủ khi lưu.');
         }
     }
 
