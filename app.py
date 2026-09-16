@@ -1867,6 +1867,23 @@ SALES_FREQ_LABELS = {
     'CB': 'Chậm bán',
 }
 
+# Các nhóm mã hàng KHÔNG được phép đặt thêm (không thuộc diện quản lý qua
+# gợi ý nhập hàng/cảnh báo hết hàng/thống kê tần suất bán) - ví dụ nhóm
+# khung xe (mã bắt đầu bằng "50100") do quy trình đặt hàng của nhóm này
+# khác, không đi qua kho như phụ tùng thường. Khớp CHÍNH XÁC theo tiền tố
+# (vd "50100" khớp "50100K2CV01" nhưng KHÔNG khớp "501001" hay "5010099" -
+# thật ra "5010099" vẫn khớp vì cùng bắt đầu bằng "50100"; chỉ mã KHÔNG bắt
+# đầu bằng đúng chuỗi "50100" mới không khớp, vd "501" hay "5010" thì không).
+# Lọc ngay tại nguồn (_compute_sales_frequency_rows) để áp dụng nhất quán
+# cho MỌI nơi dùng chung dữ liệu này: trang Thống Kê Tần Suất Bán, Gợi Ý
+# Nhập Hàng, và Cảnh Báo Hết Hàng tự động (dashboard.py).
+EXCLUDED_REORDER_PART_CODE_PREFIXES = ('50100',)
+
+
+def _is_excluded_from_reorder(part_code):
+    part_code = part_code or ''
+    return any(part_code.startswith(p) for p in EXCLUDED_REORDER_PART_CODE_PREFIXES)
+
 
 def classify_sales_frequency(qty_on_hand, qty_sold_period, period_months):
     """Phân loại 1 mã hàng theo tần suất bán, dựa trên tồn hiện tại và tổng
@@ -3224,6 +3241,9 @@ def _compute_sales_frequency_rows(cursor, store_code=None):
 
     rows = []
     for part_code, inv in inventory_by_part.items():
+        if _is_excluded_from_reorder(part_code):
+            continue  # Nhóm mã không được phép đặt (vd khung xe 50100...) -
+                      # loại khỏi thống kê/gợi ý/cảnh báo ngay từ nguồn.
         qty_on_hand = float(inv['quantity'] or 0)
         qty_sold = sold_by_part.get(part_code, 0.0)
         classification = classify_sales_frequency(qty_on_hand, qty_sold, period_months)
