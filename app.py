@@ -1213,20 +1213,30 @@ def create_notification(cursor, store_code, title, message, notif_type='info', t
     phiếu, đồng ý, từ chối, huỷ, soạn hàng xong...) để đảm bảo không bao
     giờ bị "mất" thông báo dù người dùng có đang mở web lúc đó hay không -
     khác với cách cũ (chỉ so sánh dữ liệu ở trình duyệt), thông báo giờ
-    được lưu bền trong database, xem lại được bất cứ lúc nào qua chuông."""
+    được lưu bền trong database, xem lại được bất cứ lúc nào qua chuông.
+
+    Mốc thời gian dùng vn_now() (giờ Việt Nam, naive) chứ KHÔNG dùng NOW()
+    của Postgres: server (Render...) chạy theo giờ UTC nên NOW() sẽ ghi vào
+    cột TIMESTAMP một giờ lệch -7 tiếng, làm chuông hiện sai kiểu "7 giờ
+    trước" ngay khi vừa tạo phiếu. Cách này cũng nhất quán với toàn bộ các
+    mốc thời gian khác trong app (đều dùng vn_now())."""
     cursor.execute('''
         INSERT INTO notifications (store_code, title, message, notif_type, transfer_id, created_at)
-        VALUES (%s, %s, %s, %s, %s, NOW())
-    ''', (store_code, title, message, notif_type, transfer_id))
+        VALUES (%s, %s, %s, %s, %s, %s)
+    ''', (store_code, title, message, notif_type, transfer_id, vn_now()))
 
 
 def cleanup_old_notifications(cursor):
     """Xoá hẳn các thông báo đã xuất hiện quá NOTIFICATION_RETENTION_DAYS
     ngày. KHÔNG gọi trực tiếp trong notifications_list() nữa (xem
-    run_notifications_cleanup_job bên dưới) - chỉ còn được gọi từ job nền."""
+    run_notifications_cleanup_job bên dưới) - chỉ còn được gọi từ job nền.
+
+    Mốc cắt được tính bằng vn_now() ở Python (không dùng NOW() của
+    Postgres) cho khớp với created_at vốn cũng ghi theo giờ VN - nếu trộn 2
+    hệ giờ thì thông báo sẽ bị giữ/xoá lệch đúng 7 tiếng."""
     cursor.execute(
-        "DELETE FROM notifications WHERE created_at < NOW() - (%s * INTERVAL '1 day')",
-        (NOTIFICATION_RETENTION_DAYS,)
+        "DELETE FROM notifications WHERE created_at < %s",
+        (vn_now() - timedelta(days=NOTIFICATION_RETENTION_DAYS),)
     )
 
 
@@ -6738,7 +6748,12 @@ def notifications_list():
         'notif_type': r['notif_type'],
         'transfer_id': r['transfer_id'],
         'is_read': r['is_read'],
-        'created_at': r['created_at'].isoformat() if r['created_at'] else None,
+        # Gắn RÕ múi giờ VN (+07:00) vào chuỗi ISO trả về. Cột created_at là
+        # TIMESTAMP không kèm time zone và đã được ghi theo giờ VN (xem
+        # create_notification), nhưng nếu trả chuỗi "trần" thì trình duyệt sẽ
+        # tự hiểu theo múi giờ của MÁY người dùng - máy để lệch múi giờ là
+        # chuông hiện sai ngay ("7 giờ trước" dù vừa mới tạo).
+        'created_at': r['created_at'].replace(tzinfo=VN_TZ).isoformat() if r['created_at'] else None,
     } for r in rows]
 
     return jsonify({'success': True, 'notifications': notifications, 'unread_count': unread_count})
@@ -6882,9 +6897,9 @@ def admin_truck_announcements_create():
     cursor = db.cursor()
     cursor.execute('''
         INSERT INTO truck_announcements (departure_date, message, active, created_by, created_at)
-        VALUES (%s, %s, TRUE, %s, NOW())
+        VALUES (%s, %s, TRUE, %s, %s)
         RETURNING id
-    ''', (departure_date, message, session['user']))
+    ''', (departure_date, message, session['user'], vn_now()))
     new_id = cursor.fetchone()['id']
     db.commit()
     cursor.close()

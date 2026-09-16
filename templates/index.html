@@ -8749,16 +8749,38 @@ function updateNotifBadge(count) {
 
 // Hiển thị thời gian dạng "x phút/giờ/ngày trước" cho gọn, thay vì hiện
 // nguyên timestamp đầy đủ - dễ đọc lướt qua trong danh sách thông báo.
+//
+// Backend trả created_at kèm RÕ múi giờ VN (vd "2026-09-16T14:05:00+07:00")
+// nên new Date() hiểu đúng mốc tuyệt đối dù máy người dùng để múi giờ nào.
+// Vẫn giữ nhánh xử lý chuỗi "trần" (không có offset) cho các bản ghi cũ:
+// lúc đó coi như giờ VN và tự bù chênh lệch với múi giờ của máy, thay vì để
+// trình duyệt hiểu nhầm thành giờ máy (nguyên nhân cũ làm phiếu vừa tạo đã
+// hiện "7 giờ trước").
+const VN_UTC_OFFSET_MINUTES = 7 * 60;
+
+function parseServerTime(isoString) {
+    const s = String(isoString).trim().replace(' ', 'T');
+    const hasZone = /(Z|[+-]\d{2}:?\d{2})$/.test(s);
+    const d = new Date(hasZone ? s : s + 'Z');
+    if (isNaN(d.getTime())) return null;
+    // Chuỗi "trần" vừa được ép đọc như UTC -> trừ đi 7 tiếng để về đúng mốc
+    // thật (vì giá trị đó vốn là giờ VN).
+    if (!hasZone) d.setMinutes(d.getMinutes() - VN_UTC_OFFSET_MINUTES);
+    return d;
+}
+
 function formatRelativeTime(isoString) {
     if (!isoString) return '';
-    const then = new Date(isoString.replace(' ', 'T'));
-    if (isNaN(then.getTime())) return '';
-    const diffSec = Math.floor((Date.now() - then.getTime()) / 1000);
+    const then = parseServerTime(isoString);
+    if (!then) return '';
+    // Math.max(0, ...): nếu đồng hồ máy người dùng chạy chậm hơn server một
+    // chút thì diff có thể âm - hiện "Vừa xong" thay vì số âm khó hiểu.
+    const diffSec = Math.max(0, Math.floor((Date.now() - then.getTime()) / 1000));
     if (diffSec < 60) return 'Vừa xong';
     if (diffSec < 3600) return `${Math.floor(diffSec / 60)} phút trước`;
     if (diffSec < 86400) return `${Math.floor(diffSec / 3600)} giờ trước`;
     if (diffSec < 7 * 86400) return `${Math.floor(diffSec / 86400)} ngày trước`;
-    return then.toLocaleDateString('vi-VN');
+    return then.toLocaleDateString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' });
 }
 
 const NOTIF_TYPE_ICON = {
