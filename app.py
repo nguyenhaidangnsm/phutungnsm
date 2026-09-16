@@ -1046,10 +1046,10 @@ def init_db():
         # icon chuông trên giao diện) - mỗi dòng là 1 thông báo đã xảy ra
         # (phiếu mới / được đồng ý / bị từ chối / đã soạn hàng...), có đánh
         # dấu đã đọc hay chưa. Thông báo tự động biến mất sau 7 ngày kể từ
-        # lúc xuất hiện - việc dọn dẹp được thực hiện ngay trong
-        # notifications_list() mỗi khi có người mở chuông ra xem (xem hàm
-        # đó), không cần thêm 1 job nền riêng vì thao tác DELETE theo mốc
-        # thời gian này rất nhẹ (đã có index theo created_at).
+        # lúc xuất hiện - việc dọn dẹp được 1 job NỀN thực hiện tối đa 1
+        # lần/ngày (xem run_notifications_cleanup_job), KHÔNG chạy inline
+        # mỗi khi có người mở chuông ra xem nữa (trước đây làm vậy khiến
+        # việc mở chuông ngày càng chậm khi bảng phình to).
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS notifications (
                 id SERIAL PRIMARY KEY,
@@ -1222,12 +1222,82 @@ def create_notification(cursor, store_code, title, message, notif_type='info', t
 
 def cleanup_old_notifications(cursor):
     """Xoá hẳn các thông báo đã xuất hiện quá NOTIFICATION_RETENTION_DAYS
-    ngày - gọi mỗi khi danh sách thông báo được tải (xem notifications_list),
-    nên không cần thêm 1 job nền/lịch riêng cho việc này."""
+    ngày. KHÔNG gọi trực tiếp trong notifications_list() nữa (xem
+    run_notifications_cleanup_job bên dưới) - chỉ còn được gọi từ job nền."""
     cursor.execute(
         "DELETE FROM notifications WHERE created_at < NOW() - (%s * INTERVAL '1 day')",
         (NOTIFICATION_RETENTION_DAYS,)
     )
+
+
+# Job dọn thông báo cũ chỉ thực sự chạy nếu đã cách lần chạy trước ít nhất
+# ngần này ngày - cùng cơ chế throttle-qua-app_settings như job lưu trữ
+# phiếu chuyển kho ở trên.
+_NOTIF_CLEANUP_INTERVAL_DAYS = 1
+# Khoá advisory riêng cho job này (khác _TRANSFER_ARCHIVE_LOCK_KEY) - đảm
+# bảo nếu app chạy nhiều worker process cùng lúc, chỉ 1 worker chạy job
+# này tại 1 thời điểm.
+_NOTIF_CLEANUP_LOCK_KEY = 918273646
+
+
+def run_notifications_cleanup_job(force=False):
+    """Dọn thông báo quá hạn trong 1 job NỀN, chạy tối đa 1 lần/ngày.
+
+    TRƯỚC ĐÂY việc dọn dẹp này chạy INLINE ngay trong notifications_list()
+    (mỗi lần user bấm mở chuông xem thông báo là 1 lệnh DELETE quét/xoá cả
+    bảng notifications) - bảng càng nhiều dữ liệu (nhất là từ khi cảnh báo
+    tồn kho tự động mở rộng thêm nhóm TB, không chỉ TX) thì mở chuông càng
+    chậm dần, và nhiều người mở chuông cùng lúc còn dễ phải chờ nhau do
+    tranh chấp khoá ghi. Dời qua job nền để notifications_list() lúc nào
+    cũng chỉ còn 2 câu SELECT nhẹ (đã có index), nhanh như nhau dù bảng có
+    bao nhiêu dữ liệu lịch sử. force=True dùng khi cần chạy ngay để kiểm
+    tra thủ công (không đợi đủ _NOTIF_CLEANUP_INTERVAL_DAYS kể từ lần chạy
+    trước)."""
+    with app.app_context():
+        db = get_db()
+        cursor = db.cursor()
+        try:
+            cursor.execute('SELECT pg_try_advisory_lock(%s) AS locked', (_NOTIF_CLEANUP_LOCK_KEY,))
+            if not cursor.fetchone()['locked']:
+                return {'status': 'skipped', 'reason': 'another worker is already running this job'}
+
+            if not force:
+                last_run = _get_app_setting(cursor, 'notifications_cleanup_last_run')
+                if last_run:
+                    last_run_dt = datetime.fromisoformat(last_run)
+                    if datetime.now() - last_run_dt < timedelta(days=_NOTIF_CLEANUP_INTERVAL_DAYS):
+                        return {'status': 'skipped', 'reason': 'not due yet', 'last_run': last_run}
+
+            cleanup_old_notifications(cursor)
+            _set_app_setting(cursor, 'notifications_cleanup_last_run', datetime.now().isoformat())
+            db.commit()
+            return {'status': 'ok'}
+        except Exception:
+            db.rollback()
+            traceback.print_exc()
+            return {'status': 'error'}
+        finally:
+            try:
+                cursor.execute('SELECT pg_advisory_unlock(%s)', (_NOTIF_CLEANUP_LOCK_KEY,))
+                db.commit()
+            except Exception:
+                pass
+
+
+def _notifications_cleanup_scheduler_loop():
+    """Vòng lặp NỀN: mỗi ngày kiểm tra 1 lần xem đã tới hạn dọn thông báo cũ
+    chưa (run_notifications_cleanup_job tự bỏ qua nếu chưa tới hạn, nên dù
+    server khởi động lại nhiều lần trong ngày cũng không chạy lặp lại)."""
+    time.sleep(90)
+    while True:
+        try:
+            run_notifications_cleanup_job()
+        except Exception:
+            traceback.print_exc()
+        time.sleep(24 * 60 * 60)
+
+
+threading.Thread(target=_notifications_cleanup_scheduler_loop, daemon=True).start()
 
 
 def _build_transfer_archive_excel(requests_rows, items_by_request):
@@ -6627,24 +6697,23 @@ def transfer_highlights():
 @app.route('/api/notifications/list', methods=['GET'])
 def notifications_list():
     """Trả về danh sách thông báo của cửa hàng (hoặc của admin) đang đăng
-    nhập (mới nhất trước), kèm số lượng chưa đọc. Nhân tiện dọn luôn các
-    thông báo đã quá hạn 7 ngày trước khi trả kết quả - cách đơn giản để
-    không cần thêm 1 job nền/lịch riêng chỉ để làm việc này. Admin THẬT
-    (không đang mượn quyền 1 cửa hàng nào) có session['store_code'] ==
-    ADMIN_NOTIF_STORE_CODE ('ALL', cố định từ lúc tạo tài khoản admin) nên
-    dùng chung đúng cột store_code này để nhận thông báo riêng của mình
-    (vd yêu cầu xin xoá phiếu) - không cần thêm cột/nhánh xử lý riêng. Lúc
-    admin đang mượn quyền 1 cửa hàng, session['role'] tạm đổi thành 'store'
-    nên tự rơi vào đúng thông báo của cửa hàng đang mượn quyền."""
+    nhập (mới nhất trước), kèm số lượng chưa đọc. Việc dọn thông báo quá
+    hạn 7 ngày KHÔNG chạy ở đây nữa (đã dời qua job nền chạy tối đa 1
+    lần/ngày, xem run_notifications_cleanup_job) - route này giờ chỉ còn 2
+    câu SELECT nhẹ, nhanh như nhau dù bảng notifications có bao nhiêu dữ
+    liệu lịch sử. Admin THẬT (không đang mượn quyền 1 cửa hàng nào) có
+    session['store_code'] == ADMIN_NOTIF_STORE_CODE ('ALL', cố định từ lúc
+    tạo tài khoản admin) nên dùng chung đúng cột store_code này để nhận
+    thông báo riêng của mình (vd yêu cầu xin xoá phiếu) - không cần thêm
+    cột/nhánh xử lý riêng. Lúc admin đang mượn quyền 1 cửa hàng,
+    session['role'] tạm đổi thành 'store' nên tự rơi vào đúng thông báo của
+    cửa hàng đang mượn quyền."""
     if 'user' not in session or session['role'] not in ('store', 'admin'):
         return jsonify({'error': 'Chỉ tài khoản cửa hàng hoặc admin mới có thông báo.'}), 403
 
     store_code = session['store_code']
     db = get_db()
     cursor = db.cursor()
-
-    cleanup_old_notifications(cursor)
-    db.commit()
 
     cursor.execute('''
         SELECT id, title, message, notif_type, transfer_id, is_read, created_at

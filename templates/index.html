@@ -1324,44 +1324,6 @@
                 </div>
             </div>
 
-            {% if role == 'admin' %}
-            <!-- Dashboard Tổng Quan Cho Admin (gộp số liệu rải rác) -->
-            <div class="card card-custom p-3 mb-3 mb-md-4">
-                <h6 class="fw-bold mb-3"><i class="bi bi-speedometer2 me-2 text-primary"></i>Tổng Quan Toàn Hệ Thống</h6>
-                <div class="row g-2 g-md-3">
-                    <div class="col-6 col-md-3">
-                        <div class="p-2 p-md-3 rounded-3 bg-primary bg-opacity-10 text-center" style="cursor:pointer;"
-                             onclick="megaNavClick('inventory-tab', document.querySelector('[data-target-tab=inventory-tab]'))">
-                            <div class="fw-bold fs-5 text-primary" id="ov-admin-inventory-value">0</div>
-                            <div class="small text-muted">Tổng Giá Trị Tồn Kho</div>
-                        </div>
-                    </div>
-                    <div class="col-6 col-md-3">
-                        <div class="p-2 p-md-3 rounded-3 bg-warning bg-opacity-10 text-center" style="cursor:pointer;"
-                             onclick="megaNavClick('transfer-tab', document.querySelector('[data-target-tab=transfer-tab]'))">
-                            <div class="fw-bold fs-4 text-warning" id="ov-admin-transfer-pending">0</div>
-                            <div class="small text-muted">Phiếu Chuyển Đang Chờ Xử Lý</div>
-                        </div>
-                    </div>
-                    <div class="col-6 col-md-3">
-                        <div class="p-2 p-md-3 rounded-3 bg-danger bg-opacity-10 text-center" style="cursor:pointer;"
-                             onclick="megaNavClick('sales-freq-tab', document.querySelector('[data-target-tab=sales-freq-tab]'))">
-                            <div class="fw-bold fs-4 text-danger" id="ov-admin-cb-count">0</div>
-                            <div class="small text-muted">Mã CB (Chậm Bán) Tồn Đọng</div>
-                        </div>
-                    </div>
-                    <div class="col-6 col-md-3">
-                        <div class="p-2 p-md-3 rounded-3 bg-info bg-opacity-10 text-center" style="cursor:pointer;"
-                             onclick="megaNavClick('reorder-tab', document.querySelector('[data-target-tab=reorder-tab]'))">
-                            <div class="fw-bold fs-4 text-info" id="ov-admin-bo-due-soon">0</div>
-                            <div class="small text-muted">Đơn B0 Sắp Tới Hạn Giao</div>
-                        </div>
-                    </div>
-                </div>
-                <div class="small text-muted mt-2" id="ov-admin-summary-note"></div>
-            </div>
-            {% endif %}
-
             <!-- Mốc cập nhật + thông báo -->
             <div class="row g-2 g-md-3">
                 <div class="col-12 col-md-4">
@@ -3598,39 +3560,6 @@
     function loadOverviewDashboard() {
         if (globalInventory.length === 0) loadInventory();
         renderTransferOverviewStats();
-        if (document.getElementById('ov-admin-inventory-value')) loadDashboardSummary();
-    }
-
-    // Nạp số liệu tổng quan cho admin (tổng giá trị tồn kho, phiếu chuyển
-    // đang chờ, mã CB tồn đọng, đơn B0 sắp tới hạn giao) - gộp từ nhiều
-    // nguồn rải rác qua đúng 1 API duy nhất (xem dashboard.py).
-    async function loadDashboardSummary() {
-        try {
-            const res = await fetch('/api/admin/dashboard-summary');
-            const json = await res.json();
-            if (!json.success) return;
-
-            const setText = (id, val) => { const el = document.getElementById(id); if (el) el.innerText = val; };
-            setText('ov-admin-inventory-value', Math.round(json.inventory_value).toLocaleString() + ' đ');
-            setText('ov-admin-transfer-pending', json.transfer_pending.toLocaleString());
-            setText('ov-admin-cb-count', json.cb_count.toLocaleString());
-
-            const bo = document.getElementById('ov-admin-bo-due-soon');
-            const note = document.getElementById('ov-admin-summary-note');
-            if (json.bo_error) {
-                if (bo) bo.innerText = '—';
-                if (note) note.innerText = 'Chưa lấy được số liệu Danh Sách Đặt Hàng (B0).';
-            } else {
-                if (bo) bo.innerText = (json.bo_due_soon || 0).toLocaleString();
-                if (note) {
-                    note.innerText = (json.bo_overdue || 0) > 0
-                        ? `Trong đó có ${json.bo_overdue.toLocaleString()} đơn đã TRỄ hạn giao - xem ở Danh Sách Đặt Hàng.`
-                        : '';
-                }
-            }
-        } catch (err) {
-            console.error('Lỗi loadDashboardSummary:', err);
-        }
     }
 
     // Đếm nhanh phiếu chuyển kho nội bộ theo trạng thái từ danh sách đã tải
