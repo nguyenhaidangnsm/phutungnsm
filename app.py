@@ -109,6 +109,35 @@ def loads_json(s):
 
 app = Flask(__name__)
 
+# File tĩnh (font .otf, logo...) trong thư mục /static gần như không đổi
+# giữa các lần deploy - cho trình duyệt CACHE 1 NĂM thay vì mặc định của
+# Flask (12 giờ), để những lần load trang SAU không phải tải lại font/logo
+# nữa (chỉ tải 1 lần duy nhất). Nếu sau này có thay logo/font, đổi tên file
+# (vd: thêm hậu tố phiên bản) để trình duyệt biết mà tải lại bản mới.
+app.config['SEND_FILE_MAX_AGE_DEFAULT'] = 31536000
+
+# ---------------------------------------------------------------------------
+# CACHE TRONG BỘ NHỚ cho /api/inventory - kết quả trả về GIỐNG HỆT NHAU cho
+# MỌI user (admin lẫn store đều xem toàn bộ hệ thống, không lọc theo quyền),
+# nhưng việc tính lại (pivot ~30 nghìn dòng + phân loại tần suất bán) tốn khá
+# nhiều CPU. Vì dữ liệu chỉ thay đổi khi admin import (tồn kho / giá bán /
+# xuất bán), ta cache lại body JSON đã dựng sẵn (bytes, orjson - nhanh hơn
+# json.dumps chuẩn của jsonify) và chỉ tính lại khi có 1 trong 3 loại import
+# đó chạy (xem invalidate_inventory_cache() được gọi ở cuối mỗi endpoint
+# import liên quan). Dùng threading.Lock để an toàn khi nhiều request cùng
+# lúc trong lúc cache đang được dựng lại.
+_inventory_cache_lock = threading.Lock()
+_inventory_cache = {'body': None, 'version': 0}
+
+
+def invalidate_inventory_cache():
+    """Gọi ngay sau khi commit thành công ở bất kỳ chỗ nào ghi vào
+    inventory_items / part_prices / sales_export_items, để lần gọi
+    /api/inventory tiếp theo tính lại dữ liệu mới thay vì trả cache cũ."""
+    with _inventory_cache_lock:
+        _inventory_cache['body'] = None
+
+
 # SECRET_KEY bắt buộc phải có trong biến môi trường (không dùng giá trị mặc
 # định hardcode trong code nữa — nếu thiếu, ứng dụng sẽ báo lỗi ngay khi
 # khởi động thay vì chạy với 1 secret key ai cũng đọc được từ source code).
@@ -2946,6 +2975,7 @@ def upload_inventory():
 
         db.commit()
         cursor.close()
+        invalidate_inventory_cache()
 
         return jsonify({
             'success': True,
@@ -3010,6 +3040,7 @@ def import_sales_export():
 
         db.commit()
         cursor.close()
+        invalidate_inventory_cache()
 
         return jsonify({
             'success': True,
@@ -3239,6 +3270,7 @@ def import_prices():
         ''', (price_file.filename, _current_actor_name(), now, len(rows), skipped_rows))
 
         db.commit()
+        invalidate_inventory_cache()
         return jsonify({'success': True, 'total_parts': len(rows), 'skipped_rows': skipped_rows})
     except Exception as e:
         db.rollback()
@@ -3289,6 +3321,7 @@ def update_price():
                 updated_by = EXCLUDED.updated_by
         ''', (part_code, price, now, _current_actor_name()))
         db.commit()
+        invalidate_inventory_cache()
         return jsonify({'success': True, 'sale_price': price})
     except Exception as e:
         db.rollback()
@@ -3303,9 +3336,16 @@ def get_inventory():
     """Trả về tồn kho hệ thống dạng pivot (1 dòng/mã hàng, 6 cột theo cửa
     hàng), kèm giá bán (nếu có) - Mọi user (admin lẫn store) đều xem được
     TOÀN BỘ hệ thống - đây là ngoại lệ có chủ đích so với dữ liệu PO (vốn
-    giới hạn theo cửa hàng)."""
+    giới hạn theo cửa hàng). Vì response GIỐNG HỆT NHAU cho mọi user, dùng
+    cache trong bộ nhớ (_inventory_cache) để tránh tính lại pivot + phân
+    loại tần suất bán trên mỗi request - xem invalidate_inventory_cache()."""
     if 'user' not in session:
         return jsonify({'error': 'Unauthorized'}), 401
+
+    with _inventory_cache_lock:
+        cached_body = _inventory_cache['body']
+    if cached_body is not None:
+        return app.response_class(cached_body, mimetype='application/json')
 
     db = get_db()
     cursor = db.cursor()
@@ -3405,7 +3445,15 @@ def get_inventory():
 
     cursor.close()
 
-    return jsonify({'success': True, 'data': data, 'meta': meta, 'price_meta': price_meta, 'sales_meta': sales_meta})
+    payload = {'success': True, 'data': data, 'meta': meta, 'price_meta': price_meta, 'sales_meta': sales_meta}
+    # orjson serialize nhanh hơn đáng kể so với json.dumps chuẩn (mà jsonify()
+    # dùng) với payload lớn cỡ này (~30 nghìn mã hàng) - lưu lại cache để các
+    # request tiếp theo (từ user khác, hoặc F5 lại) khỏi phải tính + serialize
+    # lại từ đầu, cho tới khi có import mới (xem invalidate_inventory_cache()).
+    body = dumps_json(payload).encode('utf-8')
+    with _inventory_cache_lock:
+        _inventory_cache['body'] = body
+    return app.response_class(body, mimetype='application/json')
 
 
 @app.route('/api/locations', methods=['GET'])
@@ -6851,7 +6899,28 @@ def _init_db_with_retry(max_attempts=5, base_delay_seconds=3):
             time.sleep(wait_seconds)
 
 
-_init_db_with_retry()
+# Chỉ chạy migrate DB 1 LẦN. Khi chạy local bằng `python3 run.py` với Flask
+# debug=True (auto-reloader), Python thực ra IMPORT file app.py này 2 LẦN
+# GẦN NHƯ CÙNG LÚC:
+#   1) Lần đầu (tiến trình "cha") - lúc run.py import app.py rồi gọi
+#      app.run(debug=True). Lúc NÀY app.run() còn chưa được gọi xong nên
+#      Flask CHƯA kịp set debug/WERKZEUG_RUN_MAIN gì cả - không thể dựa vào
+#      app.debug ở thời điểm này để phân biệt 2 lần import.
+#   2) Ngay sau đó, Werkzeug tự exec ra 1 tiến trình CON là bản sao chính
+#      nó để làm reloader (theo dõi file thay đổi) - tiến trình con này
+#      IMPORT LẠI TOÀN BỘ app.py từ đầu, nhưng lần này có sẵn biến môi
+#      trường WERKZEUG_RUN_MAIN='true' do Werkzeug tự set trước khi exec.
+# Nếu không chặn lại, _init_db_with_retry() chạy đúng 2 lần GẦN NHƯ CÙNG
+# LÚC ở 2 tiến trình khác nhau, cùng migrate 1 database - tranh chấp khoá
+# bảng theo thứ tự khác nhau -> Postgres báo "deadlock detected" (đúng lỗi
+# đang gặp). Cách chặn ĐÚNG: chỉ bỏ qua nếu ĐANG ở tiến trình con vừa được
+# reloader tự exec ra (WERKZEUG_RUN_MAIN == 'true') - tiến trình cha (lần
+# import đầu tiên, biến này CHƯA tồn tại) đã migrate xong trước đó rồi.
+# Không dùng reloader (production/gunicorn trên Render, hoặc debug=False)
+# thì biến này không bao giờ được set -> vẫn chạy migrate bình thường,
+# đúng 1 lần duy nhất vì chỉ có 1 tiến trình.
+if os.environ.get('WERKZEUG_RUN_MAIN') != 'true':
+    _init_db_with_retry()
 # Import + đăng ký blueprint orders (Danh Sách Đặt Hàng) - LƯU Ý: khác
 # stocktake_bp/price_adjustment_bp, module này dùng CSDL Supabase RIÊNG
 # BIỆT (xem orders.py), nên có pool/khởi tạo bảng/retry độc lập, KHÔNG

@@ -6,6 +6,23 @@
     <meta name="theme-color" content="#0d6efd">
     <link rel="icon" type="image/png" href="{{ url_for('static', filename='logo.png') }}">
     <title>Cổng Thông Tin & Tra Cứu Phụ Tùng - Nam Sương Motor</title>
+
+    <!-- preconnect tới CDN chứa CSS/JS - trình duyệt mở kết nối (DNS +
+         TLS handshake) TRƯỚC khi thực sự cần tải, giúp tiết kiệm 1 khoảng
+         round-trip so với việc để browser tự phát hiện khi gặp <link>/<script>. -->
+    <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
+
+    <!-- preload font chữ chính (SVN-MonaSans) NGAY TỪ ĐẦU <head> - font
+         này được khai báo qua @font-face bên dưới nhưng trình duyệt mặc
+         định chỉ phát hiện ra nó cần tải SAU KHI đã parse xong CSS, nên
+         hay bị chậm 1 nhịp (chữ hiện tạm bằng font hệ thống rồi "nhảy"
+         sang font riêng khi tải xong - hiện tượng FOUT). preload báo cho
+         trình duyệt tải file này song song NGAY LẬP TỨC, không cần đợi
+         CSS parse xong mới biết. as="font" + type="font/otf" + crossorigin
+         là bắt buộc để preload nhận đúng loại tài nguyên. -->
+    <link rel="preload" as="font" type="font/otf"
+          href="{{ url_for('static', filename='fonts/SVN-MonaSans-SemiBoldWide.woff') }}" crossorigin>
+
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
     
@@ -22,9 +39,20 @@
     <style>
     @font-face {
         font-family: 'SVN-MonaSans';
-        src: url("{{ url_for('static', filename='fonts/SVN-MonaSans-SemiBoldWide.otf') }}") format('opentype');
+        /* .woff nhẹ hơn .otf gốc ~36% (nén zlib) - liệt kê trước để trình
+           duyệt hiện đại (hầu hết đều hỗ trợ .woff từ lâu) ưu tiên tải file
+           nhẹ hơn; .otf giữ lại làm dự phòng cho trình duyệt rất cũ không
+           hỗ trợ .woff (gần như không còn tồn tại trong thực tế). */
+        src: url("{{ url_for('static', filename='fonts/SVN-MonaSans-SemiBoldWide.woff') }}") format('woff'),
+             url("{{ url_for('static', filename='fonts/SVN-MonaSans-SemiBoldWide.otf') }}") format('opentype');
         font-weight: normal;
         font-style: normal;
+        /* font-display: swap - hiện chữ NGAY bằng font hệ thống (Arial...)
+           trong lúc chờ tải font riêng, thay vì để trắng chữ (FOIT - mặc
+           định của trình duyệt) tới khi tải xong mới hiện. Người dùng thấy
+           trang có nội dung ngay lập tức, chỉ đổi font sau 1 nhịp - CẢM
+           GIÁC nhanh hơn hẳn dù thời gian tải font thực tế không đổi. */
+        font-display: swap;
     }
     :root { 
         --bs-body-bg: #f4f6f9; 
@@ -3870,24 +3898,30 @@
     }
 
     function buildFreqBadgeHtml(item) {
-        const f = item.sales_freq;
-        if (!f || !f.code) return '';
-        const cls = 'freq-' + f.code.toLowerCase();
+        const systemFreq = item.sales_freq;
+        const storeFreq = (item.sales_freq_by_store || {})[CURRENT_STORE_CODE];
+        const isStoreRole = (CURRENT_ROLE === 'store');
+
+        // User cửa hàng: CHỈ xem tần suất của CHÍNH cửa hàng mình, không
+        // fallback về hệ thống, không hiện thêm dòng hệ thống trong tooltip
+        // - không có số liệu riêng cho cửa hàng đó thì không hiện icon luôn.
+        // Admin: giữ nguyên như trước (luôn theo hệ thống, kể cả khi đang
+        // mượn quyền xem 1 cửa hàng cụ thể).
+        const primary = isStoreRole ? storeFreq : systemFreq;
+        if (!primary || !primary.code) return '';
+        const cls = 'freq-' + primary.code.toLowerCase();
 
         const lines = [];
-        // Dòng riêng cho cửa hàng đang xem (chỉ có ý nghĩa với user cửa hàng,
-        // hoặc admin đang "mượn quyền" xem 1 cửa hàng cụ thể - lúc đó
-        // CURRENT_STORE_CODE cũng đã được set đúng theo cửa hàng đó).
-        const storeFreq = (item.sales_freq_by_store || {})[CURRENT_STORE_CODE];
-        if (CURRENT_STORE_CODE && storeFreq) {
-            lines.push(`Cửa hàng ${CURRENT_STORE_CODE}: ${storeFreq.code} - ${storeFreq.label}`);
-            lines.push(`  Tồn đủ bán: ${_fmtMonthsText(storeFreq.months_of_stock)} | TB bán/tháng: ${storeFreq.avg_month}`);
+        if (isStoreRole) {
+            lines.push(`Cửa hàng ${CURRENT_STORE_CODE}: ${primary.code} - ${primary.label}`);
+            lines.push(`  Tồn đủ bán: ${_fmtMonthsText(primary.months_of_stock)} | TB bán/tháng: ${primary.avg_month}`);
+        } else {
+            lines.push(`Toàn hệ thống: ${primary.code} - ${primary.label}`);
+            lines.push(`  Tồn đủ bán: ${_fmtMonthsText(primary.months_of_stock)} | TB bán/tháng: ${primary.avg_month}`);
         }
-        lines.push(`Toàn hệ thống: ${f.code} - ${f.label}`);
-        lines.push(`  Tồn đủ bán: ${_fmtMonthsText(f.months_of_stock)} | TB bán/tháng: ${f.avg_month}`);
         const tipText = lines.join('\n');
 
-        return `<span class="freq-badge ${cls}" data-tip="${escapeHtmlAttr(tipText)}">${f.code}</span>`;
+        return `<span class="freq-badge ${cls}" data-tip="${escapeHtmlAttr(tipText)}">${primary.code}</span>`;
     }
 
     function buildInventoryRowsHtml(data, renderLimit, totalCols) {
