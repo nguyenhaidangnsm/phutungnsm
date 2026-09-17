@@ -109,7 +109,11 @@ _FAMILY_PATTERNS = [
     (r'\bpcx\b', 'PCX'),
     (r'\bclick\b', 'Click'),
     (r'\bwinner\b', 'Winner'),
-    (r'\bsh\b', 'SH'),
+    # "\bsh\b" một mình không khớp được kiểu viết liền không cách như
+    # "SH350" (không có ranh giới từ giữa "h" và "3" vì cả 2 đều là ký tự
+    # "chữ/số" theo \b) - thêm nhánh \bsh(?=\d) để vẫn bắt được trường hợp
+    # này (chỉ cần match bắt đầu tại "sh", không cần "nuốt" luôn số phía sau).
+    (r'\bsh\b|\bsh(?=\d)', 'SH'),
 ]
 # Cắt phần "đời/kiểu" tại điểm sớm nhất xuất hiện từ khoá năm ("năm"/"đời")
 # HOẶC 1 số 4 chữ số dạng năm (19xx/20xx) - vì 1 số nhãn không có từ "năm"
@@ -418,6 +422,158 @@ def parse_body_kit_excel(path, sheet_name=SHEET_NAME):
         del g['_start_row']
 
     return groups, warnings
+
+
+# ----------------------------------------------------------------------------
+# BẢNG TRA "MÃ XE" -> "DÒNG XE / ĐỜI XE" (nhập riêng, xem parse_model_category_
+# excel bên dưới) - đây là NGUỒN CHUẨN (do người dùng tự soát/lập), ưu tiên
+# CAO HƠN suy luận tự động classify_group_label() ở trên khi 2 nguồn khác
+# nhau, vì classify_group_label chỉ đoán từ text tự do của "Mã loại" (thường
+# lẫn cả biến thể STD/DX/Magnet/Repsol... vào sub_model, KHÔNG tách theo
+# dung tích 110/125 như file tra cứu này).
+#
+# CẤU TRÚC FILE GỐC (sheet đầu tiên, đã kiểm tra thực tế trên file mẫu):
+#   Cột A "Stt"    - số thứ tự BÊN TRONG 1 dòng xe (reset ở mỗi dòng xe mới),
+#                    merge dọc theo khối 1 xe/model giống hệt file bảng giá.
+#                    RIÊNG dòng ĐẦU 1 nhóm "dòng xe" (vd "AIR BLADE  125"),
+#                    cột A chứa THẲNG tên dòng xe đó (không phải số), và cột
+#                    B/D của CHÍNH dòng đó luôn trống - đây là dấu hiệu duy
+#                    nhất để nhận diện 1 dòng header (không có cột riêng).
+#   Cột B:C "Loại xe" (merge ngang B:C) - mô tả model (vd "K27G (Air blade
+#                    125) FI DX"), merge dọc xuyên khối 1 model.
+#   Cột D "Mã xe"  - mã model ngắn (vd "M3") - merge dọc xuyên khối 1 model.
+# LƯU Ý: 1 vài dòng xe bị xuống dòng thành 2 DÒNG HEADER LIÊN TIẾP do copy
+# nhầm từ ô có wrap text (vd "WAVE 100" rồi "cc" ở dòng khác) - module này
+# GỘP các dòng header liên tiếp (không có dữ liệu model nào chen giữa)
+# thành 1 tên dòng xe duy nhất trước khi dùng.
+# ----------------------------------------------------------------------------
+
+MODEL_CATEGORY_SHEET_NAME = 'Sheet1'
+
+
+def _build_col_merge_map_span(ws, col):
+    """Giống `_build_col_merge_map` nhưng dùng cho cột nằm TRONG 1 vùng
+    merge NGANG nhiều cột (vd B:C) thay vì merge dọc đúng 1 cột - so khớp
+    bằng `min_col <= col <= max_col` giống `_resolve_image_block_map`."""
+    merge_map = {}
+    for rng in ws.merged_cells.ranges:
+        if not (rng.min_col <= col <= rng.max_col) or rng.min_row == rng.max_row:
+            continue
+        top_val = ws.cell(row=rng.min_row, column=rng.min_col).value
+        for r in range(rng.min_row, rng.max_row + 1):
+            merge_map[r] = top_val
+    return merge_map
+
+
+def parse_model_category_excel(path, sheet_name=MODEL_CATEGORY_SHEET_NAME):
+    """Đọc file tra "Mã xe" -> "Dòng xe" (vd M3 -> Air Blade 125). Trả về
+    (mapping, conflicts, warnings):
+        mapping   - dict {model_code: {'vehicle_family', 'sub_model',
+                    'raw_header'}}. `vehicle_family` dùng cho menu cấp 1,
+                    `sub_model` dùng cho menu cấp 2 (suy luận từ
+                    `raw_header` qua classify_group_label() ở trên; nếu
+                    không khớp từ khoá dòng xe nào đã biết thì TỰ nó là 1
+                    dòng xe cấp 1 riêng - vd "SPACY", "MONKEY" - KHÔNG bị
+                    dồn chung vào "Khác" như classify_group_label mặc định,
+                    vì ở đây tên dòng xe đã rõ ràng/sạch sẵn, không cần suy
+                    luận từ text tự do).
+        conflicts - list[str] các Mã xe xuất hiện dưới >1 dòng xe khác nhau
+                    trong cùng file (dữ liệu gốc mâu thuẫn - vẫn dùng lần
+                    khớp SAU CÙNG, người dùng tự soát lại nếu cần).
+        warnings  - list[str] các dòng bất thường khác (mô tả không có mã,
+                    mã xuất hiện trước khi có dòng xe nào...).
+    """
+    wb = openpyxl.load_workbook(path, data_only=True)
+    if sheet_name not in wb.sheetnames:
+        raise ValueError(f"Không tìm thấy sheet '{sheet_name}' trong file. Các sheet có: {wb.sheetnames}")
+    ws = wb[sheet_name]
+
+    label_map = _build_col_merge_map_span(ws, 2)   # Loại xe (B:C)
+    code_map = _build_col_merge_map(ws, 4)          # Mã xe (D)
+
+    mapping = {}
+    conflicts = []
+    warnings = []
+    current_header = None
+    pending_header_parts = []
+
+    # Gom theo KHỐI (mọi dòng liên tiếp có cùng nhãn đã resolve-merge) rồi
+    # mới quyết định mã/cảnh báo cho CẢ khối - vì vùng merge của cột "Mã xe"
+    # (D) đôi khi HẸP HƠN vùng merge của cột "Loại xe" (B:C) trong cùng 1
+    # khối (vd nhãn merge dòng 37-39 nhưng mã chỉ có ở dòng 38) - nếu xét
+    # từng dòng riêng lẻ sẽ báo nhầm "có mô tả nhưng thiếu mã" cho dòng 37/39
+    # dù cả khối THỰC RA có mã (ở dòng 38).
+    block_rows = []  # [(row, code_or_None, label_or_None), ...] của khối đang gom
+    block_label = None
+
+    def _flush_block():
+        nonlocal block_rows, block_label
+        if not block_rows:
+            return
+        code = next((c for _, c, _ in block_rows if c), None)
+        first_row = block_rows[0][0]
+        if not code:
+            if block_label:
+                warnings.append(f"Dòng {first_row}: có mô tả '{block_label}' nhưng không có Mã xe - đã bỏ qua.")
+            block_rows = []
+            return
+        if current_header is None:
+            warnings.append(f"Dòng {first_row}: Mã xe '{code}' xuất hiện trước khi có dòng xe nào - đã bỏ qua.")
+            block_rows = []
+            return
+
+        prior = mapping.get(code)
+        if prior and prior['raw_header'] != current_header:
+            conflicts.append(
+                f"Mã xe {code}: xuất hiện ở cả '{prior['raw_header']}' và '{current_header}' - "
+                f"đang dùng '{current_header}' (lần khớp sau cùng)."
+            )
+
+        family, sub_model = classify_group_label(current_header)
+        if family == 'Khác':
+            # Không khớp từ khoá dòng xe nào đã biết trong _FAMILY_PATTERNS
+            # (vd "SPACY", "MONKEY", "SUPER CUB") - nhưng đây là tên dòng xe
+            # ĐÃ SẠCH (không phải text tự do lẫn biến thể), nên coi CHÍNH nó
+            # là 1 dòng xe cấp 1 riêng thay vì dồn vào "Khác" chung chung.
+            family = current_header
+            sub_model = current_header
+
+        mapping[code] = {
+            'vehicle_family': family,
+            'sub_model': sub_model,
+            'raw_header': current_header,
+        }
+        block_rows = []
+
+    for r in range(2, ws.max_row + 1):
+        raw_a = ws.cell(row=r, column=1).value
+        raw_b = ws.cell(row=r, column=2).value
+        raw_d = ws.cell(row=r, column=4).value
+
+        is_header_row = isinstance(raw_a, str) and raw_a.strip() and raw_b is None and raw_d is None
+        if is_header_row:
+            _flush_block()
+            block_label = None
+            pending_header_parts.append(raw_a.strip())
+            continue
+
+        code = _s(code_map.get(r, raw_d))
+        label = _s(label_map.get(r, raw_b))
+        if not code and not label:
+            continue  # dòng trắng hoàn toàn giữa 2 khối - bỏ qua
+
+        if pending_header_parts:
+            current_header = re.sub(r'\s+', ' ', ' '.join(pending_header_parts)).strip()
+            pending_header_parts = []
+
+        if label != block_label:
+            _flush_block()
+            block_label = label
+        block_rows.append((r, code, label))
+
+    _flush_block()
+
+    return mapping, conflicts, warnings
 
 
 if __name__ == '__main__':

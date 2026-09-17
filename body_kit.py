@@ -47,7 +47,7 @@ from flask import Blueprint, request, jsonify, session, url_for
 from psycopg2.extras import execute_values
 
 from orders import get_orders_db, _get_orders_pool, ORDERS_DATABASE_URL
-from body_kit_import import parse_body_kit_excel
+from body_kit_import import parse_body_kit_excel, parse_model_category_excel
 
 body_kit_bp = Blueprint('body_kit', __name__)
 
@@ -69,6 +69,15 @@ def _image_url(filename):
     from app import app
     with app.app_context():
         return url_for('static', filename=f'{_IMAGE_SUBDIR}/{filename}')
+
+
+def _load_model_category_map(cursor):
+    """Trả về dict {model_code: (vehicle_family, sub_model)} từ bảng
+    body_kit_model_categories (xem parse_model_category_excel) - dùng để
+    GHI ĐÈ vehicle_family/sub_model suy luận tự động (classify_group_label)
+    của body_kit_groups theo đúng model_code, vì nguồn này chính xác hơn."""
+    cursor.execute('SELECT model_code, vehicle_family, sub_model FROM body_kit_model_categories')
+    return {r['model_code']: (r['vehicle_family'], r['sub_model']) for r in cursor.fetchall()}
 
 
 # ----------------------------------------------------------------------------
@@ -128,6 +137,21 @@ def init_body_kit_tables():
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_body_kit_groups_family ON body_kit_groups(vehicle_family, sub_model)')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_body_kit_parts_group ON body_kit_parts(group_id)')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_body_kit_parts_code ON body_kit_parts(part_code)')
+
+        # Bảng tra "Mã xe" -> "Dòng xe/Đời xe" CHUẨN (nhập riêng từ 1 file
+        # Excel khác - xem parse_model_category_excel trong body_kit_import.py),
+        # DÙNG ĐỂ GHI ĐÈ vehicle_family/sub_model suy luận tự động từ
+        # classify_group_label() ở mọi nhóm có model_code khớp - vì nguồn
+        # này chính xác hơn (không lẫn biến thể STD/DX/Magnet vào sub_model).
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS body_kit_model_categories (
+                model_code TEXT PRIMARY KEY,
+                vehicle_family TEXT NOT NULL,
+                sub_model TEXT NOT NULL,
+                raw_header TEXT,
+                updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+            )
+        ''')
         db.commit()
         cursor.close()
         print('[body_kit] init_body_kit_tables() OK - bảng body_kit_groups/parts đã sẵn sàng.', flush=True)
@@ -168,6 +192,16 @@ def import_body_kit_excel():
         cursor = db.cursor()
         try:
             cursor.execute('TRUNCATE TABLE body_kit_parts, body_kit_groups RESTART IDENTITY')
+
+            # Mã xe nào có trong bảng tra category (nhập riêng qua
+            # /api/admin/body-kit/import-model-categories) thì DÙNG NGUỒN
+            # ĐÓ thay vì vehicle_family/sub_model suy luận tự động - xem
+            # comment ở _load_model_category_map().
+            category_map = _load_model_category_map(cursor)
+            for g in groups:
+                override = category_map.get(g['model_code']) if g['model_code'] else None
+                if override:
+                    g['vehicle_family'], g['sub_model'] = override
 
             # 1) Ghi TOÀN BỘ nhóm trong 1 lệnh (execute_values + RETURNING id)
             # thay vì 1 lệnh INSERT riêng cho từng nhóm (~750 lần) - nhanh
@@ -259,6 +293,83 @@ def import_body_kit_excel():
 
 
 # ----------------------------------------------------------------------------
+# IMPORT BẢNG TRA "MÃ XE" -> "DÒNG XE/ĐỜI XE" (chỉ admin) - file RIÊNG với
+# bảng giá bộ áo ở trên (xem parse_model_category_excel trong
+# body_kit_import.py). Sau khi nhập, GHI ĐÈ NGAY vehicle_family/sub_model
+# của MỌI nhóm bộ áo hiện có khớp model_code - không cần nhập lại nguyên
+# file bảng giá (~750 nhóm) chỉ để cập nhật menu dòng xe.
+# ----------------------------------------------------------------------------
+
+@body_kit_bp.route('/api/admin/body-kit/import-model-categories', methods=['POST'])
+def import_body_kit_model_categories():
+    if 'user' not in session or session['role'] != 'admin':
+        return jsonify({'error': 'Forbidden'}), 403
+
+    file = request.files.get('file')
+    if not file or not file.filename:
+        return jsonify({'error': 'Vui lòng chọn file Excel.'}), 400
+
+    import tempfile
+    tmp_fd, tmp_path = tempfile.mkstemp(suffix='.xlsx')
+    os.close(tmp_fd)
+    try:
+        file.save(tmp_path)
+        try:
+            mapping, conflicts, warnings = parse_model_category_excel(tmp_path)
+        except Exception as e:
+            return jsonify({'error': f'Lỗi đọc file Excel: {e}'}), 400
+
+        if not mapping:
+            return jsonify({'error': 'Không đọc được mã xe nào từ file - kiểm tra lại đúng file/sheet.'}), 400
+
+        db = get_orders_db()
+        cursor = db.cursor()
+        try:
+            cursor.execute('TRUNCATE TABLE body_kit_model_categories')
+            execute_values(
+                cursor,
+                '''INSERT INTO body_kit_model_categories (model_code, vehicle_family, sub_model, raw_header)
+                   VALUES %s''',
+                [(code, v['vehicle_family'], v['sub_model'], v['raw_header']) for code, v in mapping.items()],
+            )
+
+            # Áp ngay cho các nhóm bộ áo ĐÃ CÓ SẴN (nếu đã từng nhập bảng
+            # giá trước đó) - khớp theo model_code, KHÔNG đụng tới nhóm nào
+            # có model_code không nằm trong bảng tra vừa nhập (giữ nguyên
+            # giá trị suy luận tự động cũ của chúng).
+            cursor.execute('''
+                UPDATE body_kit_groups AS g
+                SET vehicle_family = c.vehicle_family, sub_model = c.sub_model
+                FROM body_kit_model_categories AS c
+                WHERE g.model_code = c.model_code
+            ''')
+            updated_groups = cursor.rowcount
+
+            db.commit()
+        except Exception:
+            db.rollback()
+            traceback.print_exc()
+            return jsonify({'error': 'Lỗi khi ghi dữ liệu vào CSDL - đã huỷ toàn bộ import, dữ liệu cũ vẫn giữ nguyên.'}), 500
+        finally:
+            cursor.close()
+
+        return jsonify({
+            'success': True,
+            'codes_imported': len(mapping),
+            'groups_updated': updated_groups,
+            'conflicts': conflicts[:50],
+            'conflicts_total': len(conflicts),
+            'warnings': warnings[:50],
+            'warnings_total': len(warnings),
+        })
+    finally:
+        try:
+            os.remove(tmp_path)
+        except OSError:
+            pass
+
+
+# ----------------------------------------------------------------------------
 # TRA CỨU (admin + cửa hàng đều xem được, để báo giá cho khách)
 # ----------------------------------------------------------------------------
 
@@ -281,10 +392,13 @@ def _group_row_to_dict(r):
 def get_body_kit_menu():
     """Trả về cây menu 2 tầng Dòng xe -> Đời/kiểu kèm số lượng nhóm, để FE
     dựng menu điều hướng thay vì hiển thị ~750 nhóm dạng danh sách phẳng
-    ngay từ đầu. `vehicle_family`/`sub_model` được SUY LUẬN TỰ ĐỘNG lúc
-    import từ nhãn nhóm gốc (xem classify_group_label trong
-    body_kit_import.py) - không phải cột dữ liệu gốc của Excel, nên có thể
-    có vài nhóm rơi vào dòng xe "Khác" nếu nhãn gốc không khớp từ khoá nào."""
+    ngay từ đầu. `vehicle_family`/`sub_model` ưu tiên lấy từ bảng tra
+    body_kit_model_categories (nhập qua /api/admin/body-kit/import-model-
+    categories, khớp theo model_code - xem parse_model_category_excel);
+    nhóm nào có model_code KHÔNG có trong bảng tra đó thì vẫn dùng giá trị
+    SUY LUẬN TỰ ĐỘNG lúc import bảng giá (xem classify_group_label trong
+    body_kit_import.py) - nên có thể có vài nhóm rơi vào dòng xe "Khác"
+    nếu cả 2 nguồn đều không khớp được."""
     if 'user' not in session or session['role'] not in ('admin', 'store'):
         return jsonify({'error': 'Forbidden'}), 403
 

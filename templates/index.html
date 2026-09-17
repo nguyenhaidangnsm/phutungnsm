@@ -61,6 +61,46 @@
         --ns-dark: #1e293b;
     }
     body { background-color: var(--bs-body-bg); color: var(--ns-dark); font-family: var(--bs-body-font-family); }
+    /* Menu chọn Dòng xe (Bảng Giá Bộ Áo Xe Honda) - dạng thẻ lớn, nổi bật,
+       dễ bấm hơn kiểu nút pill nhỏ trước đây. Responsive tự chia cột theo
+       độ rộng màn hình. */
+    .bodykit-family-menu {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(128px, 1fr));
+        gap: 10px;
+    }
+    .bodykit-family-btn {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 4px;
+        padding: 16px 8px;
+        border-radius: 16px;
+        border: 2px solid #e2e8f0;
+        background: #fff;
+        cursor: pointer;
+        transition: transform .15s ease, box-shadow .15s ease, border-color .15s ease, background .15s ease;
+    }
+    .bodykit-family-btn:hover {
+        border-color: var(--ns-blue);
+        transform: translateY(-2px);
+        box-shadow: 0 8px 18px rgba(13, 110, 253, .14);
+    }
+    .bodykit-family-btn .bk-icon { font-size: 1.5rem; line-height: 1; }
+    .bodykit-family-btn .bk-name { font-weight: 700; font-size: .92rem; color: var(--ns-dark); text-align: center; }
+    .bodykit-family-btn .bk-count {
+        font-size: .72rem; font-weight: 600; color: #64748b;
+        background: #f1f5f9; border-radius: 999px; padding: 1px 10px;
+    }
+    .bodykit-family-btn.active {
+        border-color: transparent;
+        background: linear-gradient(135deg, #0d6efd, #0b5ed7);
+        box-shadow: 0 10px 22px rgba(13, 110, 253, .32);
+        transform: translateY(-2px);
+    }
+    .bodykit-family-btn.active .bk-name { color: #fff; }
+    .bodykit-family-btn.active .bk-count { background: rgba(255,255,255,.22); color: #fff; }
     .loc-col {
     position: relative;
     padding-right: 28px !important;
@@ -1917,6 +1957,22 @@
         </div>
         <div class="small text-muted mt-2" id="bodyKitLastImportInfo"></div>
     </div>
+
+    <div class="card card-custom p-3 mb-3 mb-md-4">
+        <h6 class="fw-bold mb-2"><i class="bi bi-diagram-3-fill me-2 text-primary"></i>Nhập Bảng Tra Mã Xe → Dòng Xe</h6>
+        <div class="small text-muted mb-3">
+            File riêng dạng "Stt | Loại xe | Mã xe" (vd Mã xe M3 thuộc dòng "AIR BLADE 125"). Dùng để phân
+            menu dòng xe (Air Blade) ra thêm menu con theo đời/dung tích (Air Blade 110, Air Blade 125...).
+            Nhập lại sẽ <strong>THAY THẾ TOÀN BỘ</strong> bảng tra cũ và áp dụng ngay cho các nhóm bộ áo đã có.
+        </div>
+        <div class="d-flex flex-wrap align-items-center gap-2">
+            <input type="file" class="form-control form-control-sm" style="width:auto;" id="bodyKitCategoryImportFile" accept=".xlsx">
+            <button class="btn btn-primary btn-sm" onclick="importBodyKitModelCategories()" id="bodyKitCategoryImportBtn">
+                <i class="bi bi-upload me-1"></i>Nhập Bảng Tra
+            </button>
+            <span class="small text-muted" id="bodyKitCategoryImportStatus"></span>
+        </div>
+    </div>
     {% endif %}
 
     <div class="card card-custom p-3 mb-3 mb-md-4">
@@ -1927,12 +1983,13 @@
         <input type="text" class="form-control form-control-sm mb-3" placeholder="Tìm theo đời xe, màu, mã model hoặc mã/tên phụ tùng..."
                id="bodyKitSearchInput" oninput="debouncedLoadBodyKitGroups()">
 
-        <!-- Menu 1 hàng ngang: chọn Dòng xe (Dream/Wave/Future/...) - bấm 1
-             nút là hiện LUÔN tất cả nhóm/đời của dòng đó bên dưới, không có
-             hàng chọn tiếp đời/kiểu. Chỉ hiện khi ô tìm kiếm đang trống (gõ
-             tìm kiếm sẽ quét toàn bộ, bỏ qua menu này). -->
+        <!-- Menu chọn Dòng xe (Air Blade/Wave/Future/...) - bấm 1 nút để xem
+             toàn bộ nhóm bộ áo của dòng đó (không còn tầng menu con theo
+             đời/dung tích - đã gộp về đúng 1 tầng cho gọn, dễ nhìn hơn).
+             Chỉ hiện khi ô tìm kiếm đang trống (gõ tìm kiếm sẽ quét toàn bộ,
+             bỏ qua menu này). -->
         <div id="bodyKitMenuWrap">
-            <div class="d-flex flex-wrap gap-2 mb-3" id="bodyKitFamilyMenu"></div>
+            <div class="bodykit-family-menu mb-3" id="bodyKitFamilyMenu"></div>
         </div>
 
         <div class="row g-3" id="body-kit-grid">
@@ -4384,7 +4441,7 @@
         const tbody = document.getElementById('reorder-body');
         if (!tbody) return;
         try {
-            const res = await fetch('/api/reorder-suggestions?' + _buildReorderQuery());
+            const res = await fetch('/api/admin/reorder-suggestions?' + _buildReorderQuery());
             const json = await res.json();
             if (!json.success) {
                 tbody.innerHTML = `<tr><td colspan="8" class="text-center py-4 text-danger">${json.error || 'Lỗi tải dữ liệu.'}</td></tr>`;
@@ -4424,7 +4481,7 @@
     }
 
     function exportReorderSuggestions() {
-        window.location.href = '/api/reorder-suggestions/export?' + _buildReorderQuery();
+        window.location.href = '/api/admin/reorder-suggestions/export?' + _buildReorderQuery();
     }
 
     async function loadLowStockSettings() {
@@ -4475,15 +4532,18 @@
     //
     // MENU 1 HÀNG: chỉ chọn Dòng xe (Future/Wave/Air Blade/...) - bấm 1 nút
     // là hiện LUÔN tất cả nhóm/đời của dòng đó, KHÔNG có hàng chọn tiếp
-    // đời/kiểu. Dòng xe được suy luận tự động lúc import (xem
-    // classify_group_label trong body_kit_import.py, mọi biến thể như
-    // "Wave100"/"Wave 110" đều gộp chung về 1 dòng "Wave" duy nhất), tải 1
-    // lần qua /api/body-kit/menu và cache lại trong _bodyKitMenuCache. Gõ
-    // vào ô tìm kiếm sẽ BỎ QUA menu này và quét toàn bộ dữ liệu như trước.
+    // đời/kiểu. Dòng xe (family) và đời/dung tích (sub_model) ưu tiên lấy
+    // từ bảng tra Mã xe -> Dòng xe (nhập riêng, xem body_kit_model_categories
+    // trong body_kit.py); nhóm nào không khớp mã nào trong bảng tra đó thì
+    // dùng giá trị suy luận tự động lúc import bảng giá (classify_group_label
+    // trong body_kit_import.py). Tải 1 lần qua /api/body-kit/menu và cache
+    // lại trong _bodyKitMenuCache. Gõ vào ô tìm kiếm sẽ BỎ QUA menu này và
+    // quét toàn bộ dữ liệu như trước.
     // ------------------------------------------------------------------
     let _bodyKitSearchTimer = null;
-    let _bodyKitMenuCache = null;   // [{family, group_count, sub_models:[...]}] - sub_models không dùng ở FE nữa
+    let _bodyKitMenuCache = null;   // [{family, group_count, sub_models:[{sub_model, group_count}]}]
     let _bodyKitSelectedFamily = null;
+    let _bodyKitSelectedSubModel = null;
 
     function debouncedLoadBodyKitGroups() {
         clearTimeout(_bodyKitSearchTimer);
@@ -4525,13 +4585,19 @@
         }
     }
 
+    // Menu dòng xe - thiết kế dạng thẻ (card) lớn, dễ bấm, nổi bật hơn kiểu
+    // nút pill trước đây. Không còn tầng menu con theo đời/dung tích (đã bỏ
+    // theo yêu cầu) - bấm 1 dòng xe là xem luôn TẤT CẢ nhóm/đời của dòng đó;
+    // muốn lọc kỹ hơn theo đời/dung tích thì gõ thẳng vào ô tìm kiếm.
     function renderBodyKitFamilyMenu() {
         const famEl = document.getElementById('bodyKitFamilyMenu');
         if (!famEl || !_bodyKitMenuCache) return;
         famEl.innerHTML = _bodyKitMenuCache.map(f => `
-            <button type="button" class="btn btn-sm ${_bodyKitSelectedFamily === f.family ? 'btn-primary' : 'btn-outline-secondary'}"
+            <button type="button" class="bodykit-family-btn ${_bodyKitSelectedFamily === f.family ? 'active' : ''}"
                     onclick="selectBodyKitFamily(${escapeHtmlAttr(JSON.stringify(f.family))})">
-                ${escapeHtmlAttr(f.family)} <span class="opacity-75">(${f.group_count})</span>
+                <span class="bk-icon">🏍️</span>
+                <span class="bk-name">${escapeHtmlAttr(f.family)}</span>
+                <span class="bk-count">${f.group_count}</span>
             </button>
         `).join('');
     }
@@ -4539,8 +4605,9 @@
     function selectBodyKitFamily(family) {
         // Bấm lại đúng dòng xe đang chọn -> bỏ chọn (về lại trạng thái
         // "chưa chọn dòng nào"); bấm dòng khác -> chuyển thẳng sang dòng đó
-        // và hiện luôn TẤT CẢ nhóm/đời của dòng này, không cần chọn thêm gì.
+        // và hiện luôn TẤT CẢ nhóm/đời của dòng này.
         _bodyKitSelectedFamily = (_bodyKitSelectedFamily === family) ? null : family;
+        _bodyKitSelectedSubModel = null;
         renderBodyKitFamilyMenu();
         loadBodyKitGroups();
     }
@@ -4564,6 +4631,7 @@
                 params.set('q', q);
             } else {
                 if (_bodyKitSelectedFamily) params.set('family', _bodyKitSelectedFamily);
+                if (_bodyKitSelectedSubModel) params.set('sub_model', _bodyKitSelectedSubModel);
             }
             const res = await fetch('/api/body-kit/groups?' + params.toString());
             const json = await res.json();
@@ -4590,7 +4658,7 @@
                 <div class="col-6 col-md-4 col-lg-3">
                     <div class="card card-custom h-100 p-2" style="cursor:pointer;" onclick="openBodyKitDetail(${g.id})">
                         ${g.image_url
-                            ? `<img src="${g.image_url}" class="w-100 rounded-3 mb-2" style="height:120px;object-fit:cover;" loading="lazy">`
+                            ? `<div class="w-100 rounded-3 mb-2 bg-light" style="height:120px;"><img src="${g.image_url}" class="w-100 h-100 rounded-3" style="object-fit:contain;" loading="lazy"></div>`
                             : `<div class="w-100 rounded-3 mb-2 bg-light d-flex align-items-center justify-content-center text-muted" style="height:120px;"><i class="bi bi-image fs-2"></i></div>`}
                         <div class="small fw-semibold" style="line-height:1.3;">${escapeHtmlAttr(g.group_label)}</div>
                         <div class="small text-muted">${g.model_code || ''} · ${g.part_count} phụ tùng</div>
@@ -4801,11 +4869,59 @@
             // có thể không còn đúng nữa, phải tải lại từ đầu.
             _bodyKitMenuCache = null;
             _bodyKitSelectedFamily = null;
+            _bodyKitSelectedSubModel = null;
             loadBodyKitMenu();
             loadBodyKitGroups();
         } catch (err) {
             if (status) status.innerText = '';
             console.error('Lỗi importBodyKitExcel:', err);
+            alert('Lỗi kết nối máy chủ khi nhập dữ liệu.');
+        } finally {
+            btn.disabled = false;
+        }
+    }
+
+    async function importBodyKitModelCategories() {
+        const input = document.getElementById('bodyKitCategoryImportFile');
+        const btn = document.getElementById('bodyKitCategoryImportBtn');
+        const status = document.getElementById('bodyKitCategoryImportStatus');
+        if (!input.files || input.files.length === 0) {
+            alert('Vui lòng chọn 1 file Excel (.xlsx) trước.');
+            return;
+        }
+        if (!confirm('Nhập bảng tra mới sẽ THAY THẾ TOÀN BỘ bảng tra Mã xe → Dòng xe hiện tại. Tiếp tục?')) return;
+
+        const formData = new FormData();
+        formData.append('file', input.files[0]);
+
+        btn.disabled = true;
+        if (status) status.innerText = 'Đang nhập bảng tra...';
+        try {
+            const res = await fetch('/api/admin/body-kit/import-model-categories', { method: 'POST', body: formData });
+            const json = await res.json();
+            if (!json.success) {
+                if (status) status.innerText = '';
+                alert(json.error || 'Nhập bảng tra thất bại.');
+                return;
+            }
+            if (status) {
+                status.innerText = `Đã nhập ${json.codes_imported.toLocaleString()} mã xe, ` +
+                    `cập nhật ${json.groups_updated.toLocaleString()} nhóm bộ áo đã có` +
+                    (json.conflicts_total > 0 ? ` (${json.conflicts_total} mã xung đột dòng xe - xem console).` : '.') +
+                    (json.warnings_total > 0 ? ` (${json.warnings_total} dòng cảnh báo - xem console).` : '');
+            }
+            if (json.conflicts_total > 0) console.warn('Xung đột bảng tra Mã xe → Dòng xe:', json.conflicts);
+            if (json.warnings_total > 0) console.warn('Cảnh báo bảng tra Mã xe → Dòng xe:', json.warnings);
+            input.value = '';
+            // Menu dòng xe/đời cũ (đã cache) có thể không còn đúng nữa.
+            _bodyKitMenuCache = null;
+            _bodyKitSelectedFamily = null;
+            _bodyKitSelectedSubModel = null;
+            loadBodyKitMenu();
+            loadBodyKitGroups();
+        } catch (err) {
+            if (status) status.innerText = '';
+            console.error('Lỗi importBodyKitModelCategories:', err);
             alert('Lỗi kết nối máy chủ khi nhập dữ liệu.');
         } finally {
             btn.disabled = false;
