@@ -687,12 +687,32 @@
     #quick-lookup-modal-resize-handle i { font-size: 1rem; pointer-events: none; }
     #quick-lookup-modal-resize-handle:hover { color: #0d6efd; }
 
-    /* Cột trong bảng có thể kéo giãn (bảng Tồn Kho Hệ Thống & modal Tra Cứu
-       Nhanh) - table-layout:fixed để độ rộng set trên <th> áp dụng đồng bộ
-       cho toàn bộ cột; width:auto (đè width:100% mặc định của Bootstrap)
-       để bảng được rộng đúng bằng tổng các cột đã set, không bị co bóp ép
-       vừa khung - khi kéo cột rộng ra vượt khung, .table-responsive đã có
-       sẵn overflow-x:auto sẽ tự hiện thanh cuộn ngang. */
+    /* Modal "Chi Tiết Bộ Áo" có thể kéo giãn to/nhỏ tuỳ ý (tay cầm resize ở
+       góc dưới-phải modal-content) - dùng CÙNG cơ chế JS với modal "Tra Cứu
+       Nhanh" ở trên: modal-dialog-centered mặc định display:flex khiến CSS
+       resize thuần không ăn theo chiều ngang (flexbox tự co lại), nên set
+       width/maxWidth trực tiếp bằng JS khi kéo mới đáng tin cậy.  */
+    #bodyKitDetailModal .modal-dialog { transition: none; }
+    #bodyKitDetailModal .modal-content { position: relative; }
+    #bodyKitDetailModal .table-responsive { max-height: none; overflow-y: visible; }
+    #bodyKitDetailModal-resize-handle {
+        position: absolute;
+        right: 0;
+        bottom: 0;
+        width: 24px;
+        height: 24px;
+        cursor: nwse-resize;
+        z-index: 5;
+        display: flex;
+        align-items: flex-end;
+        justify-content: flex-end;
+        padding: 3px;
+        color: #94a3b8;
+        touch-action: none;
+    }
+    #bodyKitDetailModal-resize-handle i { font-size: 1rem; pointer-events: none; }
+    #bodyKitDetailModal-resize-handle:hover { color: #0d6efd; }
+
     .resizable-table { table-layout: fixed; width: auto !important; }
     .resizable-table th, .resizable-table td { overflow: hidden; text-overflow: ellipsis; }
     .resizable-table thead th { position: sticky; } /* giữ lại vị trí sticky (đã có ở .table thead th) làm điểm neo cho tay kéo */
@@ -1033,6 +1053,10 @@
                 <span class="ns-sidebar-icon"><i class="bi bi-cart-plus-fill"></i></span>
                 <span class="ns-label">Gợi Ý Nhập Hàng</span>
             </button>
+            <button type="button" class="ns-sidebar-item" data-target-tab="body-kit-tab" onclick="megaNavClick('body-kit-tab', this)">
+                <span class="ns-sidebar-icon"><i class="bi bi-palette-fill"></i></span>
+                <span class="ns-label">Bảng Giá Bộ Áo</span>
+            </button>
             {% endif %}
             {% if role == 'admin' %}
             <button type="button" class="ns-sidebar-item" data-target-tab="location-tab" onclick="megaNavClick('location-tab', this)">
@@ -1135,6 +1159,11 @@
     <li class="nav-item" role="presentation">
         <button class="nav-link" id="reorder-tab" data-bs-toggle="pill" data-bs-target="#reorder-pane" onclick="loadReorderSuggestions(); {% if role == 'admin' %}loadLowStockSettings();{% endif %}">
             <i class="bi bi-cart-plus-fill me-2"></i>Gợi Ý Nhập Hàng
+        </button>
+    </li>
+    <li class="nav-item" role="presentation">
+        <button class="nav-link" id="body-kit-tab" data-bs-toggle="pill" data-bs-target="#body-kit-pane" onclick="bodyKitTabOpened()">
+            <i class="bi bi-palette-fill me-2"></i>Bảng Giá Bộ Áo
         </button>
     </li>
     {% endif %}
@@ -1865,6 +1894,112 @@
     </div>
 </div>
 {% endif %}
+
+       {% if role == 'admin' or role == 'store' %}
+<!-- BODY-KIT PANE (Bảng Giá Bộ Áo Xe Honda theo đời + màu) - admin nhập dữ
+     liệu từ file Excel gốc; admin + cửa hàng đều tra cứu được để báo giá
+     khách. -->
+<div class="tab-pane fade" id="body-kit-pane">
+    {% if role == 'admin' %}
+    <div class="card card-custom p-3 mb-3 mb-md-4">
+        <h6 class="fw-bold mb-2"><i class="bi bi-file-earmark-arrow-up-fill me-2 text-primary"></i>Nhập Bảng Giá Từ Excel</h6>
+        <div class="small text-muted mb-3">
+            Chọn đúng file gốc dạng "BẢNG GIÁ BỘ ÁO XE HONDA" (sheet "Bô nhựa các đời xe"). Mỗi lần nhập sẽ
+            <strong>THAY THẾ TOÀN BỘ</strong> dữ liệu cũ bằng dữ liệu trong file mới - hãy chắc chắn dùng
+            đúng file mới nhất trước khi nhập.
+        </div>
+        <div class="d-flex flex-wrap align-items-center gap-2">
+            <input type="file" class="form-control form-control-sm" style="width:auto;" id="bodyKitImportFile" accept=".xlsx">
+            <button class="btn btn-primary btn-sm" onclick="importBodyKitExcel()" id="bodyKitImportBtn">
+                <i class="bi bi-upload me-1"></i>Nhập Dữ Liệu
+            </button>
+            <span class="small text-muted" id="bodyKitImportStatus"></span>
+        </div>
+        <div class="small text-muted mt-2" id="bodyKitLastImportInfo"></div>
+    </div>
+    {% endif %}
+
+    <div class="card card-custom p-3 mb-3 mb-md-4">
+        <div class="d-flex flex-wrap justify-content-between align-items-center mb-3 gap-2">
+            <h5 class="mb-0"><i class="bi bi-palette-fill me-2 text-primary"></i>Bảng Giá Bộ Áo Xe Honda</h5>
+            <span class="text-muted small" id="bodyKitVisibleCount"></span>
+        </div>
+        <input type="text" class="form-control form-control-sm mb-3" placeholder="Tìm theo đời xe, màu, mã model hoặc mã/tên phụ tùng..."
+               id="bodyKitSearchInput" oninput="debouncedLoadBodyKitGroups()">
+
+        <!-- Menu 1 hàng ngang: chọn Dòng xe (Dream/Wave/Future/...) - bấm 1
+             nút là hiện LUÔN tất cả nhóm/đời của dòng đó bên dưới, không có
+             hàng chọn tiếp đời/kiểu. Chỉ hiện khi ô tìm kiếm đang trống (gõ
+             tìm kiếm sẽ quét toàn bộ, bỏ qua menu này). -->
+        <div id="bodyKitMenuWrap">
+            <div class="d-flex flex-wrap gap-2 mb-3" id="bodyKitFamilyMenu"></div>
+        </div>
+
+        <div class="row g-3" id="body-kit-grid">
+            <div class="col-12 text-center py-4 text-muted">Đang tải dữ liệu...</div>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+<!-- Modal chi tiết 1 nhóm bộ áo (ảnh + danh sách phụ tùng) -->
+<div class="modal fade" id="bodyKitDetailModal" tabindex="-1">
+    <!-- modal-dialog-scrollable: modal-body tự cuộn dọc riêng, modal-content
+         không bị giới hạn theo table-responsive bên trong (giống modal Tra
+         Cứu Nhanh) - kích thước thật sự do JS setupBodyKitDetailModalResize()
+         set trực tiếp qua tay cầm ở góc dưới-phải (xem cuối file). -->
+    <div class="modal-dialog modal-dialog-scrollable" id="bodyKitDetailDialog" style="max-width:900px;">
+        <div class="modal-content border-0 shadow" id="bodyKitDetailContent">
+            <div class="modal-header bg-primary text-white">
+                <h5 class="modal-title fw-bold fs-6" id="bodyKitDetailTitle">Chi Tiết Bộ Áo</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body p-3 p-md-4">
+                <div class="row g-3 mb-3">
+                    <div class="col-12 col-md-4 text-center">
+                        <!-- resize:both trên khung ảnh - kéo góc dưới-phải để
+                             phóng to/thu nhỏ ảnh minh hoạ tuỳ ý. -->
+                        <div id="bodyKitDetailImageWrap"
+                             style="display:none; resize:both; overflow:hidden; width:200px; height:200px; max-width:100%; min-width:80px; min-height:80px; margin:0 auto; border:1px solid #dee2e6; border-radius:.5rem;">
+                            <img id="bodyKitDetailImage" src="" alt="" style="width:100%; height:100%; object-fit:contain; display:block;">
+                        </div>
+                        <div id="bodyKitDetailNoImage" class="text-muted small py-4">Không có ảnh minh hoạ.</div>
+                    </div>
+                    <div class="col-12 col-md-8">
+                        <div class="small text-muted">Model</div>
+                        <div class="fw-semibold mb-2" id="bodyKitDetailModel"></div>
+                        <div class="p-2 rounded-3 bg-light text-center">
+                            <div class="small text-muted">Tổng tiền mã hàng đã chọn (<span id="bodyKitSelectedCount">0</span>)</div>
+                            <div class="fw-bold text-primary fs-5" id="bodyKitSelectedSum">0 đ</div>
+                        </div>
+                    </div>
+                </div>
+                <div class="table-responsive">
+                    <table class="table table-hover align-middle mb-0 text-nowrap small">
+                        <thead>
+                            <tr>
+                                <th><input type="checkbox" id="bodyKitSelectAll" onchange="toggleAllBodyKitParts(this)"></th>
+                                <th>STT</th>
+                                <th>Mã Hàng</th>
+                                <th>Tên Hàng</th>
+                                <th>Thay Thế</th>
+                                <th class="text-end">Giá Bán Hiện Tại</th>
+                                <th class="text-end">Tồn Hiện Tại</th>
+                                <th>Ghi Chú</th>
+                            </tr>
+                        </thead>
+                        <tbody id="bodyKitDetailParts">
+                            <tr><td colspan="8" class="text-center py-3 text-muted">Đang tải...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            <div id="bodyKitDetailModal-resize-handle" title="Kéo để phóng to/thu nhỏ">
+                <i class="bi bi-arrows-angle-expand"></i>
+            </div>
+        </div>
+    </div>
+</div>
 
        {% if role == 'admin' %}
 <!-- LOCATION PANE (Vị Trí Hàng Hóa) -->
@@ -3412,6 +3547,7 @@
         startVersionPolling();
         setupQuickLookupFabDrag();
         setupQuickLookupModalResize();
+        setupBodyKitDetailModalResize();
         setupMegaNav();
         setupSidebarHoverExpand();
         syncTopbarHeight();
@@ -4330,6 +4466,349 @@
             if (status) status.innerText = '';
             console.error('Lỗi saveLowStockSettings:', err);
             alert('Lỗi kết nối máy chủ khi lưu.');
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // BẢNG GIÁ BỘ ÁO XE HONDA (theo đời xe + màu, kèm ảnh + danh sách phụ
+    // tùng) - admin nhập từ Excel, admin + cửa hàng đều tra cứu được.
+    //
+    // MENU 1 HÀNG: chỉ chọn Dòng xe (Future/Wave/Air Blade/...) - bấm 1 nút
+    // là hiện LUÔN tất cả nhóm/đời của dòng đó, KHÔNG có hàng chọn tiếp
+    // đời/kiểu. Dòng xe được suy luận tự động lúc import (xem
+    // classify_group_label trong body_kit_import.py, mọi biến thể như
+    // "Wave100"/"Wave 110" đều gộp chung về 1 dòng "Wave" duy nhất), tải 1
+    // lần qua /api/body-kit/menu và cache lại trong _bodyKitMenuCache. Gõ
+    // vào ô tìm kiếm sẽ BỎ QUA menu này và quét toàn bộ dữ liệu như trước.
+    // ------------------------------------------------------------------
+    let _bodyKitSearchTimer = null;
+    let _bodyKitMenuCache = null;   // [{family, group_count, sub_models:[...]}] - sub_models không dùng ở FE nữa
+    let _bodyKitSelectedFamily = null;
+
+    function debouncedLoadBodyKitGroups() {
+        clearTimeout(_bodyKitSearchTimer);
+        _bodyKitSearchTimer = setTimeout(() => {
+            renderBodyKitMenuVisibility();
+            loadBodyKitGroups();
+        }, 350);
+    }
+
+    function _fmtVnd(v) {
+        return v === null || v === undefined ? '—' : Math.round(v).toLocaleString('vi-VN') + ' đ';
+    }
+
+    function renderBodyKitMenuVisibility() {
+        const q = document.getElementById('bodyKitSearchInput')?.value.trim() || '';
+        const wrap = document.getElementById('bodyKitMenuWrap');
+        if (wrap) wrap.style.display = q ? 'none' : '';
+    }
+
+    function bodyKitTabOpened() {
+        renderBodyKitMenuVisibility();
+        if (!_bodyKitMenuCache) {
+            loadBodyKitMenu();
+        }
+        loadBodyKitGroups();
+    }
+
+    async function loadBodyKitMenu() {
+        const famEl = document.getElementById('bodyKitFamilyMenu');
+        if (!famEl) return;
+        try {
+            const res = await fetch('/api/body-kit/menu');
+            const json = await res.json();
+            if (!json.success) return;
+            _bodyKitMenuCache = json.data;
+            renderBodyKitFamilyMenu();
+        } catch (err) {
+            console.error('Lỗi loadBodyKitMenu:', err);
+        }
+    }
+
+    function renderBodyKitFamilyMenu() {
+        const famEl = document.getElementById('bodyKitFamilyMenu');
+        if (!famEl || !_bodyKitMenuCache) return;
+        famEl.innerHTML = _bodyKitMenuCache.map(f => `
+            <button type="button" class="btn btn-sm ${_bodyKitSelectedFamily === f.family ? 'btn-primary' : 'btn-outline-secondary'}"
+                    onclick="selectBodyKitFamily(${escapeHtmlAttr(JSON.stringify(f.family))})">
+                ${escapeHtmlAttr(f.family)} <span class="opacity-75">(${f.group_count})</span>
+            </button>
+        `).join('');
+    }
+
+    function selectBodyKitFamily(family) {
+        // Bấm lại đúng dòng xe đang chọn -> bỏ chọn (về lại trạng thái
+        // "chưa chọn dòng nào"); bấm dòng khác -> chuyển thẳng sang dòng đó
+        // và hiện luôn TẤT CẢ nhóm/đời của dòng này, không cần chọn thêm gì.
+        _bodyKitSelectedFamily = (_bodyKitSelectedFamily === family) ? null : family;
+        renderBodyKitFamilyMenu();
+        loadBodyKitGroups();
+    }
+
+    async function loadBodyKitGroups() {
+        const grid = document.getElementById('body-kit-grid');
+        if (!grid) return;
+        const q = document.getElementById('bodyKitSearchInput')?.value.trim() || '';
+
+        // Chưa gõ tìm kiếm VÀ chưa chọn dòng xe nào - hiện gợi ý thay vì
+        // đổ nguyên ~750 nhóm ra 1 lúc (đây chính là lý do có menu này).
+        if (!q && !_bodyKitSelectedFamily) {
+            grid.innerHTML = `<div class="col-12 text-center py-4 text-muted">Chọn 1 dòng xe ở trên, hoặc gõ tìm kiếm để xem danh sách.</div>`;
+            document.getElementById('bodyKitVisibleCount').innerText = '';
+            return;
+        }
+
+        try {
+            const params = new URLSearchParams();
+            if (q) {
+                params.set('q', q);
+            } else {
+                if (_bodyKitSelectedFamily) params.set('family', _bodyKitSelectedFamily);
+            }
+            const res = await fetch('/api/body-kit/groups?' + params.toString());
+            const json = await res.json();
+            if (!json.success) {
+                grid.innerHTML = `<div class="col-12 text-center py-4 text-danger">${json.error || 'Lỗi tải dữ liệu.'}</div>`;
+                return;
+            }
+
+            document.getElementById('bodyKitVisibleCount').innerText =
+                `${json.total.toLocaleString()} / ${json.total_groups_all.toLocaleString()} nhóm`;
+            const lastImportEl = document.getElementById('bodyKitLastImportInfo');
+            if (lastImportEl) {
+                lastImportEl.innerText = json.last_import
+                    ? `Lần nhập gần nhất: ${new Date(json.last_import).toLocaleString('vi-VN')} — hiện có ${json.total_groups_all.toLocaleString()} nhóm.`
+                    : 'Chưa có dữ liệu nào được nhập.';
+            }
+
+            if (!json.data || json.data.length === 0) {
+                grid.innerHTML = `<div class="col-12 text-center py-4 text-muted">Không tìm thấy nhóm nào khớp.</div>`;
+                return;
+            }
+
+            grid.innerHTML = json.data.map(g => `
+                <div class="col-6 col-md-4 col-lg-3">
+                    <div class="card card-custom h-100 p-2" style="cursor:pointer;" onclick="openBodyKitDetail(${g.id})">
+                        ${g.image_url
+                            ? `<img src="${g.image_url}" class="w-100 rounded-3 mb-2" style="height:120px;object-fit:cover;" loading="lazy">`
+                            : `<div class="w-100 rounded-3 mb-2 bg-light d-flex align-items-center justify-content-center text-muted" style="height:120px;"><i class="bi bi-image fs-2"></i></div>`}
+                        <div class="small fw-semibold" style="line-height:1.3;">${escapeHtmlAttr(g.group_label)}</div>
+                        <div class="small text-muted">${g.model_code || ''} · ${g.part_count} phụ tùng</div>
+                    </div>
+                </div>
+            `).join('');
+        } catch (err) {
+            console.error('Lỗi loadBodyKitGroups:', err);
+            grid.innerHTML = `<div class="col-12 text-center py-4 text-danger">Lỗi kết nối máy chủ.</div>`;
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // KÉO GIÃN TO/NHỎ modal "Chi Tiết Bộ Áo" bằng tay cầm ở góc dưới-phải.
+    // Cùng cơ chế với modal "Tra Cứu Nhanh" ở trên (set width/maxWidth
+    // trực tiếp bằng JS khi kéo - đáng tin cậy hơn CSS resize thuần vì
+    // modal-dialog nằm trong flex container của Bootstrap).
+    // ------------------------------------------------------------------
+    function setupBodyKitDetailModalResize() {
+        const handle = document.getElementById('bodyKitDetailModal-resize-handle');
+        const dialog = document.getElementById('bodyKitDetailDialog');
+        if (!handle || !dialog) return;
+
+        const STORAGE_KEY = 'bodyKitDetailModalSize';
+        const MIN_W = 360, MIN_H = 300;
+        let startX = 0, startY = 0, startW = 0, startH = 0, resizing = false;
+
+        function maxW() { return Math.round(window.innerWidth * 0.97); }
+        function maxH() { return Math.round(window.innerHeight * 0.95); }
+
+        function applySize(w, h) {
+            w = Math.min(Math.max(w, MIN_W), maxW());
+            h = Math.min(Math.max(h, MIN_H), maxH());
+            dialog.style.width = w + 'px';
+            dialog.style.maxWidth = w + 'px';
+            dialog.style.height = h + 'px';
+            return { w, h };
+        }
+
+        // Khôi phục kích thước đã lưu mỗi khi modal được mở.
+        document.getElementById('bodyKitDetailModal').addEventListener('show.bs.modal', () => {
+            try {
+                const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || 'null');
+                if (saved && saved.w && saved.h) applySize(saved.w, saved.h);
+            } catch (e) { /* bỏ qua nếu dữ liệu lưu bị hỏng */ }
+        });
+
+        handle.addEventListener('pointerdown', (e) => {
+            resizing = true;
+            const rect = dialog.getBoundingClientRect();
+            startW = rect.width;
+            startH = rect.height;
+            startX = e.clientX;
+            startY = e.clientY;
+            handle.setPointerCapture(e.pointerId);
+            e.preventDefault();
+        });
+
+        handle.addEventListener('pointermove', (e) => {
+            if (!resizing) return;
+            const dx = e.clientX - startX;
+            const dy = e.clientY - startY;
+            applySize(startW + dx, startH + dy);
+        });
+
+        function endResize(e) {
+            if (!resizing) return;
+            resizing = false;
+            const rect = dialog.getBoundingClientRect();
+            try {
+                localStorage.setItem(STORAGE_KEY, JSON.stringify({ w: Math.round(rect.width), h: Math.round(rect.height) }));
+            } catch (err) { /* bỏ qua nếu localStorage đầy/không dùng được */ }
+        }
+        handle.addEventListener('pointerup', endResize);
+        handle.addEventListener('pointercancel', endResize);
+    }
+
+    function updateBodyKitSelectedSum() {
+        let sum = 0, count = 0;
+        document.querySelectorAll('.bodyKitPartCheck:checked').forEach(cb => {
+            const price = parseFloat(cb.dataset.price || '');
+            if (!isNaN(price)) sum += price;
+            count++;
+        });
+        const sumEl = document.getElementById('bodyKitSelectedSum');
+        const countEl = document.getElementById('bodyKitSelectedCount');
+        if (sumEl) sumEl.innerText = count > 0 ? _fmtVnd(sum) : '0 đ';
+        if (countEl) countEl.innerText = count;
+    }
+
+    function toggleAllBodyKitParts(master) {
+        document.querySelectorAll('.bodyKitPartCheck').forEach(cb => { cb.checked = master.checked; });
+        updateBodyKitSelectedSum();
+    }
+
+    async function openBodyKitDetail(groupId) {
+        const modalEl = document.getElementById('bodyKitDetailModal');
+        new bootstrap.Modal(modalEl).show();
+
+        document.getElementById('bodyKitDetailTitle').innerText = 'Đang tải...';
+        document.getElementById('bodyKitDetailParts').innerHTML =
+            '<tr><td colspan="8" class="text-center py-3 text-muted">Đang tải...</td></tr>';
+        const selectAllEl = document.getElementById('bodyKitSelectAll');
+        if (selectAllEl) selectAllEl.checked = false;
+        updateBodyKitSelectedSum();
+
+        try {
+            const res = await fetch(`/api/body-kit/groups/${groupId}`);
+            const json = await res.json();
+            if (!json.success) {
+                document.getElementById('bodyKitDetailTitle').innerText = 'Lỗi';
+                document.getElementById('bodyKitDetailParts').innerHTML =
+                    `<tr><td colspan="8" class="text-center py-3 text-danger">${json.error || 'Không tải được dữ liệu.'}</td></tr>`;
+                return;
+            }
+            const g = json.data;
+
+            document.getElementById('bodyKitDetailTitle').innerText = g.group_label;
+            document.getElementById('bodyKitDetailModel').innerText = g.model_code || '—';
+
+            const imgWrap = document.getElementById('bodyKitDetailImageWrap');
+            const img = document.getElementById('bodyKitDetailImage');
+            const noImg = document.getElementById('bodyKitDetailNoImage');
+            if (g.image_url) {
+                img.src = g.image_url;
+                imgWrap.style.display = 'block';
+                noImg.style.display = 'none';
+            } else {
+                imgWrap.style.display = 'none';
+                noImg.style.display = '';
+            }
+
+            const tbody = document.getElementById('bodyKitDetailParts');
+            if (!g.parts || g.parts.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="8" class="text-center py-3 text-muted">Không có phụ tùng nào.</td></tr>';
+            } else {
+                // Giá bán HIỆN TẠI (part_prices, Admin nhập) chỉ kèm huy hiệu
+                // "đã điều chỉnh +5%" hay "chưa điều chỉnh" so với giá Honda
+                // gốc - không hiện số tiền tăng/giảm cụ thể.
+                const priceCellHtml = (p) => {
+                    const priceTxt = p.current_price != null
+                        ? _fmtVnd(p.current_price)
+                        : (p.honda_price != null ? `<span class="text-muted">${_fmtVnd(p.honda_price)} <span class="fst-italic">(giá gốc)</span></span>` : '—');
+                    let badge = '';
+                    if (p.is_adjusted_5pct === true) {
+                        badge = `<span class="badge bg-success-subtle text-success ms-1">✓ Đã điều chỉnh +5%</span>`;
+                    } else if (p.is_adjusted_5pct === false) {
+                        badge = `<span class="badge bg-secondary-subtle text-secondary ms-1">Chưa điều chỉnh</span>`;
+                    }
+                    return `${priceTxt}${badge}`;
+                };
+                tbody.innerHTML = g.parts.map(p => {
+                    const priceForSum = p.current_price != null ? p.current_price : (p.honda_price != null ? p.honda_price : '');
+                    return `
+                    <tr>
+                        <td><input type="checkbox" class="bodyKitPartCheck" data-price="${priceForSum}" onchange="updateBodyKitSelectedSum()"></td>
+                        <td>${p.seq ?? ''}</td>
+                        <td><span class="part-code">${escapeHtmlAttr(p.part_code || '')}</span></td>
+                        <td>${p.part_name || ''}</td>
+                        <td class="text-muted">${p.replacement_code || ''}</td>
+                        <td class="text-end">${priceCellHtml(p)}</td>
+                        <td class="text-end">${p.current_stock != null ? p.current_stock : '<span class="text-muted">—</span>'}</td>
+                        <td class="text-muted">${p.note || ''}</td>
+                    </tr>
+                `;
+                }).join('');
+            }
+            updateBodyKitSelectedSum();
+        } catch (err) {
+            console.error('Lỗi openBodyKitDetail:', err);
+            document.getElementById('bodyKitDetailTitle').innerText = 'Lỗi';
+            document.getElementById('bodyKitDetailParts').innerHTML =
+                '<tr><td colspan="8" class="text-center py-3 text-danger">Lỗi kết nối máy chủ.</td></tr>';
+        }
+    }
+
+    async function importBodyKitExcel() {
+        const input = document.getElementById('bodyKitImportFile');
+        const btn = document.getElementById('bodyKitImportBtn');
+        const status = document.getElementById('bodyKitImportStatus');
+        if (!input.files || input.files.length === 0) {
+            alert('Vui lòng chọn 1 file Excel (.xlsx) trước.');
+            return;
+        }
+        if (!confirm('Nhập dữ liệu mới sẽ THAY THẾ TOÀN BỘ bảng giá bộ áo hiện tại. Tiếp tục?')) return;
+
+        const formData = new FormData();
+        formData.append('file', input.files[0]);
+
+        btn.disabled = true;
+        if (status) status.innerText = 'Đang nhập dữ liệu (có thể mất 1-2 phút do file lớn)...';
+        try {
+            const res = await fetch('/api/admin/body-kit/import', { method: 'POST', body: formData });
+            const json = await res.json();
+            if (!json.success) {
+                if (status) status.innerText = '';
+                alert(json.error || 'Nhập dữ liệu thất bại.');
+                return;
+            }
+            if (status) {
+                status.innerText = `Đã nhập ${json.groups_imported.toLocaleString()} nhóm, ` +
+                    `${json.parts_imported.toLocaleString()} phụ tùng, ${json.with_image.toLocaleString()} nhóm có ảnh` +
+                    (json.warnings_total > 0 ? ` (${json.warnings_total} dòng cảnh báo - xem console).` : '.');
+            }
+            if (json.warnings_total > 0) console.warn('Cảnh báo import bộ áo:', json.warnings);
+            input.value = '';
+            // Dữ liệu vừa bị THAY THẾ TOÀN BỘ - menu dòng xe/đời cũ (đã cache)
+            // có thể không còn đúng nữa, phải tải lại từ đầu.
+            _bodyKitMenuCache = null;
+            _bodyKitSelectedFamily = null;
+            loadBodyKitMenu();
+            loadBodyKitGroups();
+        } catch (err) {
+            if (status) status.innerText = '';
+            console.error('Lỗi importBodyKitExcel:', err);
+            alert('Lỗi kết nối máy chủ khi nhập dữ liệu.');
+        } finally {
+            btn.disabled = false;
         }
     }
 

@@ -254,7 +254,11 @@ app.config.update(
     SESSION_COOKIE_HTTPONLY=True,
     SESSION_COOKIE_SAMESITE='Lax',
     PERMANENT_SESSION_LIFETIME=timedelta(hours=8),
-    MAX_CONTENT_LENGTH=50 * 1024 * 1024,  # Giới hạn upload tối đa 50MB / request
+    MAX_CONTENT_LENGTH=200 * 1024 * 1024,  # Giới hạn upload tối đa 200MB / request
+    # (200MB thay vì 50MB trước đây - file "Bảng giá bộ áo xe Honda" chứa
+    # >700 ảnh xe nhúng trực tiếp nên nặng ~115MB, vượt xa 50MB cũ. Các
+    # upload khác trong app (tồn kho, xuất bán...) chỉ vài trăm KB-vài MB
+    # nên nới giới hạn chung này không ảnh hưởng gì tới các tính năng đó.)
 )
 
 # Nén response (JSON, HTML) bằng gzip để giảm dung lượng truyền tải -> tải nhanh hơn
@@ -7110,6 +7114,31 @@ def _init_orders_with_retry(max_attempts=5, base_delay_seconds=3):
 
 
 _init_orders_with_retry()
+
+# Import + đăng ký blueprint body_kit (Tra Cứu Bảng Giá Bộ Áo Xe) - dùng
+# CHUNG pool CSDL đặt hàng riêng với orders.py (get_orders_db()), nên PHẢI
+# import SAU khi orders_bp đã đăng ký + _init_orders_with_retry() đã chạy
+# xong ở trên (đảm bảo ORDERS_DATABASE_URL/pool đã sẵn sàng).
+from body_kit import body_kit_bp, init_body_kit_tables
+app.register_blueprint(body_kit_bp)
+
+
+def _init_body_kit_with_retry(max_attempts=5, base_delay_seconds=3):
+    for attempt in range(1, max_attempts + 1):
+        try:
+            init_body_kit_tables()
+            return
+        except (psycopg2.errors.DeadlockDetected, psycopg2.errors.LockNotAvailable) as e:
+            if attempt >= max_attempts:
+                raise
+            wait_seconds = base_delay_seconds * attempt
+            print(f'[init_body_kit_tables] Lần {attempt}/{max_attempts} gặp lỗi khoá DB '
+                  f'({e.__class__.__name__}) - thử lại sau {wait_seconds}s...', flush=True)
+            time.sleep(wait_seconds)
+
+
+_init_body_kit_with_retry()
+
 if __name__ == '__main__':
     # LƯU Ý: không chạy file này trực tiếp (`python3 app.py`) - hãy chạy
     # `python3 run.py` ở thư mục gốc. Xem giải thích chi tiết trong run.py

@@ -55,15 +55,13 @@ from app import (
     _compute_sales_frequency_rows,
     create_notification,
     ADMIN_NOTIF_STORE_CODE,
-    SALES_FREQ_LABELS,
 )
 
 dashboard_bp = Blueprint('dashboard', __name__)
 
 # Ngưỡng mặc định (tính bằng THÁNG tồn kho còn lại) để 1 mã TX (bán nhanh)
-# hoặc TB (bán trung bình) được coi là "sắp hết hàng" - dùng CHUNG cho cả
-# gợi ý nhập hàng (lọc ra mã cần đặt) lẫn cảnh báo tự động. Admin chỉnh được
-# qua /api/admin/low-stock-settings,
+# được coi là "sắp hết hàng" - dùng CHUNG cho cả gợi ý nhập hàng (lọc ra mã
+# cần đặt) lẫn cảnh báo tự động. Admin chỉnh được qua /api/admin/low-stock-settings,
 # lưu trong app_settings (bảng key-value đã có sẵn) - không cần thêm cột/bảng
 # cấu hình riêng.
 DEFAULT_LOW_STOCK_MIN_MONTHS = 1.0
@@ -119,20 +117,36 @@ def get_low_stock_min_months(cursor):
 # 1. GỢI Ý NHẬP HÀNG TỰ ĐỘNG (dựa trên số liệu TX/TB/CB đã có sẵn)
 # ----------------------------------------------------------------------------
 
-def compute_reorder_suggestions(cursor, store_code, buffer_months, min_months):
-    """Trả về (suggestions, period_months). Chỉ xét các mã ĐANG được phân
-    loại TX (bán nhanh) hoặc TB (bán trung bình) và có số tháng tồn còn lại
-    < min_months - với các mã đó, gợi ý số lượng cần đặt thêm để đủ bán
-    trong buffer_months tháng kể từ bây giờ (dựa trên TB bán/tháng đã tính
-    sẵn ở classify_sales_frequency)."""
+# Mã hàng bắt đầu bằng tiền tố này (Nhóm khung xe) KHÔNG được đưa vào gợi ý
+# nhập hàng tự động, dù đang được phân loại TX/TB - theo yêu cầu người dùng
+# (khung xe không đặt theo kiểu "cứ thiếu là nhập thêm" như phụ tùng thường).
+REORDER_EXCLUDED_PART_PREFIX = '50100'
+
+# Các nhóm phân loại được đưa vào gợi ý nhập hàng tự động - TX (bán nhanh) VÀ
+# TB (bán trung bình). KHÔNG gồm CB (chậm bán) vì tồn CB vốn đã dư, gợi ý nhập
+# thêm không có ý nghĩa.
+REORDER_INCLUDED_GROUPS = ('TX', 'TB')
+
+
+def compute_reorder_suggestions(cursor, store_code, buffer_months):
+    """Trả về (suggestions, period_months). Xét các mã đang phân loại TX
+    (bán nhanh) hoặc TB (bán trung bình) - KHÔNG gồm mã khung xe (tiền tố
+    50100) - và gợi ý số lượng cần đặt thêm để đủ bán trong buffer_months
+    tháng kể từ bây giờ (dựa trên TB bán/tháng đã tính sẵn ở
+    classify_sales_frequency). Mã chỉ được đưa vào danh sách nếu tồn hiện
+    tại THẤP HƠN mức mục tiêu đó (suggested_qty > 0) - tự nhiên phù hợp cho
+    cả 2 nhóm: TX thường xuyên lọt vào vì tồn vốn chỉ đủ dùng ngắn hạn, còn
+    TB chỉ lọt vào khi tồn thực sự thấp so với buffer_months đã chọn."""
     rows, period_months = _compute_sales_frequency_rows(cursor, store_code)
 
     suggestions = []
     for r in rows:
-        if r['group'] not in ('TX', 'TB'):
+        if r['group'] not in REORDER_INCLUDED_GROUPS:
+            continue
+        if r['part_code'].upper().startswith(REORDER_EXCLUDED_PART_PREFIX):
             continue
         mos = r['months_of_stock']
-        if mos is None or mos >= min_months:
+        if mos is None:
             continue
         target_qty = (r['avg_month'] or 0) * buffer_months
         suggested_qty = target_qty - (r['qty_on_hand'] or 0)
@@ -146,29 +160,33 @@ def compute_reorder_suggestions(cursor, store_code, buffer_months, min_months):
             'qty_on_hand': r['qty_on_hand'],
             'avg_month': r['avg_month'],
             'months_of_stock': mos,
-            'suggested_qty': suggested_qty,
             'group': r['group'],
+            'suggested_qty': suggested_qty,
         })
 
-    # Sắp xếp theo Mã hàng tăng dần (từ bé đến lớn) để dễ dò theo mã.
-    suggestions.sort(key=lambda x: x['part_code'])
+    # Ưu tiên hiển thị mã SẮP HẾT NHẤT (số tháng tồn còn lại thấp nhất) lên đầu.
+    suggestions.sort(key=lambda x: x['months_of_stock'])
     return suggestions, period_months
 
 
-@dashboard_bp.route('/api/reorder-suggestions', methods=['GET'])
-def reorder_suggestions():
-    """Gợi ý nhập hàng - dùng chung cho CẢ admin lẫn user cửa hàng.
-    User cửa hàng (role == 'store') CHỈ xem được gợi ý của ĐÚNG cửa hàng
-    mình (tham số ?store nếu có truyền sẽ bị bỏ qua); admin xem theo tham
-    số ?store=NS1 (bỏ trống = toàn hệ thống) như cũ. &buffer_months=2 (mặc
-    định 1)."""
-    if 'user' not in session:
-        return jsonify({'error': 'Unauthorized'}), 401
+def _resolve_reorder_store_filter():
+    """Admin được chọn xem theo bất kỳ kho nào (hoặc để trống = toàn hệ
+    thống); tài khoản cửa hàng CHỈ được xem đúng kho của mình - bỏ qua/ghi
+    đè tham số ?store= nếu có, không cho xem chéo dữ liệu cửa hàng khác."""
+    role = session.get('role')
+    if role == 'admin':
+        return (request.args.get('store') or '').strip().upper() or None
+    return session.get('store_code')
 
-    if session['role'] == 'store':
-        store_code = session['store_code']
-    else:
-        store_code = (request.args.get('store') or '').strip().upper() or None
+
+@dashboard_bp.route('/api/admin/reorder-suggestions', methods=['GET'])
+def reorder_suggestions():
+    """?store=NS1 (chỉ admin được chọn; bỏ trống = toàn hệ thống) &buffer_months=2 (mặc định 1).
+    Tài khoản cửa hàng xem được, nhưng luôn bị khoá đúng kho của mình."""
+    if 'user' not in session or session['role'] not in ('admin', 'store'):
+        return jsonify({'error': 'Forbidden'}), 403
+
+    store_code = _resolve_reorder_store_filter()
     try:
         buffer_months = float(request.args.get('buffer_months') or 1)
     except ValueError:
@@ -177,8 +195,7 @@ def reorder_suggestions():
 
     db = get_db()
     cursor = db.cursor()
-    min_months = get_low_stock_min_months(cursor)
-    suggestions, period_months = compute_reorder_suggestions(cursor, store_code, buffer_months, min_months)
+    suggestions, period_months = compute_reorder_suggestions(cursor, store_code, buffer_months)
     cursor.close()
 
     return jsonify({
@@ -186,28 +203,21 @@ def reorder_suggestions():
         'data': suggestions,
         'total': len(suggestions),
         'buffer_months': buffer_months,
-        'min_months': min_months,
         'period_months': period_months,
         'store': store_code,
     })
 
 
-@dashboard_bp.route('/api/reorder-suggestions/export', methods=['GET'])
+@dashboard_bp.route('/api/admin/reorder-suggestions/export', methods=['GET'])
 def reorder_suggestions_export():
-    """Xuất Excel danh sách gợi ý nhập hàng - dùng chung cho CẢ admin lẫn
-    user cửa hàng, cùng quy tắc phân quyền store_code như reorder_suggestions()
-    ở trên."""
-    if 'user' not in session:
-        return jsonify({'error': 'Unauthorized'}), 401
+    if 'user' not in session or session['role'] not in ('admin', 'store'):
+        return jsonify({'error': 'Forbidden'}), 403
 
     import io
     import pandas as pd
     from flask import send_file
 
-    if session['role'] == 'store':
-        store_code = session['store_code']
-    else:
-        store_code = (request.args.get('store') or '').strip().upper() or None
+    store_code = _resolve_reorder_store_filter()
     try:
         buffer_months = float(request.args.get('buffer_months') or 1)
     except ValueError:
@@ -216,19 +226,18 @@ def reorder_suggestions_export():
 
     db = get_db()
     cursor = db.cursor()
-    min_months = get_low_stock_min_months(cursor)
-    suggestions, period_months = compute_reorder_suggestions(cursor, store_code, buffer_months, min_months)
+    suggestions, period_months = compute_reorder_suggestions(cursor, store_code, buffer_months)
     cursor.close()
 
     df = pd.DataFrame([{
         'Mã hàng': r['part_code'],
         'Tên hàng': r['part_name'],
         'ĐVT': r['unit'],
+        'Phân loại': r['group'],
         'Tồn hiện tại': r['qty_on_hand'],
         'TB bán/tháng': r['avg_month'],
         'Số tháng tồn còn lại': r['months_of_stock'],
         f'Gợi ý đặt thêm (đủ bán {buffer_months} tháng)': r['suggested_qty'],
-        'Phân loại': r['group'],
     } for r in suggestions])
 
     output = io.BytesIO()
@@ -250,7 +259,7 @@ def reorder_suggestions_export():
 # ----------------------------------------------------------------------------
 
 def check_and_notify_low_stock(cursor):
-    """So sánh danh sách mã TX/TB đang dưới ngưỡng (tính RIÊNG cho từng cửa
+    """So sánh danh sách mã TX đang dưới ngưỡng (tính RIÊNG cho từng cửa
     hàng, vì 1 mã có thể ổn ở kho này nhưng sắp hết ở kho khác) với bảng
     low_stock_alerts đang lưu - mã MỚI rơi vào danh sách mới tạo thông báo
     (gửi cho đúng cửa hàng đó + admin); mã không còn dưới ngưỡng (đã được bổ
@@ -267,7 +276,7 @@ def check_and_notify_low_stock(cursor):
     for store in stores:
         rows, _ = _compute_sales_frequency_rows(cursor, store)
         for r in rows:
-            if r['group'] in ('TX', 'TB') and r['months_of_stock'] is not None and r['months_of_stock'] < min_months:
+            if r['group'] == 'TX' and r['months_of_stock'] is not None and r['months_of_stock'] < min_months:
                 current[(store, r['part_code'])] = r
 
     new_keys = set(current) - existing
@@ -285,12 +294,11 @@ def check_and_notify_low_stock(cursor):
         avg_txt = f"{r['avg_month']:g}" if r['avg_month'] is not None else '0'
         mos_txt = f"{r['months_of_stock']:.1f}"
         part_label = f"{part_code} - {r['part_name']}" if r['part_name'] else part_code
-        group_txt = SALES_FREQ_LABELS.get(r['group'], r['group'])
-        msg = (f"Mã {part_label} (nhóm {r['group']} - {group_txt}) chỉ còn đủ bán khoảng {mos_txt} tháng "
+        msg = (f"Mã {part_label} chỉ còn đủ bán khoảng {mos_txt} tháng "
                f"(tồn {qty_txt}, TB bán {avg_txt}/tháng). Nên đặt thêm hàng.")
 
-        create_notification(cursor, store, 'Sắp hết hàng - cần đặt hàng', msg, 'warning')
-        create_notification(cursor, ADMIN_NOTIF_STORE_CODE, 'Sắp hết hàng - cần đặt hàng', f'[{store}] {msg}', 'warning')
+        create_notification(cursor, store, 'Sắp hết hàng bán chạy', msg, 'warning')
+        create_notification(cursor, ADMIN_NOTIF_STORE_CODE, 'Sắp hết hàng bán chạy', f'[{store}] {msg}', 'warning')
 
     for store, part_code in resolved_keys:
         cursor.execute('DELETE FROM low_stock_alerts WHERE store_code = %s AND part_code = %s', (store, part_code))
