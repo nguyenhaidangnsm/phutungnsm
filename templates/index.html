@@ -2351,6 +2351,52 @@
                 </form>
                 <p class="text-muted small mt-2 mb-0"><i class="bi bi-exclamation-circle me-1"></i>Tự dò sheet "ĐÃ ĐIỀU CHỈNH" trong file (hoặc sheet đầu tiên nếu không có). Mỗi mã hàng hợp lệ trong file sẽ được lưu thành 1 lần đề xuất (dùng đúng "Ngày cập nhật" trong file), tự chuyển sang trạng thái "Đã điều chỉnh". Không ghi đè - có thể import nhiều lần, các lần đề xuất trước đó (nhập tay hoặc import) vẫn được giữ trong lịch sử.</p>
             </div>
+
+            <!-- KIỂM TRA HÀNG LOẠT MÃ HÀNG - dán 1 danh sách mã bất kỳ (copy
+                 từ Excel, số lượng không giới hạn) để rà soát nhanh mã nào
+                 đã tăng giá / chưa tăng giá / chưa có trong hệ thống, không
+                 cần gõ tìm từng mã 1. Dùng lại đúng API
+                 /api/price-adjustment/lookup đã có sẵn cho ô "Mã hàng" ở
+                 form đề xuất phía trên (xem onPriceAdjPartCodeChange) - gọi
+                 lặp lại cho từng mã, không cần thêm API mới. -->
+            <div class="card card-custom p-3 mb-3 mb-md-4">
+                <h5 class="fw-bold mb-3 fs-6 fs-md-5"><i class="bi bi-ui-checks-grid me-2 text-primary"></i>Kiểm Tra Hàng Loạt Mã Hàng</h5>
+                <p class="text-muted small mb-2"><i class="bi bi-info-circle me-1"></i>Dán danh sách mã hàng copy từ Excel vào ô bên dưới (mỗi mã 1 dòng - dán nguyên 1 cột cũng được, số lượng không giới hạn) để kiểm tra nhanh mã nào đã tăng giá, mã nào chưa, mã nào chưa có trong hệ thống.</p>
+                <div class="row g-2">
+                    <div class="col-12 col-md-8">
+                        <textarea id="price-adj-bulk-input" class="form-control form-control-sm" rows="5" placeholder="Dán danh sách mã hàng vào đây, mỗi mã 1 dòng..."></textarea>
+                    </div>
+                    <div class="col-12 col-md-4 d-flex flex-column gap-2">
+                        <button type="button" class="btn btn-primary btn-sm fw-semibold" onclick="checkPriceAdjBulk()">
+                            <i class="bi bi-search me-1"></i>Kiểm Tra
+                        </button>
+                        <button type="button" class="btn btn-outline-secondary btn-sm" onclick="clearPriceAdjBulk()">
+                            <i class="bi bi-x-lg me-1"></i>Xóa
+                        </button>
+                        <button type="button" class="btn btn-outline-success btn-sm" id="price-adj-bulk-export-btn" onclick="exportPriceAdjBulkResult()" disabled>
+                            <i class="bi bi-file-earmark-excel me-1"></i>Xuất Excel
+                        </button>
+                    </div>
+                </div>
+                <div id="price-adj-bulk-progress" class="small text-muted mt-2" style="display:none;"></div>
+                <div id="price-adj-bulk-summary" class="d-flex flex-wrap gap-2 mt-3" style="display:none;"></div>
+                <div class="table-responsive border rounded-3 mt-3" id="price-adj-bulk-result-wrap" style="display:none;">
+                    <table class="table table-hover align-middle mb-0 text-nowrap">
+                        <thead>
+                            <tr>
+                                <th style="width:40px;">#</th>
+                                <th>Mã Hàng</th>
+                                <th>Tên Hàng</th>
+                                <th>Trạng Thái</th>
+                                <th class="text-end">Giá Bán Lần Trước</th>
+                                <th>Người Đề Xuất</th>
+                                <th>Ngày Điều Chỉnh</th>
+                            </tr>
+                        </thead>
+                        <tbody id="price-adj-bulk-body"></tbody>
+                    </table>
+                </div>
+            </div>
             {% endif %}
 
             <div class="card card-custom p-3 p-md-4">
@@ -5930,6 +5976,190 @@ async function saveLocationRow(btn, partCode) {
             alert('Lỗi kết nối server.');
         }
         return false;
+    }
+
+    // ============================================================
+    // KIỂM TRA HÀNG LOẠT MÃ HÀNG (dán từ Excel) - admin dùng để rà soát
+    // nhanh 1 danh sách mã bất kỳ đã được đề xuất tăng giá hay chưa, mà
+    // không cần gõ tìm từng mã 1 ở bảng "Danh Sách Mã Hàng" bên dưới.
+    // Tái dùng API /api/price-adjustment/lookup (đã có sẵn cho form đề
+    // xuất 1 mã ở trên) - gọi lặp lại cho từng mã, giới hạn số request
+    // chạy song song để không dồn cục server dev.
+    // ============================================================
+    let priceAdjBulkResult = [];
+    let priceAdjBulkRunToken = 0; // đổi giá trị mỗi lần bấm Kiểm Tra để hủy kết quả của lần chạy trước nếu còn dở
+
+    // Tách danh sách mã hàng dán vào: mỗi dòng lấy đúng CỘT ĐẦU TIÊN
+    // (phòng trường hợp lỡ dán nhiều cột, ví dụ dán cả cột Mã hàng lẫn
+    // Tên hàng cạnh nhau trong Excel), tách cột theo Tab/phẩy/chấm phẩy
+    // để chấp nhận cả khi dán từ CSV. Loại bỏ dòng trống và loại trùng
+    // (không phân biệt hoa/thường) nhưng vẫn giữ đúng chữ hoa/thường của
+    // lần xuất hiện đầu tiên.
+    function parsePriceAdjBulkCodes(raw) {
+        const codes = raw
+            .split(/\r\n|\r|\n/)
+            .map(line => line.split(/\t|,|;/)[0].trim())
+            .filter(Boolean);
+        const seen = new Set();
+        const unique = [];
+        for (const c of codes) {
+            const key = c.toUpperCase();
+            if (seen.has(key)) continue;
+            seen.add(key);
+            unique.push(c);
+        }
+        return unique;
+    }
+
+    function clearPriceAdjBulk() {
+        document.getElementById('price-adj-bulk-input').value = '';
+        priceAdjBulkResult = [];
+        priceAdjBulkRunToken++;
+        document.getElementById('price-adj-bulk-progress').style.display = 'none';
+        document.getElementById('price-adj-bulk-summary').style.display = 'none';
+        document.getElementById('price-adj-bulk-result-wrap').style.display = 'none';
+        document.getElementById('price-adj-bulk-body').innerHTML = '';
+        document.getElementById('price-adj-bulk-export-btn').disabled = true;
+    }
+
+    async function checkPriceAdjBulk() {
+        const raw = document.getElementById('price-adj-bulk-input').value || '';
+        const codes = parsePriceAdjBulkCodes(raw);
+        const progressEl = document.getElementById('price-adj-bulk-progress');
+        const summaryEl = document.getElementById('price-adj-bulk-summary');
+        const wrapEl = document.getElementById('price-adj-bulk-result-wrap');
+        const bodyEl = document.getElementById('price-adj-bulk-body');
+        const exportBtn = document.getElementById('price-adj-bulk-export-btn');
+
+        if (codes.length === 0) {
+            alert('Vui lòng dán ít nhất 1 mã hàng.');
+            return;
+        }
+
+        const runToken = ++priceAdjBulkRunToken;
+        priceAdjBulkResult = new Array(codes.length).fill(null);
+        exportBtn.disabled = true;
+        summaryEl.style.display = 'none';
+        wrapEl.style.display = 'block';
+        bodyEl.innerHTML = codes.map((c, i) => `
+            <tr id="price-adj-bulk-row-${i}">
+                <td class="text-muted">${i + 1}</td>
+                <td class="fw-semibold">${escapeHtmlAttr(c)}</td>
+                <td colspan="5" class="text-muted"><span class="spinner-border spinner-border-sm me-2"></span>Đang kiểm tra...</td>
+            </tr>
+        `).join('');
+        progressEl.style.display = 'block';
+        progressEl.innerText = `Đang kiểm tra 0/${codes.length} mã...`;
+
+        let done = 0;
+        const CONCURRENCY = 6; // số request chạy song song - xem run.py (threaded=True) chịu được mức này thoải mái
+        let nextIndex = 0;
+
+        async function worker() {
+            while (true) {
+                const i = nextIndex++;
+                if (i >= codes.length) return;
+                if (runToken !== priceAdjBulkRunToken) return; // đã bị hủy vì bấm Kiểm Tra 1 lần khác
+                const code = codes[i];
+                let item;
+                try {
+                    const res = await fetch('/api/price-adjustment/lookup?part_code=' + encodeURIComponent(code));
+                    const result = await res.json();
+                    if (!res.ok || !result.success) {
+                        item = { part_code: code, error: result.error || 'Lỗi tra cứu' };
+                    } else {
+                        item = {
+                            part_code: code,
+                            part_name: result.part_name || '',
+                            in_catalog: !!result.in_catalog,
+                            already_adjusted: !!result.already_adjusted,
+                            last_proposal: result.last_proposal || null,
+                        };
+                    }
+                } catch (e) {
+                    item = { part_code: code, error: 'Lỗi kết nối server' };
+                }
+                if (runToken !== priceAdjBulkRunToken) return;
+                priceAdjBulkResult[i] = item;
+                done++;
+                renderPriceAdjBulkRow(i, item);
+                progressEl.innerText = `Đang kiểm tra ${done}/${codes.length} mã...`;
+            }
+        }
+
+        const workers = Array.from({ length: Math.min(CONCURRENCY, codes.length) }, () => worker());
+        await Promise.all(workers);
+
+        if (runToken !== priceAdjBulkRunToken) return; // đã bị hủy giữa chừng bởi 1 lần bấm Kiểm Tra khác
+        progressEl.style.display = 'none';
+        renderPriceAdjBulkSummary();
+        exportBtn.disabled = false;
+    }
+
+    function priceAdjBulkStatusBadge(item) {
+        if (item.error) return `<span class="badge bg-danger">${escapeHtmlAttr(item.error)}</span>`;
+        if (!item.in_catalog && !item.already_adjusted) return `<span class="badge bg-dark-subtle text-dark-emphasis">Không có trong hệ thống</span>`;
+        if (item.already_adjusted) return `<span class="badge bg-success">Đã tăng giá</span>`;
+        return `<span class="badge bg-secondary">Chưa tăng giá</span>`;
+    }
+
+    function renderPriceAdjBulkRow(i, item) {
+        const row = document.getElementById(`price-adj-bulk-row-${i}`);
+        if (!row) return;
+        const lp = item.last_proposal;
+        row.innerHTML = `
+            <td class="text-muted">${i + 1}</td>
+            <td class="fw-semibold">${escapeHtmlAttr(item.part_code)}</td>
+            <td>${escapeHtmlAttr(item.part_name || '-')}</td>
+            <td>${priceAdjBulkStatusBadge(item)}</td>
+            <td class="text-end">${lp ? fmtPriceAdjMoney(lp.gia_ban) : '-'}</td>
+            <td>${lp ? escapeHtmlAttr(lp.created_by || '-') : '-'}</td>
+            <td>${lp ? escapeHtmlAttr(lp.created_at || '-') : '-'}</td>
+        `;
+    }
+
+    function renderPriceAdjBulkSummary() {
+        const summaryEl = document.getElementById('price-adj-bulk-summary');
+        const total = priceAdjBulkResult.length;
+        const adjusted = priceAdjBulkResult.filter(r => r && !r.error && r.already_adjusted).length;
+        const notAdjusted = priceAdjBulkResult.filter(r => r && !r.error && !r.already_adjusted && r.in_catalog).length;
+        const notFound = priceAdjBulkResult.filter(r => r && !r.error && !r.already_adjusted && !r.in_catalog).length;
+        const errored = priceAdjBulkResult.filter(r => r && r.error).length;
+        summaryEl.style.display = 'flex';
+        summaryEl.innerHTML = `
+            <span class="badge bg-primary-subtle text-primary-emphasis fs-6 fw-normal">Tổng: ${total}</span>
+            <span class="badge bg-success-subtle text-success-emphasis fs-6 fw-normal">Đã tăng giá: ${adjusted}</span>
+            <span class="badge bg-secondary-subtle text-secondary-emphasis fs-6 fw-normal">Chưa tăng giá: ${notAdjusted}</span>
+            <span class="badge bg-dark-subtle text-dark-emphasis fs-6 fw-normal">Không có trong hệ thống: ${notFound}</span>
+            ${errored ? `<span class="badge bg-danger-subtle text-danger-emphasis fs-6 fw-normal">Lỗi: ${errored}</span>` : ''}
+        `;
+    }
+
+    // Xuất kết quả kiểm tra hàng loạt ra Excel bằng thư viện SheetJS đã
+    // nạp sẵn cho toàn trang (xem thẻ <script> xlsx ở đầu <head>).
+    function exportPriceAdjBulkResult() {
+        if (!priceAdjBulkResult.length || typeof XLSX === 'undefined') return;
+        const rows = priceAdjBulkResult.map((item, i) => {
+            const lp = item && item.last_proposal;
+            let statusText = '-';
+            if (item && item.error) statusText = 'Lỗi: ' + item.error;
+            else if (item && !item.in_catalog && !item.already_adjusted) statusText = 'Không có trong hệ thống';
+            else if (item && item.already_adjusted) statusText = 'Đã tăng giá';
+            else if (item) statusText = 'Chưa tăng giá';
+            return {
+                'STT': i + 1,
+                'Mã Hàng': item ? item.part_code : '',
+                'Tên Hàng': item ? (item.part_name || '') : '',
+                'Trạng Thái': statusText,
+                'Giá Bán Lần Trước': lp ? lp.gia_ban : '',
+                'Người Đề Xuất': lp ? (lp.created_by || '') : '',
+                'Ngày Điều Chỉnh': lp ? (lp.created_at || '') : '',
+            };
+        });
+        const ws = XLSX.utils.json_to_sheet(rows);
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, ws, 'Kiem Tra Tang Gia');
+        XLSX.writeFile(wb, `kiem-tra-tang-gia-${new Date().toISOString().slice(0,10)}.xlsx`);
     }
 
     // Import hàng loạt từ file Excel "ĐÃ ĐIỀU CHỈNH" (chỉ admin) - đọc trực
