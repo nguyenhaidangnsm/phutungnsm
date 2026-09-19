@@ -2351,6 +2351,7 @@
                 </form>
                 <p class="text-muted small mt-2 mb-0"><i class="bi bi-exclamation-circle me-1"></i>Tự dò sheet "ĐÃ ĐIỀU CHỈNH" trong file (hoặc sheet đầu tiên nếu không có). Mỗi mã hàng hợp lệ trong file sẽ được lưu thành 1 lần đề xuất (dùng đúng "Ngày cập nhật" trong file), tự chuyển sang trạng thái "Đã điều chỉnh". Không ghi đè - có thể import nhiều lần, các lần đề xuất trước đó (nhập tay hoặc import) vẫn được giữ trong lịch sử.</p>
             </div>
+            {% endif %}
 
             <!-- KIỂM TRA HÀNG LOẠT MÃ HÀNG - dán 1 danh sách mã bất kỳ (copy
                  từ Excel, số lượng không giới hạn) để rà soát nhanh mã nào
@@ -2358,7 +2359,8 @@
                  cần gõ tìm từng mã 1. Dùng lại đúng API
                  /api/price-adjustment/lookup đã có sẵn cho ô "Mã hàng" ở
                  form đề xuất phía trên (xem onPriceAdjPartCodeChange) - gọi
-                 lặp lại cho từng mã, không cần thêm API mới. -->
+                 lặp lại cho từng mã, không cần thêm API mới. Dùng chung cho
+                 cả admin lẫn store, giống toàn bộ pane này. -->
             <div class="card card-custom p-3 mb-3 mb-md-4">
                 <h5 class="fw-bold mb-3 fs-6 fs-md-5"><i class="bi bi-ui-checks-grid me-2 text-primary"></i>Kiểm Tra Hàng Loạt Mã Hàng</h5>
                 <p class="text-muted small mb-2"><i class="bi bi-info-circle me-1"></i>Dán danh sách mã hàng copy từ Excel vào ô bên dưới (mỗi mã 1 dòng - dán nguyên 1 cột cũng được, số lượng không giới hạn) để kiểm tra nhanh mã nào đã tăng giá, mã nào chưa, mã nào chưa có trong hệ thống.</p>
@@ -2397,7 +2399,6 @@
                     </table>
                 </div>
             </div>
-            {% endif %}
 
             <div class="card card-custom p-3 p-md-4">
                 <div class="d-flex flex-column flex-md-row align-items-start align-items-md-center justify-content-between gap-2 mb-3">
