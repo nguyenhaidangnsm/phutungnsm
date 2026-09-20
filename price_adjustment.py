@@ -635,20 +635,29 @@ def price_adjustment_propose():
     if not part_code:
         return jsonify({'error': 'Vui lòng nhập mã hàng.'}), 400
 
-    try:
-        thue_percent = float(data.get('thue'))
-        if thue_percent < 0 or thue_percent > 100:
-            raise ValueError()
-    except (TypeError, ValueError):
-        return jsonify({'error': 'Thuế không hợp lệ (phải là số từ 0 đến 100).'}), 400
-    thue_frac = thue_percent / 100.0
+    # CHẾ ĐỘ "LẤY GIÁ TỪ DANH MỤC": mã đã có Giá bán trong bảng part_prices
+    # thì chỉ cần Mã hàng - server tự lấy Giá bán hiện có làm Giá cũ rồi
+    # cộng 5%, KHÔNG cần (và không dùng) Thuế / Giá đề xuất HVN từ client.
+    from_catalog_price = bool(data.get('from_catalog_price'))
 
-    try:
-        gia_de_xuat_hvn = float(data.get('gia_de_xuat_hvn'))
-        if gia_de_xuat_hvn <= 0:
-            raise ValueError()
-    except (TypeError, ValueError):
-        return jsonify({'error': 'Giá đề xuất HVN không hợp lệ.'}), 400
+    thue_percent = None
+    thue_frac = None
+    gia_de_xuat_hvn = None
+    if not from_catalog_price:
+        try:
+            thue_percent = float(data.get('thue'))
+            if thue_percent < 0 or thue_percent > 100:
+                raise ValueError()
+        except (TypeError, ValueError):
+            return jsonify({'error': 'Thuế không hợp lệ (phải là số từ 0 đến 100).'}), 400
+        thue_frac = thue_percent / 100.0
+
+        try:
+            gia_de_xuat_hvn = float(data.get('gia_de_xuat_hvn'))
+            if gia_de_xuat_hvn <= 0:
+                raise ValueError()
+        except (TypeError, ValueError):
+            return jsonify({'error': 'Giá đề xuất HVN không hợp lệ.'}), 400
 
     part_name = str(data.get('part_name', '') or '').strip()
 
@@ -663,7 +672,17 @@ def price_adjustment_propose():
         # Công thức 2 bước cho form đề xuất 1 mã (KHÁC với import hàng loạt):
         #   Bước 1 - Giá cũ = (Giá đề xuất HVN * Thuế) + Giá đề xuất HVN
         #   Bước 2 - Giá bán = (Giá cũ * 5%) + Giá cũ, làm tròn hàng nghìn
-        gia_cu = _compute_gia_cu(gia_de_xuat_hvn, thue_frac)
+        if from_catalog_price:
+            cursor.execute('SELECT sale_price FROM part_prices WHERE part_code = %s', (part_code,))
+            price_row = cursor.fetchone()
+            catalog_price = float(price_row['sale_price']) if price_row and price_row['sale_price'] is not None else 0
+            if catalog_price <= 0:
+                return jsonify({'error': 'Mã hàng này chưa có Giá bán trong danh mục - vui lòng nhập Thuế và Giá đề xuất HVN.'}), 400
+            gia_cu = _round_to_thousand(catalog_price)
+            gia_de_xuat_hvn = gia_cu
+            thue_percent = _GIA_TANG_RATE * 100
+        else:
+            gia_cu = _compute_gia_cu(gia_de_xuat_hvn, thue_frac)
         gia_ban = _compute_gia_ban_tu_gia_cu(gia_cu)
         now = vn_now()
         actor = _current_actor_name()
@@ -693,8 +712,10 @@ def price_adjustment_propose():
         # Mã mới (chưa có trong tồn kho hệ thống) -> tự động lưu vào danh mục
         # mã mới để lần đề xuất sau tự điền lại Tên/Thuế. Mã đã có sẵn trong
         # tồn kho hệ thống thì không cần lưu thêm (đã có danh mục chính thức).
+        # (Chế độ lấy giá từ danh mục: mã đã có giá bán nên đã thuộc danh mục,
+        # không có Thuế để lưu -> bỏ qua bước này.)
         cursor.execute('SELECT 1 FROM inventory_items WHERE part_code = %s LIMIT 1', (part_code,))
-        if cursor.fetchone() is None:
+        if not from_catalog_price and cursor.fetchone() is None:
             cursor.execute('''
                 INSERT INTO price_adjustment_new_codes (part_code, part_name, thue, created_by, created_at)
                 VALUES (%s, %s, %s, %s, %s)

@@ -1,4 +1,4 @@
-\<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="vi">
 <head>
     <meta charset="UTF-8">
@@ -2309,7 +2309,7 @@
                     </div>
                     <div class="col-12 col-md-3">
                         <label class="form-label small mb-1">Tên hàng</label>
-                        <input type="text" id="price-adj-part-name" class="form-control form-control-sm" placeholder="Tự hiện nếu mã đã có trong hệ thống...">
+                        <input type="text" id="price-adj-part-name" class="form-control form-control-sm" placeholder="Tự hiện nếu mã đã có trong hệ thống..." oninput="this.dataset.auto='0'">
                     </div>
                     <div class="col-6 col-md-2">
                         <label class="form-label small mb-1">Thuế (%)</label>
@@ -2324,13 +2324,14 @@
                         <input type="text" id="price-adj-gia-ban" class="form-control form-control-sm fw-bold text-success" readonly value="-">
                     </div>
                     <div class="col-12">
+                        <div id="price-adj-calc-hint" class="small mt-1"></div>
                         <div id="price-adj-hint" class="small mt-1"></div>
                     </div>
                     <div class="col-12 col-md-3">
                         <button type="submit" class="btn btn-primary btn-sm w-100 fw-semibold"><i class="bi bi-save me-1"></i>Lưu Đề Xuất</button>
                     </div>
                 </form>
-                <p class="text-muted small mt-2 mb-0"><i class="bi bi-info-circle me-1"></i>Giá cũ = (Giá đề xuất HVN × Thuế) + Giá đề xuất HVN. Giá bán = Giá cũ + 5% Giá cũ, làm tròn đến hàng nghìn. Mã hàng chưa có trong hệ thống sẽ được tự động lưu vào danh mục để lần sau tự hiện lại Tên/Thuế.</p>
+                <p class="text-muted small mt-2 mb-0"><i class="bi bi-info-circle me-1"></i><strong>Mã đã có trong danh mục (đã có giá bán):</strong> chỉ cần nhập Mã hàng - hệ thống lấy Giá bán cũ và tự cộng 5% ra Giá bán mới (làm tròn đến hàng nghìn), không cần nhập Thuế và Giá đề xuất HVN. <strong>Mã chưa có trong danh mục:</strong> nhập đủ thông tin - Giá cũ = (Giá đề xuất HVN × Thuế) + Giá đề xuất HVN; Giá bán = Giá cũ + 5% Giá cũ, làm tròn đến hàng nghìn, và mã sẽ được tự động lưu vào danh mục để lần sau tự hiện lại Tên/Thuế.</p>
             </div>
 
             {% if role == 'admin' %}
@@ -5884,17 +5885,69 @@ async function saveLocationRow(btn, partCode) {
     // /api/price-adjustment/lookup để lấy thêm Thuế đã dùng lần gần nhất và
     // cảnh báo nếu mã này đã từng được đề xuất tăng giá trước đó.
     let priceAdjLookupTimer = null;
+
+    // Giá bán hiện có (giá bán cũ) của mã hàng trong danh mục/tồn kho hệ
+    // thống - trả về null nếu mã chưa có trong danh mục HOẶC chưa có giá
+    // bán (khi đó form quay về chế độ nhập đủ Thuế + Giá đề xuất HVN).
+    function getPriceAdjCatalogPrice(partCode) {
+        const code = (partCode || '').trim().toLowerCase();
+        if (!code) return null;
+        const found = globalInventory.find(it => (it.part_code || '').toLowerCase() === code);
+        if (!found || found.sale_price === null || found.sale_price === undefined || found.sale_price === '') return null;
+        const price = Number(found.sale_price);
+        return (isFinite(price) && price > 0) ? price : null;
+    }
+
+    // Bật/tắt chế độ "mã đã có giá trong danh mục": khoá ô Thuế + Giá đề
+    // xuất HVN (không cần nhập), còn lại tự tính Giá bán = Giá bán cũ + 5%.
+    function updatePriceAdjMode() {
+        const partCode = document.getElementById('price-adj-part-code').value;
+        const catalogPrice = getPriceAdjCatalogPrice(partCode);
+        const thueInput = document.getElementById('price-adj-thue');
+        const hvnInput = document.getElementById('price-adj-gia-hvn');
+        const fromCatalog = catalogPrice !== null;
+
+        thueInput.disabled = fromCatalog;
+        hvnInput.disabled = fromCatalog;
+        thueInput.required = !fromCatalog;
+        hvnInput.required = !fromCatalog;
+        if (fromCatalog) {
+            thueInput.value = '';
+            hvnInput.value = '';
+            thueInput.placeholder = 'Không cần nhập';
+            hvnInput.placeholder = 'Không cần nhập';
+        } else {
+            thueInput.placeholder = 'VD: 8';
+            hvnInput.placeholder = '0';
+        }
+        recalcPriceAdjGiaBan();
+    }
+
+    // Gõ/rời khỏi ô Mã hàng: tự điền Tên hàng (ưu tiên tra nhanh trong
+    // globalInventory đang có sẵn ở trình duyệt cho tức thì), sau đó gọi API
+    // /api/price-adjustment/lookup để lấy thêm Thuế đã dùng lần gần nhất và
+    // cảnh báo nếu mã này đã từng được đề xuất tăng giá trước đó.
     function onPriceAdjPartCodeChange() {
         const partCode = (document.getElementById('price-adj-part-code').value || '').trim();
         const nameInput = document.getElementById('price-adj-part-name');
         const hintEl = document.getElementById('price-adj-hint');
         if (!partCode) {
             hintEl.innerHTML = '';
+            if (nameInput.dataset.auto === '1') { nameInput.value = ''; nameInput.dataset.auto = '0'; }
+            updatePriceAdjMode();
             return;
         }
         // Tra nhanh cục bộ trước (không cần chờ mạng) nếu mã đã có trong tồn kho.
         const localName = (typeof findInventoryPartName === 'function') ? findInventoryPartName(partCode) : '';
-        if (localName && !nameInput.value) nameInput.value = localName;
+        if (localName && (!nameInput.value || nameInput.dataset.auto === '1')) {
+            nameInput.value = localName;
+            nameInput.dataset.auto = '1';
+        } else if (!localName && nameInput.dataset.auto === '1') {
+            // Tên đang hiện là do tự điền cho mã trước đó - xoá đi khi mã đã đổi
+            nameInput.value = '';
+            nameInput.dataset.auto = '0';
+        }
+        updatePriceAdjMode();
 
         clearTimeout(priceAdjLookupTimer);
         priceAdjLookupTimer = setTimeout(async () => {
@@ -5902,9 +5955,13 @@ async function saveLocationRow(btn, partCode) {
                 const res = await fetch('/api/price-adjustment/lookup?part_code=' + encodeURIComponent(partCode));
                 const result = await res.json();
                 if (!res.ok || !result.success) return;
+                // Người dùng đã gõ sang mã khác trong lúc chờ mạng - bỏ kết quả cũ
+                if ((document.getElementById('price-adj-part-code').value || '').trim() !== partCode) return;
+
+                const fromCatalog = getPriceAdjCatalogPrice(partCode) !== null;
 
                 if (result.part_name && !nameInput.value) nameInput.value = result.part_name;
-                if (result.thue_suggest !== null && result.thue_suggest !== undefined) {
+                if (!fromCatalog && result.thue_suggest !== null && result.thue_suggest !== undefined) {
                     const thueInput = document.getElementById('price-adj-thue');
                     if (thueInput && !thueInput.value) {
                         thueInput.value = result.thue_suggest;
@@ -5915,8 +5972,8 @@ async function saveLocationRow(btn, partCode) {
                 if (result.already_adjusted && result.last_proposal) {
                     const lp = result.last_proposal;
                     hintEl.innerHTML = `<span class="text-warning-emphasis"><i class="bi bi-exclamation-circle-fill me-1"></i>Mã này đã được đề xuất tăng giá lúc ${escapeHtmlAttr(lp.created_at || '')} bởi ${escapeHtmlAttr(lp.created_by || '')} - Giá bán lần trước: ${fmtPriceAdjMoney(lp.gia_ban)}. Lưu tiếp sẽ ghi thêm 1 lần đề xuất mới.</span>`;
-                } else if (!result.in_catalog) {
-                    hintEl.innerHTML = `<span class="text-muted"><i class="bi bi-info-circle me-1"></i>Mã hàng chưa có trong tồn kho hệ thống - vui lòng nhập đủ Tên hàng, hệ thống sẽ tự lưu vào danh mục.</span>`;
+                } else if (!result.in_catalog && !fromCatalog) {
+                    hintEl.innerHTML = `<span class="text-muted"><i class="bi bi-info-circle me-1"></i>Mã hàng chưa có trong tồn kho hệ thống - vui lòng nhập đủ Tên hàng, Thuế và Giá đề xuất HVN, hệ thống sẽ tự lưu vào danh mục.</span>`;
                 } else {
                     hintEl.innerHTML = '';
                 }
@@ -5924,24 +5981,41 @@ async function saveLocationRow(btn, partCode) {
         }, 300);
     }
 
+    // Tính Giá bán mới. 2 chế độ:
+    //  - Mã đã có giá bán trong danh mục: Giá cũ = giá bán hiện có (làm
+    //    tròn hàng nghìn), Giá bán = Giá cũ + 5%. Không cần Thuế/HVN.
+    //  - Mã mới / chưa có giá: Giá cũ = (HVN * Thuế) + HVN, rồi + 5%.
+    function calcPriceAdjValues() {
+        const partCode = document.getElementById('price-adj-part-code').value;
+        const catalogPrice = getPriceAdjCatalogPrice(partCode);
+        let giaCu;
+        if (catalogPrice !== null) {
+            giaCu = Math.round(catalogPrice / 1000) * 1000;
+        } else {
+            const thue = parseFloat(document.getElementById('price-adj-thue').value);
+            const giaHvn = parseFloat(document.getElementById('price-adj-gia-hvn').value);
+            if (isNaN(thue) || isNaN(giaHvn) || giaHvn <= 0) return null;
+            // Bước 1: Giá cũ = (Giá đề xuất HVN * Thuế) + Giá đề xuất HVN
+            giaCu = Math.round(((giaHvn * (thue / 100)) + giaHvn) / 1000) * 1000;
+        }
+        // Bước 2: Giá bán = Giá cũ + 5% Giá cũ (5% cố định, không dùng Thuế)
+        const giaBan = Math.round(((giaCu * 0.05) + giaCu) / 1000) * 1000;
+        return { giaCu, giaBan, fromCatalog: catalogPrice !== null };
+    }
+
     function recalcPriceAdjGiaBan() {
-        const thue = parseFloat(document.getElementById('price-adj-thue').value);
-        const giaHvn = parseFloat(document.getElementById('price-adj-gia-hvn').value);
         const out = document.getElementById('price-adj-gia-ban');
-        const hintEl = document.getElementById('price-adj-hint');
-        if (isNaN(thue) || isNaN(giaHvn) || giaHvn <= 0) {
+        const calcHintEl = document.getElementById('price-adj-calc-hint');
+        const r = calcPriceAdjValues();
+        if (!r) {
             out.value = '-';
+            if (calcHintEl) calcHintEl.innerHTML = '';
             return;
         }
-        // Bước 1: Giá cũ = (Giá đề xuất HVN * Thuế) + Giá đề xuất HVN
-        const rawGiaCu = (giaHvn * (thue / 100)) + giaHvn;
-        const giaCu = Math.round(rawGiaCu / 1000) * 1000;
-        // Bước 2: Giá bán = Giá cũ + 5% Giá cũ (5% cố định, không dùng Thuế)
-        const rawGiaBan = (giaCu * 0.05) + giaCu;
-        const giaBan = Math.round(rawGiaBan / 1000) * 1000;
-        out.value = giaBan.toLocaleString() + 'đ';
-        if (hintEl) {
-            hintEl.innerHTML = `<span class="text-muted">Giá cũ: ${giaCu.toLocaleString()}đ &rarr; Giá bán (+5%): ${giaBan.toLocaleString()}đ</span>`;
+        out.value = r.giaBan.toLocaleString() + 'đ';
+        if (calcHintEl) {
+            const label = r.fromCatalog ? 'Giá bán cũ' : 'Giá cũ';
+            calcHintEl.innerHTML = `<span class="text-muted">${label}: <strong>${r.giaCu.toLocaleString()}đ</strong> &rarr; Giá bán mới (+5%): <strong class="text-success">${r.giaBan.toLocaleString()}đ</strong></span>`;
         }
     }
 
@@ -5949,12 +6023,24 @@ async function saveLocationRow(btn, partCode) {
         event.preventDefault();
         const partCode = document.getElementById('price-adj-part-code').value.trim();
         const partName = document.getElementById('price-adj-part-name').value.trim();
-        const thue = document.getElementById('price-adj-thue').value;
-        const giaHvn = document.getElementById('price-adj-gia-hvn').value;
+        let thue = document.getElementById('price-adj-thue').value;
+        let giaHvn = document.getElementById('price-adj-gia-hvn').value;
 
         if (!partCode) { alert('Vui lòng nhập mã hàng.'); return false; }
-        if (thue === '' || isNaN(Number(thue))) { alert('Vui lòng nhập Thuế hợp lệ.'); return false; }
-        if (giaHvn === '' || isNaN(Number(giaHvn)) || Number(giaHvn) <= 0) { alert('Vui lòng nhập Giá đề xuất HVN hợp lệ.'); return false; }
+
+        // Mã đã có giá bán trong danh mục: không cần Thuế/HVN. Cờ
+        // from_catalog_price báo server tự lấy Giá bán hiện có (part_prices)
+        // làm Giá cũ rồi cộng 5%. Vẫn gửi kèm Thuế 0% + HVN = Giá bán cũ để
+        // server bản cũ (chưa có chế độ này) cũng tính ra cùng kết quả.
+        const catalogCalc = calcPriceAdjValues();
+        const fromCatalog = !!(catalogCalc && catalogCalc.fromCatalog);
+        if (fromCatalog) {
+            thue = '0';
+            giaHvn = String(catalogCalc.giaCu);
+        } else {
+            if (thue === '' || isNaN(Number(thue))) { alert('Vui lòng nhập Thuế hợp lệ.'); return false; }
+            if (giaHvn === '' || isNaN(Number(giaHvn)) || Number(giaHvn) <= 0) { alert('Vui lòng nhập Giá đề xuất HVN hợp lệ.'); return false; }
+        }
 
         try {
             const res = await fetch('/api/price-adjustment/propose', {
@@ -5965,14 +6051,18 @@ async function saveLocationRow(btn, partCode) {
                     part_name: partName,
                     thue: Number(thue),
                     gia_de_xuat_hvn: Number(giaHvn),
+                    from_catalog_price: fromCatalog,
                 })
             });
             const result = await res.json();
             if (res.ok && result.success) {
                 showToast('Đã lưu', `Đã đề xuất tăng giá cho mã ${result.part_code} - Giá cũ: ${fmtPriceAdjMoney(result.gia_cu)} → Giá bán: ${fmtPriceAdjMoney(result.gia_ban)}`, 'success');
                 document.getElementById('price-adj-form').reset();
+                document.getElementById('price-adj-part-name').dataset.auto = '0';
                 document.getElementById('price-adj-gia-ban').value = '-';
                 document.getElementById('price-adj-hint').innerHTML = '';
+                document.getElementById('price-adj-calc-hint').innerHTML = '';
+                updatePriceAdjMode();
                 loadPriceAdjustmentList();
             } else {
                 alert('Lỗi: ' + (result.error || 'Không thể lưu đề xuất.'));
