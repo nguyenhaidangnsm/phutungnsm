@@ -1125,6 +1125,12 @@
                 <span class="ns-label">Vị Trí Hàng Hóa</span>
             </button>
             {% endif %}
+            {% if role == 'admin' or role == 'store' %}
+            <button type="button" class="ns-sidebar-item" onclick="window.location.href='/kho-3d'">
+                <span class="ns-sidebar-icon"><i class="bi bi-badge-3d-fill"></i></span>
+                <span class="ns-label">Sơ Đồ Kho 3D</span>
+            </button>
+            {% endif %}
             {% if role == 'store' or role == 'admin' %}
             <button type="button" class="ns-sidebar-item" data-target-tab="damaged-tab" onclick="megaNavClick('damaged-tab', this)">
                 <span class="ns-sidebar-icon"><i class="bi bi-exclamation-triangle-fill"></i></span>

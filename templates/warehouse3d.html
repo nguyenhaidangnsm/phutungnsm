@@ -1,0 +1,1288 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Sơ Đồ Kho 3D - Nam Sương Motor</title>
+
+<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+<link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
+
+<style>
+  html, body { height: 100%; margin: 0; background: #f4f6f8; }
+  #app { height: 100vh; display: flex; flex-direction: column; }
+  #topbar { flex: 0 0 auto; }
+  #main-row { flex: 1 1 auto; display: flex; min-height: 0; }
+  #canvas-container { flex: 1 1 auto; position: relative; min-width: 0; }
+  #canvas-container canvas { display: block; width: 100%; height: 100%; }
+  #sidebar {
+    width: 380px; flex: 0 0 380px; overflow-y: auto; background: #fff;
+    border-left: 1px solid #dee2e6; padding: 12px;
+  }
+  @media (max-width: 820px) {
+    #main-row { flex-direction: column; }
+    #canvas-container { height: 46vh; flex: 0 0 46vh; }
+    #sidebar { width: 100%; flex: 1 1 auto; border-left: none; border-top: 1px solid #dee2e6; }
+  }
+  .canvas-hint {
+    position: absolute; left: 10px; bottom: 10px; pointer-events: none;
+    background: rgba(20,24,28,0.6); color: #fff; font-size: 12px;
+    padding: 4px 10px; border-radius: 6px;
+  }
+  .loading-overlay {
+    position: absolute; inset: 0; background: rgba(255,255,255,0.75);
+    display: flex; align-items: center; justify-content: center; z-index: 5;
+  }
+  .loading-overlay.d-none { display: none; }
+  .chip-item { font-size: 12px; }
+  .level-block { padding: 8px; background: #f8f9fa; border-radius: 8px; }
+  #toast-container { position: fixed; top: 12px; right: 12px; z-index: 2000; display: flex; flex-direction: column; gap: 8px; }
+  .list-group-item.active small { color: #e9ecef !important; }
+  /* Lưới chọn Tầng x Ô - mô phỏng mặt trước của kệ: hàng trên = tầng cao. */
+  .cell-grid { display: grid; gap: 3px; align-items: stretch; }
+  .cell-grid .grid-label {
+    font-size: 11px; color: #6c757d; display: flex; align-items: center;
+    justify-content: center; padding: 0 4px; white-space: nowrap;
+  }
+  .cell-btn {
+    border: 1px solid #ced4da; background: #fff; border-radius: 4px;
+    min-height: 28px; font-size: 11px; padding: 0; line-height: 1; color: #212529;
+  }
+  .cell-btn:hover { border-color: #0d6efd; }
+  .cell-btn.has-items { background: #e6f4ea; border-color: #8fcaa0; }
+  .cell-btn.active { background: #0d6efd; border-color: #0d6efd; color: #fff; }
+  .slot-block { padding: 8px; background: #f8f9fa; border-radius: 8px; }
+</style>
+</head>
+<body>
+<div id="app">
+
+  <nav id="topbar" class="navbar navbar-light bg-white border-bottom px-3 py-2">
+    <div class="d-flex align-items-center gap-2 flex-wrap w-100">
+      <a href="/" class="btn btn-outline-secondary btn-sm"><i class="bi bi-arrow-left"></i> Trang chính</a>
+      <span class="fw-bold ms-1">🗺️ Sơ Đồ Kho 3D</span>
+
+      <select id="store-select" class="form-select form-select-sm d-none" style="width:auto;"></select>
+      <span id="store-badge" class="badge text-bg-secondary">{{ store_code }}</span>
+
+      <form id="search-part-form" class="d-flex ms-auto" style="max-width: 320px;" role="search">
+        <input id="search-part-input" type="text" class="form-control form-control-sm"
+               placeholder="Tìm mã hàng đang ở kệ nào...">
+        <button class="btn btn-sm btn-primary ms-1" type="submit"><i class="bi bi-search"></i></button>
+      </form>
+
+      <span class="text-muted small ms-2">{{ full_name }}</span>
+    </div>
+  </nav>
+
+  <div id="main-row">
+    <div id="canvas-container">
+      <div id="loading-overlay" class="loading-overlay">
+        <div class="spinner-border text-primary" role="status"></div>
+      </div>
+      <div class="canvas-hint">Kéo để xoay · Cuộn để phóng to/thu nhỏ · Kéo 1 kệ để di chuyển · Bấm vào 1 ô trên kệ để chọn ô đó</div>
+    </div>
+
+    <div id="sidebar">
+
+      <div class="card mb-3">
+        <div class="card-header py-2 d-flex justify-content-between align-items-center">
+          <span><i class="bi bi-building"></i> Lầu kho</span>
+        </div>
+        <div class="card-body py-2">
+          <div class="d-flex gap-2 align-items-end mb-2">
+            <div class="flex-grow-1">
+              <label class="form-label small mb-0">Đang xem</label>
+              <select id="floor-select" class="form-select form-select-sm"></select>
+            </div>
+            <button id="floor-rename-btn" type="button" class="btn btn-sm btn-outline-secondary" title="Đổi tên lầu này">
+              <i class="bi bi-pencil"></i>
+            </button>
+            <button id="floor-delete-btn" type="button" class="btn btn-sm btn-outline-danger" title="Xoá lầu này">
+              <i class="bi bi-trash"></i>
+            </button>
+          </div>
+          <div class="row g-2 align-items-end mb-2">
+            <div class="col">
+              <label class="form-label small mb-0">Rộng (m)</label>
+              <input id="floor-width-input" type="number" min="2" max="200" step="0.5" class="form-control form-control-sm">
+            </div>
+            <div class="col">
+              <label class="form-label small mb-0">Sâu (m)</label>
+              <input id="floor-depth-input" type="number" min="2" max="200" step="0.5" class="form-control form-control-sm">
+            </div>
+            <div class="col-auto">
+              <button id="floor-save-btn" type="button" class="btn btn-sm btn-outline-primary">Lưu</button>
+            </div>
+          </div>
+          <hr class="my-2">
+          <div class="row g-2 align-items-end">
+            <div class="col">
+              <label class="form-label small mb-0">Thêm lầu mới</label>
+              <input id="new-floor-name" type="text" class="form-control form-control-sm" placeholder="VD: Lầu 1">
+            </div>
+            <div class="col-auto">
+              <button id="floor-add-btn" type="button" class="btn btn-sm btn-primary" title="Thêm lầu mới">
+                <i class="bi bi-plus-lg"></i>
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card mb-3">
+        <div class="card-header py-2"><i class="bi bi-list-ul"></i> Danh sách kệ</div>
+        <div id="shelf-list" class="list-group list-group-flush" style="max-height: 260px; overflow-y:auto;"></div>
+      </div>
+
+      <div class="card mb-3">
+        <div class="card-header py-2"><i class="bi bi-plus-square"></i> Thêm kệ mới</div>
+        <div class="card-body py-2">
+          <form id="add-shelf-form">
+            <div class="row g-2">
+              <div class="col-6">
+                <label class="form-label small mb-0">Mã kệ *</label>
+                <input id="new-code" type="text" class="form-control form-control-sm" placeholder="VD: A1" required>
+              </div>
+              <div class="col-6">
+                <label class="form-label small mb-0">Tên hiển thị</label>
+                <input id="new-label" type="text" class="form-control form-control-sm" placeholder="Tuỳ chọn">
+              </div>
+              <div class="col-6">
+                <label class="form-label small mb-0">Loại</label>
+                <select id="new-type" class="form-select form-select-sm">
+                  <option value="shelf">Kệ nhiều tầng</option>
+                  <option value="floor_area">Khu để hàng dưới sàn</option>
+                  <option value="wall">Vách ngăn</option>
+                </select>
+              </div>
+              <div class="col-6">
+                <label class="form-label small mb-0">Màu</label>
+                <input id="new-color" type="color" class="form-control form-control-sm form-control-color" value="#3d6da3">
+              </div>
+              <div class="col-4">
+                <label class="form-label small mb-0">Rộng (m)</label>
+                <input id="new-width" type="number" step="0.1" min="0.1" max="30" class="form-control form-control-sm" value="1.2">
+              </div>
+              <div class="col-4">
+                <label class="form-label small mb-0">Cao (m)</label>
+                <input id="new-height" type="number" step="0.1" min="0.1" max="30" class="form-control form-control-sm" value="2">
+              </div>
+              <div class="col-4">
+                <label class="form-label small mb-0">Sâu (m)</label>
+                <input id="new-depth" type="number" step="0.1" min="0.1" max="30" class="form-control form-control-sm" value="0.6">
+              </div>
+              <div class="col-4">
+                <label class="form-label small mb-0">Số tầng</label>
+                <input id="new-levels" type="number" step="1" min="1" max="20" class="form-control form-control-sm" value="4">
+              </div>
+              <div class="col-4">
+                <label class="form-label small mb-0">Ô / tầng</label>
+                <input id="new-cells" type="number" step="1" min="1" max="20" class="form-control form-control-sm" value="1">
+              </div>
+              <div class="col-4">
+                <label class="form-label small mb-0">Ngăn / ô</label>
+                <input id="new-slots" type="number" step="1" min="1" max="20" class="form-control form-control-sm" value="1">
+              </div>
+            </div>
+            <button type="submit" class="btn btn-sm btn-primary w-100 mt-2"><i class="bi bi-plus-lg"></i> Thêm kệ</button>
+          </form>
+        </div>
+      </div>
+
+      <p id="detail-empty" class="text-muted small">Chọn 1 kệ trên sơ đồ hoặc trong danh sách để xem/sửa chi tiết.</p>
+
+      <div id="detail-panel" class="card mb-3 d-none">
+        <div class="card-header py-2 d-flex justify-content-between align-items-center">
+          <span><i class="bi bi-box-seam"></i> Chi tiết kệ</span>
+          <button id="detail-delete-btn" type="button" class="btn btn-sm btn-outline-danger py-0">
+            <i class="bi bi-trash"></i>
+          </button>
+        </div>
+        <div class="card-body py-2">
+          <div class="row g-2">
+            <div class="col-6">
+              <label class="form-label small mb-0">Mã kệ *</label>
+              <input id="detail-code" type="text" class="form-control form-control-sm">
+            </div>
+            <div class="col-6">
+              <label class="form-label small mb-0">Tên hiển thị</label>
+              <input id="detail-label" type="text" class="form-control form-control-sm">
+            </div>
+            <div class="col-6">
+              <label class="form-label small mb-0">Loại</label>
+              <select id="detail-type" class="form-select form-select-sm">
+                <option value="shelf">Kệ nhiều tầng</option>
+                <option value="floor_area">Khu để hàng dưới sàn</option>
+                <option value="wall">Vách ngăn</option>
+              </select>
+            </div>
+            <div class="col-6">
+              <label class="form-label small mb-0">Màu</label>
+              <input id="detail-color" type="color" class="form-control form-control-sm form-control-color">
+            </div>
+            <div class="col-4">
+              <label class="form-label small mb-0">Rộng (m)</label>
+              <input id="detail-width" type="number" step="0.1" min="0.1" max="30" class="form-control form-control-sm">
+            </div>
+            <div class="col-4">
+              <label class="form-label small mb-0">Cao (m)</label>
+              <input id="detail-height" type="number" step="0.1" min="0.1" max="30" class="form-control form-control-sm">
+            </div>
+            <div class="col-4">
+              <label class="form-label small mb-0">Sâu (m)</label>
+              <input id="detail-depth" type="number" step="0.1" min="0.1" max="30" class="form-control form-control-sm">
+            </div>
+            <div class="col-12" id="detail-struct-wrap">
+              <div class="row g-2">
+                <div class="col-4">
+                  <label class="form-label small mb-0">Số tầng</label>
+                  <input id="detail-levels" type="number" step="1" min="1" max="20" class="form-control form-control-sm">
+                </div>
+                <div class="col-4">
+                  <label class="form-label small mb-0">Ô / tầng</label>
+                  <input id="detail-cells" type="number" step="1" min="1" max="20" class="form-control form-control-sm">
+                </div>
+                <div class="col-4">
+                  <label class="form-label small mb-0">Ngăn / ô</label>
+                  <input id="detail-slots" type="number" step="1" min="1" max="20" class="form-control form-control-sm">
+                </div>
+              </div>
+              <div class="form-text mt-1">Ngăn / ô là số ngăn <strong>mặc định</strong>; từng ô có thể chỉnh số ngăn riêng ở bên dưới.</div>
+            </div>
+            <div class="col-6">
+              <label class="form-label small mb-0">Xoay (độ)</label>
+              <input id="detail-rotation" type="number" step="5" class="form-control form-control-sm">
+            </div>
+          </div>
+          <button id="detail-save-btn" type="button" class="btn btn-sm btn-primary w-100 mt-2">
+            <i class="bi bi-check2"></i> Lưu thay đổi
+          </button>
+
+          <hr>
+          <div class="fw-semibold small mb-2">Mã hàng gán trên kệ này</div>
+          <div id="detail-picker"></div>
+          <div id="detail-items"></div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<datalist id="part-suggestions"></datalist>
+<div id="toast-container"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+
+<script>
+  // Ngữ cảnh truyền từ Flask (session hiện tại) sang JS phía client.
+  window.__WH3D_CTX__ = {
+    role: {{ role|tojson }},
+    storeCode: {{ store_code|tojson }},
+    fullName: {{ full_name|tojson }}
+  };
+</script>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+  }
+}
+</script>
+
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+const ctx = window.__WH3D_CTX__;
+
+// ---------------------------------------------------------------------
+// STATE
+// ---------------------------------------------------------------------
+const MAX_SLOTS = 20;   // khớp _MAX_SLOTS bên warehouse3d.py
+
+const state = {
+  storeCode: ctx.storeCode,
+  role: ctx.role,
+  floor: { id: null, name: '', width: 20, depth: 15 },
+  floors: [],
+  floorId: null,
+  shelves: [],
+  selectedId: null,
+  selLevel: 1,   // tầng đang chọn (1 = thấp nhất)
+  selCell: 1,    // ô đang chọn (1 = ngoài cùng bên trái khi nhìn từ mặt trước kệ)
+};
+
+const shelfObjects = new Map(); // shelf.id -> {group, box, edges, dividers, label, cellHi}
+
+// ---------------------------------------------------------------------
+// CẤU TRÚC KỆ: Tầng -> Ô -> Ngăn
+//   Tầng 1 = thấp nhất; Ô 1 = bên trái khi nhìn từ mặt trước (+Z);
+//   Ngăn 1 = thấp nhất trong ô.
+// ---------------------------------------------------------------------
+function clampInt(v, lo, hi) {
+  v = parseInt(v);
+  if (!Number.isFinite(v)) return lo;
+  return Math.min(hi, Math.max(lo, v));
+}
+
+// Số ngăn của 1 ô: số riêng của ô (nếu có) hoặc mặc định của kệ.
+function slotsFor(shelf, level, cell) {
+  if (shelf.shelf_type !== 'shelf') return 1;
+  const own = (shelf.cell_slots || {})[`${level}:${cell}`];
+  return own || shelf.slots_per_cell || 1;
+}
+
+// Đổi 1 điểm (toạ độ cục bộ của kệ) thành (tầng, ô) - dùng khi bấm vào kệ.
+function cellFromLocalPoint(shelf, p) {
+  const L = shelf.levels, C = shelf.cells_per_level || 1;
+  const level = clampInt(Math.floor((p.y / shelf.height) * L) + 1, 1, L);
+  const cell = clampInt(Math.floor(((p.x + shelf.width / 2) / shelf.width) * C) + 1, 1, C);
+  return { level, cell };
+}
+
+function structText(shelf) {
+  if (shelf.shelf_type !== 'shelf') return '';
+  const C = shelf.cells_per_level || 1, S = shelf.slots_per_cell || 1;
+  const hasOwn = Object.keys(shelf.cell_slots || {}).length > 0;
+  return shelf.levels + ' tầng' + (C > 1 ? ' × ' + C + ' ô' : '') + (S > 1 || hasOwn ? ' × ' + S + ' ngăn' : '');
+}
+
+// ---------------------------------------------------------------------
+// TIỆN ÍCH DÙNG CHUNG
+// ---------------------------------------------------------------------
+function escapeHtml(s) {
+  return String(s ?? '').replace(/[&<>"']/g, c => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+  }[c]));
+}
+
+function debounce(fn, ms) {
+  let timer;
+  return (...args) => { clearTimeout(timer); timer = setTimeout(() => fn(...args), ms); };
+}
+
+function showToast(message, variant = 'primary') {
+  const container = document.getElementById('toast-container');
+  const el = document.createElement('div');
+  el.className = `toast align-items-center text-bg-${variant} border-0`;
+  el.setAttribute('role', 'alert');
+  el.innerHTML = `<div class="d-flex"><div class="toast-body">${escapeHtml(message)}</div>
+    <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast"></button></div>`;
+  container.appendChild(el);
+  const toast = new bootstrap.Toast(el, { delay: 3500 });
+  toast.show();
+  el.addEventListener('hidden.bs.toast', () => el.remove());
+}
+
+function setLoading(on) {
+  document.getElementById('loading-overlay').classList.toggle('d-none', !on);
+}
+
+async function apiGet(path) {
+  const res = await fetch(path);
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Lỗi không xác định.');
+  return data;
+}
+
+async function apiSend(path, method, body) {
+  const res = await fetch(path, {
+    method,
+    headers: { 'Content-Type': 'application/json' },
+    body: body !== undefined ? JSON.stringify(body) : undefined,
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Lỗi không xác định.');
+  return data;
+}
+
+// ---------------------------------------------------------------------
+// THREE.JS: KHỞI TẠO SCENE
+// ---------------------------------------------------------------------
+const canvasContainer = document.getElementById('canvas-container');
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0xeef1f5);
+
+const camera = new THREE.PerspectiveCamera(50, 1, 0.1, 1000);
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+canvasContainer.appendChild(renderer.domElement);
+
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true;
+controls.dampingFactor = 0.08;
+controls.maxPolarAngle = Math.PI / 2 - 0.02;
+controls.minDistance = 1;
+controls.maxDistance = 300;
+
+scene.add(new THREE.AmbientLight(0xffffff, 0.75));
+const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
+dirLight.position.set(12, 25, 10);
+scene.add(dirLight);
+
+let floorMesh = null;
+let gridHelper = null;
+
+function resizeRenderer() {
+  const w = canvasContainer.clientWidth || 1;
+  const h = canvasContainer.clientHeight || 1;
+  camera.aspect = w / h;
+  camera.updateProjectionMatrix();
+  renderer.setSize(w, h);
+}
+window.addEventListener('resize', resizeRenderer);
+
+function buildFloor() {
+  if (floorMesh) { scene.remove(floorMesh); floorMesh.geometry.dispose(); floorMesh.material.dispose(); }
+  if (gridHelper) { scene.remove(gridHelper); }
+
+  const { width, depth } = state.floor;
+  const geo = new THREE.PlaneGeometry(width, depth);
+  const mat = new THREE.MeshStandardMaterial({ color: 0xd9dee3, side: THREE.DoubleSide });
+  floorMesh = new THREE.Mesh(geo, mat);
+  floorMesh.rotation.x = -Math.PI / 2;
+  floorMesh.position.set(width / 2, 0, depth / 2);
+  scene.add(floorMesh);
+
+  const span = Math.max(width, depth);
+  const divisions = Math.max(4, Math.min(60, Math.round(span)));
+  gridHelper = new THREE.GridHelper(span, divisions, 0xaab2bb, 0xc7ccd1);
+  gridHelper.position.set(width / 2, 0.01, depth / 2);
+  scene.add(gridHelper);
+}
+
+function frameFloorInView() {
+  const { width, depth } = state.floor;
+  const dist = Math.max(width, depth) * 0.9 + 3;
+  camera.position.set(width / 2 + dist * 0.6, dist * 0.65, depth / 2 + dist * 0.8);
+  controls.target.set(width / 2, 0, depth / 2);
+  controls.update();
+}
+
+// ---------------------------------------------------------------------
+// THREE.JS: DỰNG / CẬP NHẬT KỆ
+// ---------------------------------------------------------------------
+const TYPE_DEFAULT_COLOR = { shelf: 0x3d6da3, floor_area: 0xc9a66b, wall: 0x9aa5b1 };
+
+function colorToHex(c, fallback) {
+  if (!c) return fallback;
+  try { return new THREE.Color(c).getHex(); } catch (e) { return fallback; }
+}
+
+function makeLabelSprite(text) {
+  const canvas = document.createElement('canvas');
+  const c2d = canvas.getContext('2d');
+  const fontSize = 46;
+  c2d.font = `bold ${fontSize}px sans-serif`;
+  const textWidth = c2d.measureText(text).width;
+  canvas.width = textWidth + 36;
+  canvas.height = fontSize + 22;
+  c2d.font = `bold ${fontSize}px sans-serif`;
+  c2d.fillStyle = 'rgba(20,24,28,0.82)';
+  c2d.fillRect(0, 0, canvas.width, canvas.height);
+  c2d.fillStyle = '#ffffff';
+  c2d.textBaseline = 'middle';
+  c2d.fillText(text, 18, canvas.height / 2);
+  const tex = new THREE.CanvasTexture(canvas);
+  const mat = new THREE.SpriteMaterial({ map: tex, depthTest: false });
+  const sprite = new THREE.Sprite(mat);
+  const scale = 0.0055;
+  sprite.scale.set(canvas.width * scale, canvas.height * scale, 1);
+  sprite.renderOrder = 999;
+  return sprite;
+}
+
+function buildShelfGroup(shelf) {
+  const group = new THREE.Group();
+  group.userData.shelfId = shelf.id;
+
+  const baseColorHex = colorToHex(shelf.color, TYPE_DEFAULT_COLOR[shelf.shelf_type] ?? 0x3d6da3);
+  const height = shelf.shelf_type === 'floor_area' ? Math.max(shelf.height, 0.15) : shelf.height;
+  const opacity = shelf.shelf_type === 'wall' ? 0.55 : (shelf.shelf_type === 'floor_area' ? 0.85 : 0.92);
+
+  const geo = new THREE.BoxGeometry(shelf.width, height, shelf.depth);
+  const mat = new THREE.MeshStandardMaterial({ color: baseColorHex, transparent: true, opacity });
+  const box = new THREE.Mesh(geo, mat);
+  box.position.y = height / 2;
+  box.userData.shelfId = shelf.id;
+  group.add(box);
+
+  const edges = new THREE.LineSegments(
+    new THREE.EdgesGeometry(geo),
+    new THREE.LineBasicMaterial({ color: 0x1c2530 })
+  );
+  edges.position.y = height / 2;
+  group.add(edges);
+
+  const dividers = [];
+  if (shelf.shelf_type === 'shelf' && shelf.levels > 1) {
+    const stepH = height / shelf.levels;
+    for (let i = 1; i < shelf.levels; i++) {
+      const dGeo = new THREE.BoxGeometry(shelf.width * 0.98, 0.03, shelf.depth * 0.98);
+      const dMat = new THREE.MeshStandardMaterial({ color: 0x2b3947 });
+      const d = new THREE.Mesh(dGeo, dMat);
+      d.position.y = stepH * i;
+      group.add(d);
+      dividers.push(d);
+    }
+  }
+
+  // ---- Vách ô + ngăn, và đánh dấu ngăn đang có hàng ----
+  // Vẽ trên 2 mặt (trước +Z và sau -Z) của kệ, nhô ra 4mm để luôn nhìn thấy
+  // dù thân kệ hơi trong suốt. Vạch đậm = ranh giới tầng/ô, vạch nhạt = ngăn.
+  let cellHi = null;
+  if (shelf.shelf_type === 'shelf') {
+    const L = shelf.levels, C = shelf.cells_per_level || 1;
+    const stepH = height / L, cw = shelf.width / C;
+    const zF = shelf.depth / 2 + 0.004;
+    const strong = [], weak = [];
+    const seg = (arr, x1, y1, x2, y2) => { for (const z of [zF, -zF]) arr.push(x1, y1, z, x2, y2, z); };
+
+    for (let i = 1; i < L; i++) seg(strong, -shelf.width / 2, stepH * i, shelf.width / 2, stepH * i);
+    for (let lvl = 1; lvl <= L; lvl++) {
+      const y0 = stepH * (lvl - 1);
+      for (let c = 1; c <= C; c++) {
+        const x0 = -shelf.width / 2 + cw * (c - 1);
+        if (c > 1) seg(strong, x0, y0, x0, y0 + stepH);
+        const n = slotsFor(shelf, lvl, c);
+        for (let sl = 1; sl < n; sl++) seg(weak, x0, y0 + stepH * sl / n, x0 + cw, y0 + stepH * sl / n);
+      }
+    }
+    const addLines = (arr, color) => {
+      if (!arr.length) return;
+      const g = new THREE.BufferGeometry();
+      g.setAttribute('position', new THREE.Float32BufferAttribute(arr, 3));
+      group.add(new THREE.LineSegments(g, new THREE.LineBasicMaterial({ color })));
+    };
+    addLines(strong, 0x1c2530);
+    addLines(weak, 0x5f7386);
+
+    const occupied = new Set();
+    for (const it of (shelf.items || [])) occupied.add(`${it.level_index}:${it.cell_index}:${it.slot_index}`);
+    if (occupied.size) {
+      const markMat = new THREE.MeshBasicMaterial({ color: 0x2e9e5b, transparent: true, opacity: 0.6 });
+      for (const key of occupied) {
+        const [lvl, c, sl] = key.split(':').map(Number);
+        if (lvl > L || c > C || sl > slotsFor(shelf, lvl, c)) continue;
+        const slotH = stepH / slotsFor(shelf, lvl, c);
+        const cx = -shelf.width / 2 + cw * (c - 0.5);
+        const cy = stepH * (lvl - 1) + slotH * (sl - 0.5);
+        const geo = new THREE.PlaneGeometry(cw * 0.8, slotH * 0.6);
+        const front = new THREE.Mesh(geo, markMat);
+        front.position.set(cx, cy, zF + 0.002);
+        const back = new THREE.Mesh(geo, markMat);
+        back.position.set(cx, cy, -zF - 0.002);
+        back.rotation.y = Math.PI;
+        group.add(front, back);
+      }
+    }
+
+    // Khối vàng bao quanh ô đang chọn (vị trí/kích thước đặt ở updateCellHighlight()).
+    cellHi = new THREE.Mesh(
+      new THREE.BoxGeometry(1, 1, 1),
+      new THREE.MeshBasicMaterial({ color: 0xffc107, transparent: true, opacity: 0.3, depthWrite: false })
+    );
+    cellHi.visible = false;
+    cellHi.renderOrder = 5;
+    group.add(cellHi);
+  }
+
+  const label = makeLabelSprite(shelf.code);
+  label.position.set(0, height + 0.35, 0);
+  group.add(label);
+
+  group.position.set(shelf.pos_x, 0, shelf.pos_z);
+  group.rotation.y = shelf.rotation_y;
+
+  return { group, box, edges, dividers, label, cellHi };
+}
+
+function applySelectionHighlight() {
+  for (const [id, obj] of shelfObjects) {
+    const isSel = id === state.selectedId;
+    obj.edges.material.color.set(isSel ? 0xffc107 : 0x1c2530);
+    obj.box.material.emissive.set(isSel ? 0x332200 : 0x000000);
+  }
+  updateCellHighlight();
+}
+
+// Đặt khối vàng đúng vào ô (tầng/ô) đang chọn của kệ đang chọn.
+function updateCellHighlight() {
+  for (const [id, obj] of shelfObjects) {
+    if (!obj.cellHi) continue;
+    const shelf = state.shelves.find(s => s.id === id);
+    const show = !!shelf && id === state.selectedId && shelf.shelf_type === 'shelf';
+    obj.cellHi.visible = show;
+    if (!show) continue;
+    const L = shelf.levels, C = shelf.cells_per_level || 1;
+    const lvl = clampInt(state.selLevel, 1, L), cell = clampInt(state.selCell, 1, C);
+    const stepH = shelf.height / L, cw = shelf.width / C;
+    obj.cellHi.scale.set(cw, stepH, shelf.depth * 1.03);
+    obj.cellHi.position.set(-shelf.width / 2 + cw * (cell - 0.5), stepH * (lvl - 0.5), 0);
+  }
+}
+
+function rebuildScene() {
+  for (const obj of shelfObjects.values()) {
+    obj.group.traverse(o => {
+      if (o.geometry) o.geometry.dispose();
+      if (o.material) { if (o.material.map) o.material.map.dispose(); o.material.dispose(); }
+    });
+    scene.remove(obj.group);
+  }
+  shelfObjects.clear();
+
+  buildFloor();
+  for (const shelf of state.shelves) {
+    const built = buildShelfGroup(shelf);
+    scene.add(built.group);
+    shelfObjects.set(shelf.id, built);
+  }
+  if (state.selectedId != null && !shelfObjects.has(state.selectedId)) state.selectedId = null;
+  applySelectionHighlight();
+  renderDetailPanel();
+}
+
+// ---------------------------------------------------------------------
+// RAYCASTING: CHỌN / KÉO-THẢ KỆ TRÊN SÀN
+// ---------------------------------------------------------------------
+const raycaster = new THREE.Raycaster();
+const pointerNDC = new THREE.Vector2();
+const groundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+
+function toNDC(evt) {
+  const rect = renderer.domElement.getBoundingClientRect();
+  pointerNDC.x = ((evt.clientX - rect.left) / rect.width) * 2 - 1;
+  pointerNDC.y = -((evt.clientY - rect.top) / rect.height) * 2 + 1;
+  return pointerNDC;
+}
+
+function pickShelfHitAt(evt) {
+  raycaster.setFromCamera(toNDC(evt), camera);
+  const meshes = [...shelfObjects.values()].map(o => o.box);
+  const hits = raycaster.intersectObjects(meshes, false);
+  return hits.length ? { id: hits[0].object.userData.shelfId, point: hits[0].point.clone() } : null;
+}
+
+function groundPointAt(evt) {
+  raycaster.setFromCamera(toNDC(evt), camera);
+  const pt = new THREE.Vector3();
+  raycaster.ray.intersectPlane(groundPlane, pt);
+  return pt || new THREE.Vector3();
+}
+
+let dragging = null;
+
+renderer.domElement.addEventListener('pointerdown', (evt) => {
+  const hit = pickShelfHitAt(evt);
+  if (hit == null) return;
+  const id = hit.id;
+  const obj = shelfObjects.get(id);
+  const groundPt = groundPointAt(evt);
+  dragging = {
+    id,
+    offsetX: obj.group.position.x - groundPt.x,
+    offsetZ: obj.group.position.z - groundPt.z,
+    startX: obj.group.position.x,
+    startZ: obj.group.position.z,
+    hitPoint: hit.point,
+    moved: false,
+  };
+  controls.enabled = false;
+  try { renderer.domElement.setPointerCapture(evt.pointerId); } catch (e) {}
+});
+
+renderer.domElement.addEventListener('pointermove', (evt) => {
+  if (!dragging) return;
+  const shelf = state.shelves.find(s => s.id === dragging.id);
+  const obj = shelfObjects.get(dragging.id);
+  if (!shelf || !obj) return;
+  const groundPt = groundPointAt(evt);
+  let nx = groundPt.x + dragging.offsetX;
+  let nz = groundPt.z + dragging.offsetZ;
+  const halfW = shelf.width / 2, halfD = shelf.depth / 2;
+  nx = Math.min(Math.max(nx, halfW), Math.max(halfW, state.floor.width - halfW));
+  nz = Math.min(Math.max(nz, halfD), Math.max(halfD, state.floor.depth - halfD));
+  obj.group.position.set(nx, 0, nz);
+  if (Math.abs(nx - dragging.startX) > 0.02 || Math.abs(nz - dragging.startZ) > 0.02) dragging.moved = true;
+});
+
+renderer.domElement.addEventListener('pointerup', async (evt) => {
+  controls.enabled = true;
+  if (!dragging) return;
+  const { id, moved, hitPoint } = dragging;
+  dragging = null;
+
+  if (!moved) {
+    // Bấm (không kéo): chọn kệ, và nếu là kệ nhiều tầng thì chọn luôn đúng
+    // tầng/ô tại điểm vừa bấm.
+    const shelf = state.shelves.find(s => s.id === id);
+    const obj = shelfObjects.get(id);
+    const opts = {};
+    if (shelf && obj && shelf.shelf_type === 'shelf' && hitPoint) {
+      const pos = cellFromLocalPoint(shelf, obj.group.worldToLocal(hitPoint.clone()));
+      opts.level = pos.level;
+      opts.cell = pos.cell;
+    }
+    setSelected(id, opts);
+    return;
+  }
+
+  const shelf = state.shelves.find(s => s.id === id);
+  const obj = shelfObjects.get(id);
+  shelf.pos_x = obj.group.position.x;
+  shelf.pos_z = obj.group.position.z;
+  setSelected(id);
+  try {
+    await apiSend(`/api/warehouse3d/${state.storeCode}/shelves/${id}`, 'PUT', shelf);
+  } catch (err) {
+    showToast(err.message, 'danger');
+    await loadLayout();
+  }
+});
+
+// ---------------------------------------------------------------------
+// CAMERA: BAY TỚI 1 KỆ
+// ---------------------------------------------------------------------
+function animateCamera(toPos, toTarget) {
+  const fromPos = camera.position.clone();
+  const fromTarget = controls.target.clone();
+  const duration = 500;
+  const t0 = performance.now();
+  function step(now) {
+    const t = Math.min(1, (now - t0) / duration);
+    const ease = t < 0.5 ? 2 * t * t : -1 + (4 - 2 * t) * t;
+    camera.position.lerpVectors(fromPos, toPos, ease);
+    controls.target.lerpVectors(fromTarget, toTarget, ease);
+    controls.update();
+    if (t < 1) requestAnimationFrame(step);
+  }
+  requestAnimationFrame(step);
+}
+
+function flyToShelf(shelf) {
+  const target = new THREE.Vector3(shelf.pos_x, shelf.height / 2, shelf.pos_z);
+  const dist = Math.max(shelf.width, shelf.depth, shelf.height) * 2.5 + 2.5;
+  const camPos = new THREE.Vector3(shelf.pos_x + dist * 0.6, dist * 0.6 + 1, shelf.pos_z + dist * 0.8);
+  animateCamera(camPos, target);
+}
+
+function focusShelf(id, opts = {}) {
+  setSelected(id, opts);
+  const shelf = state.shelves.find(s => s.id === id);
+  if (shelf) flyToShelf(shelf);
+}
+
+// ---------------------------------------------------------------------
+// SIDEBAR: DANH SÁCH KỆ
+// ---------------------------------------------------------------------
+const TYPE_LABEL = { shelf: 'Kệ', floor_area: 'Khu để sàn', wall: 'Vách ngăn' };
+
+function renderShelfList() {
+  const container = document.getElementById('shelf-list');
+  container.innerHTML = '';
+  if (state.shelves.length === 0) {
+    container.innerHTML = '<p class="text-muted small mb-0 px-2 py-2">Chưa có kệ nào. Thêm kệ mới ở form bên dưới.</p>';
+    return;
+  }
+  for (const shelf of state.shelves) {
+    const itemCount = (shelf.items || []).length;
+    const el = document.createElement('button');
+    el.type = 'button';
+    el.className = 'list-group-item list-group-item-action d-flex justify-content-between align-items-center'
+      + (shelf.id === state.selectedId ? ' active' : '');
+    el.innerHTML = `<span>
+        <strong>${escapeHtml(shelf.code)}</strong>${shelf.label ? (' · ' + escapeHtml(shelf.label)) : ''}<br>
+        <small class="${shelf.id === state.selectedId ? '' : 'text-muted'}">
+          ${TYPE_LABEL[shelf.shelf_type] || shelf.shelf_type}${shelf.shelf_type === 'shelf' ? (' · ' + structText(shelf)) : ''}
+          · ${itemCount} mã hàng
+        </small>
+      </span>`;
+    el.addEventListener('click', () => focusShelf(shelf.id));
+    container.appendChild(el);
+  }
+}
+
+function setSelected(id, opts = {}) {
+  if (id !== state.selectedId) { state.selLevel = 1; state.selCell = 1; }
+  if (opts.level) state.selLevel = opts.level;
+  if (opts.cell) state.selCell = opts.cell;
+  state.selectedId = id;
+  applySelectionHighlight();
+  renderDetailPanel();
+  renderShelfList();
+}
+
+// ---------------------------------------------------------------------
+// SIDEBAR: CHI TIẾT KỆ ĐÃ CHỌN + GÁN MÃ HÀNG THEO TẦNG
+// ---------------------------------------------------------------------
+function renderDetailPanel() {
+  const panel = document.getElementById('detail-panel');
+  const empty = document.getElementById('detail-empty');
+  const shelf = state.shelves.find(s => s.id === state.selectedId);
+
+  if (!shelf) {
+    panel.classList.add('d-none');
+    empty.classList.remove('d-none');
+    return;
+  }
+  empty.classList.add('d-none');
+  panel.classList.remove('d-none');
+
+  document.getElementById('detail-code').value = shelf.code;
+  document.getElementById('detail-label').value = shelf.label || '';
+  document.getElementById('detail-type').value = shelf.shelf_type;
+  document.getElementById('detail-width').value = shelf.width;
+  document.getElementById('detail-height').value = shelf.height;
+  document.getElementById('detail-depth').value = shelf.depth;
+  document.getElementById('detail-rotation').value = Math.round(shelf.rotation_y * 180 / Math.PI);
+  document.getElementById('detail-levels').value = shelf.levels;
+  document.getElementById('detail-cells').value = shelf.cells_per_level || 1;
+  document.getElementById('detail-slots').value = shelf.slots_per_cell || 1;
+  document.getElementById('detail-color').value = shelf.color || '#3d6da3';
+  document.getElementById('detail-struct-wrap').classList.toggle('d-none', shelf.shelf_type !== 'shelf');
+
+  renderLevelItems(shelf);
+}
+
+// Vẽ khu chọn vị trí trong kệ: lưới Tầng x Ô (mô phỏng mặt trước kệ) + các
+// ngăn của ô đang chọn, mỗi ngăn có danh sách mã hàng riêng.
+function renderLevelItems(shelf) {
+  const picker = document.getElementById('detail-picker');
+  const wrap = document.getElementById('detail-items');
+  picker.innerHTML = '';
+  wrap.innerHTML = '';
+
+  if (shelf.shelf_type === 'wall') {
+    wrap.innerHTML = '<p class="text-muted small">Vách ngăn không gán được mã hàng.</p>';
+    return;
+  }
+  if (shelf.shelf_type === 'floor_area') {
+    wrap.appendChild(buildSlotBlock(shelf, 1, 1, 1, 'Mã hàng trên khu vực này'));
+    return;
+  }
+
+  const L = shelf.levels, C = shelf.cells_per_level || 1;
+  state.selLevel = clampInt(state.selLevel, 1, L);
+  state.selCell = clampInt(state.selCell, 1, C);
+  const lvl = state.selLevel, cell = state.selCell;
+
+  const counts = {};
+  for (const it of (shelf.items || [])) {
+    const k = `${it.level_index}:${it.cell_index}`;
+    counts[k] = (counts[k] || 0) + 1;
+  }
+
+  // --- Lưới chọn tầng x ô (hàng trên cùng = tầng cao nhất, như kệ thật)
+  const grid = document.createElement('div');
+  grid.className = 'cell-grid';
+  grid.style.gridTemplateColumns = `auto repeat(${C}, minmax(0, 1fr))`;
+  if (C > 1) {
+    grid.appendChild(document.createElement('div'));
+    for (let c = 1; c <= C; c++) {
+      const h = document.createElement('div');
+      h.className = 'grid-label';
+      h.textContent = c;
+      grid.appendChild(h);
+    }
+  }
+  for (let l = L; l >= 1; l--) {
+    const rowLabel = document.createElement('div');
+    rowLabel.className = 'grid-label';
+    rowLabel.textContent = 'T' + l;
+    grid.appendChild(rowLabel);
+    for (let c = 1; c <= C; c++) {
+      const n = counts[`${l}:${c}`] || 0;
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'cell-btn' + (n > 0 ? ' has-items' : '') + (l === lvl && c === cell ? ' active' : '');
+      btn.textContent = n > 0 ? n : '';
+      btn.title = `Tầng ${l} · Ô ${c} · ${slotsFor(shelf, l, c)} ngăn · ${n} mã hàng`;
+      btn.addEventListener('click', () => {
+        state.selLevel = l;
+        state.selCell = c;
+        updateCellHighlight();
+        renderLevelItems(shelf);
+      });
+      grid.appendChild(btn);
+    }
+  }
+  picker.appendChild(grid);
+  const hint = document.createElement('div');
+  hint.className = 'form-text mb-2';
+  hint.textContent = 'Hàng trên = tầng cao. Ô 1 nằm bên trái khi nhìn từ mặt trước kệ (mặt hướng về phía bạn lúc mới mở sơ đồ). Số trong ô = số mã hàng.';
+  picker.appendChild(hint);
+
+  // --- Ô đang chọn: số ngăn riêng + từng ngăn
+  const slotsN = slotsFor(shelf, lvl, cell);
+  const head = document.createElement('div');
+  head.className = 'd-flex align-items-center justify-content-between gap-2 mb-2';
+  head.innerHTML = `
+    <div class="fw-semibold small">Tầng ${lvl} · Ô ${cell}</div>
+    <div class="input-group input-group-sm" style="width: 175px;">
+      <span class="input-group-text">Số ngăn</span>
+      <input type="number" class="form-control" min="1" max="${MAX_SLOTS}" step="1" value="${slotsN}" data-slots-input>
+      <button class="btn btn-outline-secondary" type="button" data-slots-save title="Lưu số ngăn của ô này"><i class="bi bi-check2"></i></button>
+    </div>`;
+  const slotsInput = head.querySelector('[data-slots-input]');
+  const doSaveSlots = () => saveCellSlots(shelf, lvl, cell, slotsInput.value);
+  head.querySelector('[data-slots-save]').addEventListener('click', doSaveSlots);
+  slotsInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); doSaveSlots(); } });
+  wrap.appendChild(head);
+
+  // Ngăn cao nhất hiển thị trên cùng (khớp thứ tự xếp chồng thật).
+  for (let sl = slotsN; sl >= 1; sl--) {
+    wrap.appendChild(buildSlotBlock(shelf, lvl, cell, sl, slotsN > 1 ? `Ngăn ${sl}` : 'Mã hàng trong ô này'));
+  }
+}
+
+// 1 khối = danh sách mã hàng + ô nhập thêm của đúng 1 ngăn (tầng, ô, ngăn).
+function buildSlotBlock(shelf, lvl, cell, slot, title) {
+  const items = (shelf.items || []).filter(it =>
+    it.level_index === lvl && it.cell_index === cell && it.slot_index === slot);
+  const block = document.createElement('div');
+  block.className = 'slot-block mb-2';
+  block.innerHTML = `
+    <div class="fw-semibold small mb-1">${escapeHtml(title)}</div>
+    <div class="d-flex flex-wrap gap-1 mb-2" data-chips></div>
+    <div class="input-group input-group-sm">
+      <input type="text" class="form-control" placeholder="Nhập mã hàng..." data-add-input list="part-suggestions">
+      <button class="btn btn-outline-primary" type="button" data-add-btn>Thêm</button>
+    </div>`;
+
+  const chips = block.querySelector('[data-chips]');
+  if (items.length === 0) {
+    chips.innerHTML = '<span class="text-muted small">(trống)</span>';
+  } else {
+    for (const it of items) {
+      const chip = document.createElement('span');
+      chip.className = 'badge bg-light text-dark border chip-item';
+      chip.innerHTML = `${escapeHtml(it.part_code)}`
+        + (it.part_name ? ` <span class="text-muted">· ${escapeHtml(it.part_name)}</span>` : '')
+        + ` <i class="bi bi-x-circle ms-1" role="button"></i>`;
+      chip.querySelector('i').addEventListener('click', () => removeItem(shelf.id, lvl, cell, slot, it.part_code));
+      chips.appendChild(chip);
+    }
+  }
+
+  const input = block.querySelector('[data-add-input]');
+  const btn = block.querySelector('[data-add-btn]');
+  const doAdd = () => {
+    const code = input.value.trim();
+    if (code) addItem(shelf.id, lvl, cell, slot, code);
+  };
+  btn.addEventListener('click', doAdd);
+  input.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); doAdd(); } });
+  input.addEventListener('input', debounce(() => updateSuggestions(input.value), 300));
+  return block;
+}
+
+async function saveCellSlots(shelf, lvl, cell, rawValue) {
+  const n = parseInt(rawValue);
+  if (!Number.isInteger(n) || n < 1 || n > MAX_SLOTS) {
+    showToast(`Số ngăn phải từ 1 đến ${MAX_SLOTS}.`, 'danger');
+    return;
+  }
+  const cut = (shelf.items || []).filter(it =>
+    it.level_index === lvl && it.cell_index === cell && it.slot_index > n).length;
+  if (cut > 0 && !confirm(`Giảm còn ${n} ngăn sẽ gỡ ${cut} mã hàng đang nằm ở các ngăn bị bỏ. Tiếp tục?`)) {
+    renderLevelItems(shelf);
+    return;
+  }
+  try {
+    await apiSend(`/api/warehouse3d/${state.storeCode}/shelves/${shelf.id}/cells`, 'PUT',
+      { level_index: lvl, cell_index: cell, slots: n });
+    await loadLayout();
+    setSelected(shelf.id);
+    showToast(`Tầng ${lvl} · Ô ${cell} giờ có ${n} ngăn.`, 'success');
+  } catch (err) { showToast(err.message, 'danger'); }
+}
+
+// Đếm mã hàng sẽ bị gỡ nếu áp cấu trúc mới (để hỏi xác nhận trước khi lưu).
+function countOrphansAfterEdit(shelf, type, levels, cells, defSlots) {
+  const own = shelf.cell_slots || {};
+  return (shelf.items || []).filter(it => {
+    if (type !== 'shelf') return it.level_index > 1 || it.cell_index > 1 || it.slot_index > 1;
+    const allowed = own[`${it.level_index}:${it.cell_index}`] || defSlots;
+    return it.level_index > levels || it.cell_index > cells || it.slot_index > allowed;
+  }).length;
+}
+
+async function updateSuggestions(q) {
+  if (!q || q.trim().length < 2) return;
+  try {
+    const data = await apiGet(`/api/warehouse3d/${state.storeCode}/search-parts?q=${encodeURIComponent(q.trim())}`);
+    const dl = document.getElementById('part-suggestions');
+    dl.innerHTML = data.results.map(r =>
+      `<option value="${escapeHtml(r.part_code)}">${escapeHtml(r.part_code)} - ${escapeHtml(r.part_name || '')}</option>`
+    ).join('');
+  } catch (e) { /* gợi ý lỗi thì bỏ qua âm thầm, không làm phiền người dùng */ }
+}
+
+async function addItem(shelfId, level, cell, slot, partCode) {
+  try {
+    await apiSend(`/api/warehouse3d/${state.storeCode}/shelves/${shelfId}/items`, 'POST',
+      { level_index: level, cell_index: cell, slot_index: slot, part_code: partCode });
+    await loadLayout();
+    setSelected(shelfId);
+  } catch (err) { showToast(err.message, 'danger'); }
+}
+
+async function removeItem(shelfId, level, cell, slot, partCode) {
+  try {
+    await apiSend(`/api/warehouse3d/${state.storeCode}/shelves/${shelfId}/items`, 'DELETE',
+      { level_index: level, cell_index: cell, slot_index: slot, part_code: partCode });
+    await loadLayout();
+    setSelected(shelfId);
+  } catch (err) { showToast(err.message, 'danger'); }
+}
+
+// ---------------------------------------------------------------------
+// TẢI / LƯU DỮ LIỆU
+// ---------------------------------------------------------------------
+function renderFloorSelect() {
+  const sel = document.getElementById('floor-select');
+  sel.innerHTML = state.floors.map(f =>
+    `<option value="${f.id}" ${f.id === state.floorId ? 'selected' : ''}>${escapeHtml(f.name)}</option>`
+  ).join('');
+  document.getElementById('floor-delete-btn').disabled = state.floors.length <= 1;
+}
+
+async function loadLayout() {
+  setLoading(true);
+  try {
+    const qs = state.floorId ? `?floor_id=${state.floorId}` : '';
+    const data = await apiGet(`/api/warehouse3d/${state.storeCode}/layout${qs}`);
+    state.floor = data.floor;
+    state.floorId = data.floor.id;
+    state.floors = data.floors;
+    state.shelves = data.shelves;
+    document.getElementById('floor-width-input').value = state.floor.width;
+    document.getElementById('floor-depth-input').value = state.floor.depth;
+    document.getElementById('store-badge').textContent = state.storeCode;
+    renderFloorSelect();
+    rebuildScene();
+    renderShelfList();
+  } catch (err) {
+    showToast(err.message, 'danger');
+  } finally {
+    setLoading(false);
+  }
+}
+
+async function loadStores() {
+  if (state.role !== 'admin') return;
+  try {
+    const data = await apiGet('/api/warehouse3d/stores');
+    const sel = document.getElementById('store-select');
+    // Admin có store_code = 'ALL' (không phải cửa hàng thật) nên KHÔNG nằm
+    // trong danh sách cửa hàng. Nếu không xử lý, ô chọn sẽ tự hiện mục đầu
+    // tiên (vd NS1) nhưng state.storeCode vẫn là 'ALL' -> mọi API đều báo
+    // "Cửa hàng không hợp lệ". Vì vậy ép state về 1 cửa hàng thật.
+    if (!data.stores.includes(state.storeCode)) {
+      state.storeCode = data.stores.length ? data.stores[0] : state.storeCode;
+    }
+    sel.innerHTML = data.stores.map(s =>
+      `<option value="${escapeHtml(s)}" ${s === state.storeCode ? 'selected' : ''}>${escapeHtml(s)}</option>`
+    ).join('');
+    sel.classList.remove('d-none');
+    document.getElementById('store-badge').classList.add('d-none');
+    sel.addEventListener('change', async () => {
+      state.storeCode = sel.value;
+      state.selectedId = null;
+      state.floorId = null;
+      await loadLayout();
+      frameFloorInView();
+    });
+  } catch (err) { showToast(err.message, 'danger'); }
+}
+
+// ---------------------------------------------------------------------
+// SỰ KIỆN FORM
+// ---------------------------------------------------------------------
+document.getElementById('floor-select').addEventListener('change', async (e) => {
+  state.floorId = parseInt(e.target.value);
+  state.selectedId = null;
+  await loadLayout();
+  frameFloorInView();
+});
+
+document.getElementById('floor-save-btn').addEventListener('click', async () => {
+  const width = parseFloat(document.getElementById('floor-width-input').value);
+  const depth = parseFloat(document.getElementById('floor-depth-input').value);
+  try {
+    await apiSend(`/api/warehouse3d/${state.storeCode}/floors/${state.floorId}`, 'PUT', { width, depth });
+    await loadLayout();
+    frameFloorInView();
+    showToast('Đã lưu kích thước sàn.', 'success');
+  } catch (err) { showToast(err.message, 'danger'); }
+});
+
+document.getElementById('floor-rename-btn').addEventListener('click', async () => {
+  const current = state.floors.find(f => f.id === state.floorId);
+  const name = prompt('Tên lầu:', current ? current.name : '');
+  if (name === null) return;
+  if (!name.trim()) { showToast('Vui lòng nhập tên lầu.', 'danger'); return; }
+  try {
+    await apiSend(`/api/warehouse3d/${state.storeCode}/floors/${state.floorId}`, 'PUT', { name: name.trim() });
+    await loadLayout();
+    showToast('Đã đổi tên lầu.', 'success');
+  } catch (err) { showToast(err.message, 'danger'); }
+});
+
+document.getElementById('floor-add-btn').addEventListener('click', async () => {
+  const nameInput = document.getElementById('new-floor-name');
+  const name = nameInput.value.trim();
+  if (!name) { showToast('Vui lòng nhập tên lầu mới.', 'danger'); return; }
+  try {
+    const data = await apiSend(`/api/warehouse3d/${state.storeCode}/floors`, 'POST', {
+      name, width: state.floor.width, depth: state.floor.depth,
+    });
+    state.floorId = data.floor.id;
+    state.selectedId = null;
+    nameInput.value = '';
+    await loadLayout();
+    frameFloorInView();
+    showToast(`Đã thêm "${data.floor.name}".`, 'success');
+  } catch (err) { showToast(err.message, 'danger'); }
+});
+
+document.getElementById('floor-delete-btn').addEventListener('click', async () => {
+  const current = state.floors.find(f => f.id === state.floorId);
+  if (!current) return;
+  if (!confirm(`Xoá "${current.name}"? Toàn bộ kệ và mã hàng đã gán trên lầu này cũng sẽ bị xoá.`)) return;
+  try {
+    await apiSend(`/api/warehouse3d/${state.storeCode}/floors/${state.floorId}`, 'DELETE');
+    state.floorId = null;
+    state.selectedId = null;
+    await loadLayout();
+    frameFloorInView();
+    showToast('Đã xoá lầu.', 'success');
+  } catch (err) { showToast(err.message, 'danger'); }
+});
+
+document.getElementById('add-shelf-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const payload = {
+    floor_id: state.floorId,
+    code: document.getElementById('new-code').value.trim(),
+    label: document.getElementById('new-label').value.trim(),
+    shelf_type: document.getElementById('new-type').value,
+    width: parseFloat(document.getElementById('new-width').value) || 1.2,
+    height: parseFloat(document.getElementById('new-height').value) || 2,
+    depth: parseFloat(document.getElementById('new-depth').value) || 0.6,
+    levels: parseInt(document.getElementById('new-levels').value) || 4,
+    cells_per_level: parseInt(document.getElementById('new-cells').value) || 1,
+    slots_per_cell: parseInt(document.getElementById('new-slots').value) || 1,
+    color: document.getElementById('new-color').value,
+    pos_x: state.floor.width / 2,
+    pos_z: state.floor.depth / 2,
+    rotation_y: 0,
+  };
+  if (!payload.code) { showToast('Vui lòng nhập mã kệ.', 'danger'); return; }
+  try {
+    const data = await apiSend(`/api/warehouse3d/${state.storeCode}/shelves`, 'POST', payload);
+    await loadLayout();
+    focusShelf(data.shelf.id);
+    e.target.reset();
+    document.getElementById('new-code').focus();
+    showToast(`Đã thêm kệ "${data.shelf.code}".`, 'success');
+  } catch (err) { showToast(err.message, 'danger'); }
+});
+
+document.getElementById('detail-type').addEventListener('change', (e) => {
+  document.getElementById('detail-struct-wrap').classList.toggle('d-none', e.target.value !== 'shelf');
+});
+
+document.getElementById('detail-save-btn').addEventListener('click', async () => {
+  const shelf = state.shelves.find(s => s.id === state.selectedId);
+  if (!shelf) return;
+  const payload = {
+    code: document.getElementById('detail-code').value.trim(),
+    label: document.getElementById('detail-label').value.trim(),
+    shelf_type: document.getElementById('detail-type').value,
+    width: parseFloat(document.getElementById('detail-width').value),
+    height: parseFloat(document.getElementById('detail-height').value),
+    depth: parseFloat(document.getElementById('detail-depth').value),
+    rotation_y: (parseFloat(document.getElementById('detail-rotation').value) || 0) * Math.PI / 180,
+    levels: parseInt(document.getElementById('detail-levels').value) || 1,
+    cells_per_level: parseInt(document.getElementById('detail-cells').value) || 1,
+    slots_per_cell: parseInt(document.getElementById('detail-slots').value) || 1,
+    color: document.getElementById('detail-color').value,
+    pos_x: shelf.pos_x,
+    pos_z: shelf.pos_z,
+  };
+  const orphaned = countOrphansAfterEdit(shelf, payload.shelf_type, payload.levels,
+    payload.cells_per_level, payload.slots_per_cell);
+  if (orphaned > 0 && !confirm(`Thay đổi cấu trúc này sẽ gỡ ${orphaned} mã hàng đang nằm ở vị trí không còn tồn tại. Tiếp tục?`)) return;
+  try {
+    await apiSend(`/api/warehouse3d/${state.storeCode}/shelves/${shelf.id}`, 'PUT', payload);
+    await loadLayout();
+    setSelected(shelf.id);
+    showToast('Đã lưu thay đổi.', 'success');
+  } catch (err) { showToast(err.message, 'danger'); }
+});
+
+document.getElementById('detail-delete-btn').addEventListener('click', async () => {
+  const shelf = state.shelves.find(s => s.id === state.selectedId);
+  if (!shelf) return;
+  if (!confirm(`Xoá kệ "${shelf.code}"? Toàn bộ mã hàng đã gán trên kệ này cũng sẽ bị gỡ.`)) return;
+  try {
+    await apiSend(`/api/warehouse3d/${state.storeCode}/shelves/${shelf.id}`, 'DELETE');
+    state.selectedId = null;
+    await loadLayout();
+    showToast('Đã xoá kệ.', 'success');
+  } catch (err) { showToast(err.message, 'danger'); }
+});
+
+document.getElementById('search-part-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const code = document.getElementById('search-part-input').value.trim();
+  if (!code) return;
+  try {
+    const data = await apiGet(`/api/warehouse3d/${state.storeCode}/find/${encodeURIComponent(code)}`);
+    if (data.results.length === 0) {
+      showToast(`Không tìm thấy mã hàng "${code}" trên sơ đồ kho.`, 'warning');
+      return;
+    }
+    const r = data.results[0];
+    if (r.floor_id && r.floor_id !== state.floorId) {
+      state.floorId = r.floor_id;
+      await loadLayout();
+    }
+    focusShelf(r.shelf_id, { level: r.level_index, cell: r.cell_index });
+    const sh = state.shelves.find(x => x.id === r.shelf_id);
+    const floorPart = r.floor_name ? `${r.floor_name} · ` : '';
+    const where = (sh && sh.shelf_type === 'shelf')
+      ? `${floorPart}Kệ ${r.shelf_code} · Tầng ${r.level_index} · Ô ${r.cell_index} · Ngăn ${r.slot_index}`
+      : `${floorPart}Kệ ${r.shelf_code}`;
+    showToast(data.results.length > 1
+      ? `${where} (và ${data.results.length - 1} vị trí khác)`
+      : `Mã ${code}: ${where}`, 'success');
+  } catch (err) { showToast(err.message, 'danger'); }
+});
+
+// ---------------------------------------------------------------------
+// KHỞI ĐỘNG
+// ---------------------------------------------------------------------
+async function init() {
+  resizeRenderer();
+  buildFloor();
+  frameFloorInView();
+  renderer.setAnimationLoop(() => {
+    controls.update();
+    renderer.render(scene, camera);
+  });
+  await loadStores();
+  await loadLayout();
+  frameFloorInView();
+}
+init();
+</script>
+
+</body>
+</html>

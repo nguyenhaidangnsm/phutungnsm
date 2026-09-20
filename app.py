@@ -1143,6 +1143,11 @@ def init_db():
         # hướng dẫn ở đầu file đó).
         init_dashboard_tables(cursor)
 
+        # 9e. Bảng cho tính năng SƠ ĐỒ KHO 3D (sàn kho / kệ / gán mã hàng
+        # vào tầng kệ) - tách trong warehouse3d.py cùng lý do (xem hướng
+        # dẫn ở đầu file đó).
+        init_warehouse3d_tables(cursor)
+
         # 10. Seed default users nếu chưa có
         cursor.execute("SELECT COUNT(*) FROM users")
         count = cursor.fetchone()['count']
@@ -7036,6 +7041,15 @@ app.register_blueprint(price_adjustment_bp)
 # SALES_FREQ_LABELS đã định nghĩa xong ở phía trên.
 from dashboard import dashboard_bp, init_dashboard_tables
 app.register_blueprint(dashboard_bp)
+
+# Import + đăng ký blueprint warehouse3d (Sơ Đồ Kho 3D, route /kho-3d) -
+# cùng lý do/vị trí như các blueprint ở trên: warehouse3d.py cần import
+# ngược lại get_db/vn_now/format_vi_datetime/_valid_store_codes/
+# _current_actor_name từ app, nên phải đặt SAU khi các tên đó đã được định
+# nghĩa xong, và TRƯỚC lời gọi _init_db_with_retry() bên dưới (vì init_db()
+# có gọi init_warehouse3d_tables()).
+from warehouse3d import warehouse3d_bp, init_warehouse3d_tables
+app.register_blueprint(warehouse3d_bp)
 
 # Tự động gọi khởi tạo bảng khi chạy app (gọi SAU khi đã đăng ký blueprint
 # ở trên, vì init_db() bên trong có gọi init_stocktake_tables()).
