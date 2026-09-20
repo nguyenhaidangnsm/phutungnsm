@@ -53,6 +53,7 @@ from app import (
     _get_app_setting,
     _set_app_setting,
     _compute_sales_frequency_rows,
+    _compute_sales_frequency_rows_cached,
     create_notification,
     ADMIN_NOTIF_STORE_CODE,
 )
@@ -137,7 +138,7 @@ def compute_reorder_suggestions(cursor, store_code, buffer_months):
     tại THẤP HƠN mức mục tiêu đó (suggested_qty > 0) - tự nhiên phù hợp cho
     cả 2 nhóm: TX thường xuyên lọt vào vì tồn vốn chỉ đủ dùng ngắn hạn, còn
     TB chỉ lọt vào khi tồn thực sự thấp so với buffer_months đã chọn."""
-    rows, period_months = _compute_sales_frequency_rows(cursor, store_code)
+    rows, period_months = _compute_sales_frequency_rows_cached(cursor, store_code)
 
     suggestions = []
     for r in rows:
@@ -398,7 +399,7 @@ def dashboard_summary():
     transfer_pending = cursor.fetchone()['c']
 
     # Số mã CB (chậm bán) đang tồn đọng - toàn hệ thống.
-    freq_rows, period_months = _compute_sales_frequency_rows(cursor, None)
+    freq_rows, period_months = _compute_sales_frequency_rows_cached(cursor, None)
     cb_count = sum(1 for r in freq_rows if r['group'] == 'CB')
     tx_count = sum(1 for r in freq_rows if r['group'] == 'TX')
 

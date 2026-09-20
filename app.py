@@ -20,6 +20,7 @@ from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 from dotenv import load_dotenv
 import threading
+import zlib
 import ssl
 import urllib.request
 import urllib.error
@@ -130,12 +131,60 @@ _inventory_cache_lock = threading.Lock()
 _inventory_cache = {'body': None, 'version': 0}
 
 
+# "Đời" (epoch) của dữ liệu tồn kho/giá/xuất bán - tăng lên mỗi khi
+# invalidate_inventory_cache() chạy. Dùng làm 1 phần của "chữ ký" cache cho
+# /api/locations, /api/transfer/list và thống kê tần suất bán (bên dưới): cache
+# nào lưu kèm 1 epoch cũ sẽ tự bị coi là hết hạn.
+_inventory_epoch = 0
+# Tương tự, tăng lên sau các request ghi KHÔNG thuộc nhóm vị trí/luân chuyển
+# (upload, hàng hư hỏng, xoá dữ liệu cửa hàng...) - xem hook
+# _bump_cache_epochs_on_write() bên dưới - còn _transfer_epoch tăng sau MỌI
+# request ghi liên quan luân chuyển. Đảm bảo cache KHÔNG BAO GIỜ cũ hơn 1 thao
+# tác ghi đã hoàn tất, kể cả những thao tác không đổi updated_at (vd: xin xoá
+# phiếu).
+_write_epoch = 0
+_transfer_epoch = 0
+
+
 def invalidate_inventory_cache():
     """Gọi ngay sau khi commit thành công ở bất kỳ chỗ nào ghi vào
     inventory_items / part_prices / sales_export_items, để lần gọi
     /api/inventory tiếp theo tính lại dữ liệu mới thay vì trả cache cũ."""
+    global _inventory_epoch
     with _inventory_cache_lock:
         _inventory_cache['body'] = None
+        _inventory_epoch += 1
+
+
+# ---------------------------------------------------------------------------
+# CACHE PHẢN HỒI (response) cho các API "nặng về egress" - /api/locations và
+# /api/transfer/list (nhánh mặc định). Trước đây MỖI lần gọi đều đọc lại hàng
+# chục nghìn dòng từ Supabase (tính vào hạn mức băng thông/egress), và
+# frontend gọi lại rất nhiều lần (mỗi lần mở tab, lưu 1 vị trí, 1 người nào đó
+# đổi phiếu luân chuyển ở BẤT KỲ cửa hàng nào...). Giờ: mỗi lần gọi chỉ chạy
+# 1 câu SQL nhỏ để lấy "chữ ký" (COUNT + MAX(updated_at) ...); chữ ký không
+# đổi thì trả lại body đã dựng sẵn (nén zlib để tiết kiệm RAM), KHÔNG đọc lại
+# dữ liệu lớn từ DB. Kết quả trả về y hệt như trước - chỉ đọc DB ít đi.
+# ---------------------------------------------------------------------------
+_resp_cache = {}
+_resp_cache_lock = threading.Lock()
+_RESP_CACHE_MAX_KEYS = 40
+
+
+def _resp_cache_get(key, sig):
+    with _resp_cache_lock:
+        entry = _resp_cache.get(key)
+    if entry is not None and entry[0] == sig:
+        return zlib.decompress(entry[1])
+    return None
+
+
+def _resp_cache_put(key, sig, body_bytes):
+    packed = zlib.compress(body_bytes, 3)
+    with _resp_cache_lock:
+        if key not in _resp_cache and len(_resp_cache) >= _RESP_CACHE_MAX_KEYS:
+            _resp_cache.clear()  # chặn phình RAM nếu có ai thử nhiều tham số lạ
+        _resp_cache[key] = (sig, packed)
 
 
 # SECRET_KEY bắt buộc phải có trong biến môi trường (không dùng giá trị mặc
@@ -195,6 +244,35 @@ def _track_online_user():
             'last_seen': vn_now(),
             'user_agent': request.headers.get('User-Agent', ''),
         }
+
+
+# Các request ghi KHÔNG làm cache phản hồi ở trên bị cũ: (đăng nhập/đăng xuất,
+# đánh dấu đã đọc thông báo, đổi mật khẩu - không đụng tới dữ liệu tồn
+# kho/vị trí/phiếu luân chuyển).
+_WRITE_EPOCH_IGNORED_PREFIXES = ('/api/notifications/', '/api/change-password', '/login', '/logout')
+
+
+@app.after_request
+def _bump_cache_epochs_on_write(resp):
+    global _write_epoch, _transfer_epoch
+    try:
+        if request.method in ('GET', 'HEAD', 'OPTIONS'):
+            return resp
+        path = request.path
+        if path.startswith(_WRITE_EPOCH_IGNORED_PREFIXES):
+            return resp
+        if path.startswith('/api/locations'):
+            # Mọi thao tác ghi vị trí đều đổi COUNT(*) hoặc MAX(updated_at) của
+            # part_locations -> "chữ ký" của /api/locations tự đổi, không cần
+            # tăng epoch (giữ được cache của các cửa hàng KHÁC không liên quan).
+            return resp
+        with _resp_cache_lock:
+            _transfer_epoch += 1
+            if not path.startswith(('/api/transfer', '/api/admin/transfer')):
+                _write_epoch += 1  # request ghi lạ/khác: cứ coi như có thể ảnh hưởng mọi cache
+    except Exception:
+        pass
+    return resp
 
 
 # Tên thứ trong tuần bằng tiếng Việt (dùng cho phần Lịch Sử Tải Lên) -
@@ -3273,6 +3351,31 @@ def _compute_sales_frequency_rows(cursor, store_code=None):
     return rows, period_months
 
 
+# Cache kết quả _compute_sales_frequency_rows theo epoch tồn kho/xuất bán. Mỗi
+# lần gọi gốc phải đọc + gộp (GROUP BY) toàn bộ tồn kho và xuất bán (hàng chục
+# nghìn dòng), mà trang thống kê/gợi ý nhập hàng gọi lại mỗi lần đổi bộ lọc.
+# CHỈ dùng cho các route CHỈ ĐỌC - KHÔNG dùng trong check_and_notify_low_stock
+# (chạy giữa transaction import, có thể thấy dữ liệu chưa commit). Giữ tối đa 3
+# kết quả gần nhất (mỗi kết quả ~ vài chục MB RAM nếu để nhiều store cùng lúc).
+_sfr_cache = {}
+_sfr_cache_lock = threading.Lock()
+_SFR_CACHE_MAX = 3
+
+
+def _compute_sales_frequency_rows_cached(cursor, store_code=None):
+    epoch = _inventory_epoch  # đọc TRƯỚC khi tính - nếu import xen giữa thì cache này tự lệch epoch
+    with _sfr_cache_lock:
+        entry = _sfr_cache.get(store_code)
+    if entry is not None and entry[0] == epoch:
+        return list(entry[1]), entry[2]  # bản sao nông của list (route có thể .sort() tại chỗ)
+    rows, period_months = _compute_sales_frequency_rows(cursor, store_code)
+    with _sfr_cache_lock:
+        if store_code not in _sfr_cache and len(_sfr_cache) >= _SFR_CACHE_MAX:
+            _sfr_cache.pop(next(iter(_sfr_cache)))
+        _sfr_cache[store_code] = (epoch, rows, period_months)
+    return list(rows), period_months
+
+
 @app.route('/api/admin/sales-frequency-stats', methods=['GET'])
 def sales_frequency_stats():
     """Thống kê các mã hàng theo tần suất bán TX/TB/CB, cho trang admin
@@ -3287,7 +3390,7 @@ def sales_frequency_stats():
 
     db = get_db()
     cursor = db.cursor()
-    rows, period_months = _compute_sales_frequency_rows(cursor, store_code)
+    rows, period_months = _compute_sales_frequency_rows_cached(cursor, store_code)
     cursor.close()
 
     summary = {'TX': 0, 'TB': 0, 'CB': 0}
@@ -3324,7 +3427,7 @@ def sales_frequency_stats_export():
 
     db = get_db()
     cursor = db.cursor()
-    rows, period_months = _compute_sales_frequency_rows(cursor, store_code)
+    rows, period_months = _compute_sales_frequency_rows_cached(cursor, store_code)
     cursor.close()
 
     if group_filter in ('TX', 'TB', 'CB'):
@@ -3639,6 +3742,30 @@ def get_locations():
     db = get_db()
     cursor = db.cursor()
 
+    # --- Cache phản hồi (xem _resp_cache ở đầu file): chỉ chạy 1 câu SQL nhỏ để
+    # lấy "chữ ký"; chữ ký không đổi -> trả body dựng sẵn, không đọc lại tồn kho.
+    loc_key = None
+    loc_sig = None
+    if role == 'store':
+        loc_key = ('locations', 'store', session['store_code'])
+        cursor.execute(
+            'SELECT COUNT(*) AS c, MAX(updated_at) AS v FROM part_locations WHERE store_code = %s',
+            (session['store_code'],)
+        )
+        sig_row = cursor.fetchone()
+        loc_sig = (_inventory_epoch, _write_epoch, sig_row['c'], str(sig_row['v']))
+    elif role == 'admin':
+        loc_key = ('locations', 'admin')
+        cursor.execute('SELECT COUNT(*) AS c, MAX(updated_at) AS v FROM part_locations')
+        sig_row = cursor.fetchone()
+        loc_sig = (_inventory_epoch, _write_epoch, sig_row['c'], str(sig_row['v']),
+                   tuple(sorted(_valid_store_codes(cursor))))
+    if loc_key is not None:
+        cached_body = _resp_cache_get(loc_key, loc_sig)
+        if cached_body is not None:
+            cursor.close()
+            return app.response_class(cached_body, mimetype='application/json')
+
     if role == 'store':
         target_store = session['store_code']
 
@@ -3694,7 +3821,9 @@ def get_locations():
             })
         data.sort(key=lambda d: d['part_code'])
         cursor.close()
-        return jsonify({'success': True, 'data': data, 'store': target_store})
+        resp = jsonify({'success': True, 'data': data, 'store': target_store})
+        _resp_cache_put(loc_key, loc_sig, resp.get_data())
+        return resp
 
     if role != 'admin':
         cursor.close()
@@ -3760,7 +3889,9 @@ def get_locations():
     # Sắp xếp giống bảng Tồn Kho Hệ Thống: mã hàng liên quan PI2 xuống cuối,
     # còn lại giữ nguyên thứ tự theo mã hàng như cũ.
     data = sorted(pivot.values(), key=lambda x: (x['part_code'] in pi2_parts, x['part_code']))
-    return jsonify({'success': True, 'data': data})
+    resp = jsonify({'success': True, 'data': data})
+    _resp_cache_put(loc_key, loc_sig, resp.get_data())
+    return resp
 
 
 @app.route('/api/locations/save', methods=['POST'])
@@ -4302,77 +4433,52 @@ def get_version():
     db = get_db()
     cursor = db.cursor()
 
-    # Dashboard/Kết quả đối soát: đổi khi có upload mới (Danh sách PO, Chi
-    # tiết nhận hàng, hoặc Chi tiết PO) ở bất kỳ cửa hàng nào.
-    data_version = get_global_data_version(cursor)
-
-    cursor.execute('SELECT MAX(id) AS v FROM upload_log')
-    history_version = cursor.fetchone()['v']
-
-    # inventory_version dùng để các trình duyệt KHÁC tự động phát hiện và
-    # tải lại bảng Tồn Kho mà không cần F5 (xem cơ chế polling ở JS phía
-    # dưới) - nên phải tính GỘP CẢ mốc "Cập Nhật Tồn Kho" (inventory_meta)
-    # LẪN mốc thay đổi GIÁ BÁN gần nhất (MAX(part_prices.updated_at)), vì
-    # giá bán vừa có thể đổi qua nhập file (import-prices) vừa có thể đổi
-    # thủ công từng mã hàng (update-price) - trước đây chỉ tính upload_time
-    # của inventory_meta nên sửa/nhập giá bán KHÔNG kích hoạt polling, các
-    # tab khác phải F5 mới thấy giá mới. GREATEST() bỏ qua NULL, chỉ trả về
-    # NULL khi CẢ HAI đều rỗng.
+    # TỐI ƯU EGRESS: trước đây phần này chạy ~10 câu SQL riêng lẻ (mỗi câu tốn
+    # thêm phần "đầu mục" giao thức Postgres), mà trang gọi /api/version mỗi 20
+    # giây trên MỌI tab đang mở -> cộng dồn thành lượng băng thông đáng kể. Giờ
+    # gộp thành ĐÚNG 1 câu SQL (1 round-trip) trả về cùng các giá trị như cũ:
+    #   - data_v    : Dashboard/Kết quả đối soát - đổi khi có upload mới (Danh
+    #                 sách PO, Chi tiết nhận hàng, Chi tiết PO) ở bất kỳ cửa hàng.
+    #   - history_v : Lịch sử tải lên (MAX id upload_log).
+    #   - inv_v     : Tồn kho - GỘP mốc "Cập Nhật Tồn Kho" (inventory_meta) và
+    #                 mốc đổi GIÁ BÁN gần nhất (part_prices); GREATEST bỏ qua NULL.
+    #   - users_v   : hash gộp cả bảng users (thêm/xoá user, đổi mật khẩu).
+    #   - tr_c/tr_v : Luân chuyển nội bộ - COUNT(*) + MAX(updated_at) để bắt cả
+    #                 trường hợp phiếu bị XOÁ HẲN.
+    #   - loc_v     : Vị trí kệ hàng (mốc lớn nhất toàn bảng).
+    #   - dmg_c/v   : Hàng hư hỏng - COUNT(*) + MAX(created_at) (bắt cả xoá).
+    #   - unread    : số thông báo CHƯA ĐỌC của cửa hàng/admin đang đăng nhập.
     cursor.execute('''
-        SELECT GREATEST(
-            (SELECT upload_time FROM inventory_meta WHERE id = 1),
-            (SELECT MAX(updated_at) FROM part_prices)
-        ) AS v
-    ''')
-    inv_row = cursor.fetchone()
-    inventory_version = inv_row['v'] if inv_row else None
+        SELECT
+            GREATEST(
+                COALESCE((SELECT MAX(ds_po_upload_time) FROM latest_uploads), 'epoch'::timestamp),
+                COALESCE((SELECT MAX(receipt_upload_time) FROM latest_uploads), 'epoch'::timestamp),
+                COALESCE((SELECT MAX(upload_time) FROM po_detail_items), 'epoch'::timestamp)
+            ) AS data_v,
+            (SELECT MAX(id) FROM upload_log) AS history_v,
+            GREATEST(
+                (SELECT upload_time FROM inventory_meta WHERE id = 1),
+                (SELECT MAX(updated_at) FROM part_prices)
+            ) AS inv_v,
+            (SELECT MD5(COALESCE(string_agg(username || ':' || role || ':' || store_code || ':' || password, ',' ORDER BY username), ''))
+               FROM users) AS users_v,
+            (SELECT COUNT(*) FROM transfer_requests) AS tr_c,
+            (SELECT MAX(updated_at) FROM transfer_requests) AS tr_v,
+            (SELECT MAX(updated_at) FROM part_locations) AS loc_v,
+            (SELECT COUNT(*) FROM damaged_items) AS dmg_c,
+            (SELECT MAX(created_at) FROM damaged_items) AS dmg_v,
+            (SELECT COUNT(*) FROM notifications WHERE store_code = %s AND is_read = FALSE) AS unread
+    ''', (session.get('store_code'),))
+    vrow = cursor.fetchone()
 
-    # Danh sách user: đổi khi thêm/xoá user hoặc đổi mật khẩu (dùng hash gộp
-    # cả bảng thay vì thêm cột "updated_at" mới để tránh phải sửa schema cũ).
-    cursor.execute('''
-        SELECT MD5(COALESCE(string_agg(username || ':' || role || ':' || store_code || ':' || password, ',' ORDER BY username), '')) AS v
-        FROM users
-    ''')
-    users_version = cursor.fetchone()['v']
-
-    # Luân chuyển nội bộ: đổi khi có yêu cầu mới, yêu cầu cũ được phản hồi/
-    # cập nhật trạng thái soạn hàng (cập nhật cột updated_at), HOẶC khi 1
-    # phiếu bị XOÁ HẲN (admin_transfer_delete) - trường hợp xoá không đổi
-    # updated_at của các phiếu CÒN LẠI, nên nếu chỉ dùng MAX(updated_at) thì
-    # khi phiếu bị xoá không phải là phiếu có updated_at lớn nhất, "chữ ký"
-    # sẽ không đổi và các trình duyệt khác (đặc biệt là bên cửa hàng liên
-    # quan) sẽ không tự phát hiện ra phiếu đã biến mất - phải F5 mới thấy.
-    # Gộp thêm COUNT(*) để MỌI thay đổi số dòng (thêm mới/xoá hẳn) đều làm
-    # đổi "chữ ký" này, dù updated_at lớn nhất có đổi hay không.
-    cursor.execute('SELECT COUNT(*) AS c, MAX(updated_at) AS v FROM transfer_requests')
-    transfer_row = cursor.fetchone()
-    transfer_version = f"{transfer_row['c']}:{transfer_row['v']}" if transfer_row else None
-
-    # Vị trí kệ hàng: đổi khi bất kỳ cửa hàng nào thêm/sửa/xoá vị trí (dùng
-    # mốc lớn nhất trên toàn bảng cho đơn giản - chi phí rất nhẹ vì bảng này
-    # nhỏ, chấp nhận việc store A có thể tải lại khi store B vừa đổi vị trí).
-    cursor.execute('SELECT MAX(updated_at) AS v FROM part_locations')
-    loc_row = cursor.fetchone()
-    locations_version = loc_row['v'] if loc_row else None
-
-    # Hàng hư hỏng: đổi khi có báo hư mới hoặc bị xoá ở BẤT KỲ cửa hàng nào
-    # - gộp COUNT(*) (giống transfer_version) để việc XOÁ 1 bản ghi cũng
-    # làm đổi "chữ ký" dù MAX(created_at) không đổi.
-    cursor.execute('SELECT COUNT(*) AS c, MAX(created_at) AS v FROM damaged_items')
-    dmg_row = cursor.fetchone()
-    damaged_version = f"{dmg_row['c']}:{dmg_row['v']}" if dmg_row else None
-
-    # Số thông báo CHƯA ĐỌC của cửa hàng/admin đang đăng nhập (icon chuông) -
-    # admin THẬT cũng nhận thông báo riêng (vd yêu cầu xin xoá phiếu) qua
-    # session['store_code'] == ADMIN_NOTIF_STORE_CODE ('ALL') của chính
-    # mình, xem notifications_list().
-    unread_notifications = 0
-    if session['role'] in ('store', 'admin'):
-        cursor.execute(
-            'SELECT COUNT(*) AS c FROM notifications WHERE store_code = %s AND is_read = FALSE',
-            (session['store_code'],)
-        )
-        unread_notifications = cursor.fetchone()['c']
+    data_version = vrow['data_v']
+    history_version = vrow['history_v']
+    inventory_version = vrow['inv_v']
+    users_version = vrow['users_v']
+    transfer_version = f"{vrow['tr_c']}:{vrow['tr_v']}"
+    locations_version = vrow['loc_v']
+    damaged_version = f"{vrow['dmg_c']}:{vrow['dmg_v']}"
+    unread_notifications = vrow['unread'] if session['role'] in ('store', 'admin') else 0
 
     # Thông báo "ngày xe đi" (banner đỏ) đang hiệu lực - trả THẲNG luôn nội
     # dung (không chỉ 1 "chữ ký" version) vì danh sách này rất nhỏ, và vì
@@ -5746,6 +5852,29 @@ def transfer_list():
 
     store_where, store_params = _transfer_store_filter(role, store_code, filter_store)
 
+    # --- Cache phản hồi CHỈ cho lượt tải mặc định (mở trang / tự cập nhật khi
+    # transfer_version đổi) - đây là lượt nặng nhất: TOÀN BỘ phiếu 90 ngày gần
+    # đây + mọi dòng mã hàng của chúng, và mọi tab đang mở đều gọi lại mỗi khi
+    # có phiếu đổi ở bất kỳ đâu. Chữ ký tính RIÊNG theo phạm vi cửa hàng đang
+    # xem nên phiếu đổi ở cửa hàng khác không làm cache này hết hạn. Lọc theo
+    # ngày / "xem cũ hơn" (before) không cache (ít gọi, tham số đa dạng).
+    tr_key = None
+    tr_sig = None
+    if not (before or date_from_str or date_to_str):
+        tr_key = ('transfer_list', role, store_code if role == 'store' else None,
+                  (filter_store or 'ALL') if role == 'admin' else None)
+        sig_sql = 'SELECT COUNT(*) AS c, MAX(updated_at) AS v FROM transfer_requests'
+        if store_where:
+            sig_sql += f' WHERE {store_where}'
+        cursor.execute(sig_sql, store_params)
+        sig_row = cursor.fetchone()
+        tr_sig = (_inventory_epoch, _write_epoch, _transfer_epoch, sig_row['c'], str(sig_row['v']),
+                  vn_now().date().isoformat())
+        cached_body = _resp_cache_get(tr_key, tr_sig)
+        if cached_body is not None:
+            cursor.close()
+            return app.response_class(cached_body, mimetype='application/json')
+
     # Sắp xếp/lọc theo created_at (ngày TẠO phiếu) chứ không phải updated_at
     # - nếu dùng updated_at, mỗi lần thao tác (đồng ý/từ chối/nhận hàng) sẽ
     # đổi updated_at của phiếu đó, khiến nó tự nhảy lên đầu danh sách ngay
@@ -5844,12 +5973,15 @@ def transfer_list():
     # lịch sử cũ hơn" - lấy từ dòng cuối cùng (đã ORDER BY created_at DESC).
     # Không có ý nghĩa khi đang lọc theo ngày (date_from/date_to) nên bỏ qua.
     oldest_created_at = str(rows[-1]['created_at']) if rows and not (date_from_str or date_to_str) else None
-    return jsonify({
+    resp = jsonify({
         'success': True,
         'requests': requests_out,
         'has_more': has_more if not (date_from_str or date_to_str) else False,
         'oldest_created_at': oldest_created_at,
     })
+    if tr_key is not None:
+        _resp_cache_put(tr_key, tr_sig, resp.get_data())
+    return resp
 
 
 def _create_transfer_request(cursor, from_store, to_store, note, created_by, items, created_employee):
