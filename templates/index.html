@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+\<!DOCTYPE html>
 <html lang="vi">
 <head>
     <meta charset="UTF-8">
@@ -1758,7 +1758,7 @@
                 <th class="text-end">NS4</th>
                 <th class="text-end">NS5</th>
                 <th class="text-end">NSM1</th>
-                <th class="text-end text-muted" title="Kho độc lập (mã kho KHANGCHAMBAN) - chỉ xem số lượng, không tính vào Tổng Tồn 6 CH">Kho CB</th>
+                <th class="text-end text-muted" title="Kho độc lập (mã kho KHANGCHAMBAN) - được cộng vào cột Tổng Tồn">Kho CB</th>
                 <th class="text-end"><i class="bi bi-boxes me-1 text-primary"></i>Tổng Tồn</th>
             </tr>
         </thead>
@@ -3518,7 +3518,7 @@
                                 <th class="text-end">NS4</th>
                                 <th class="text-end">NS5</th>
                                 <th class="text-end">NSM1</th>
-                                <th class="text-end text-muted" title="Kho độc lập (mã kho KHANGCHAMBAN) - chỉ xem số lượng, không tính vào Tổng Tồn 6 CH">Kho CB</th>
+                                <th class="text-end text-muted" title="Kho độc lập (mã kho KHANGCHAMBAN) - được cộng vào cột Tổng Tồn">Kho CB</th>
                                 <th class="text-end"><i class="bi bi-boxes me-1 text-primary"></i>Tổng Tồn</th>
                             </tr>
                         </thead>
@@ -4209,15 +4209,17 @@
         return `<td class="text-end">${val}</td>`;
     }
 
-    // Ô cột "Tổng Tồn 6 CH" trên bảng Tồn Kho Hệ Thống - LUÔN hiện tổng số
-    // lượng cộng dồn NS1+NS2+NS3+NS4+NS5+NSM1 của mã hàng. Nếu mã hàng có
+    // Ô cột "Tổng Tồn" trên bảng Tồn Kho Hệ Thống - LUÔN hiện tổng số
+    // lượng cộng dồn NS1+NS2+NS3+NS4+NS5+NSM1+Kho CB của mã hàng. Nếu mã hàng có
     // ít nhất 1 lần báo hư (bất kỳ cửa hàng nào) thì tô VÀNG (không đổi số
     // hiển thị - vẫn là tổng tồn, không phải số hư hỏng); rê/bấm vào ô
     // hiện ghi chú liệt kê TỪNG LẦN báo hư (cửa hàng nào, bao nhiêu, tình
     // trạng gì) - dùng chung cơ chế tooltip #inv-tooltip đã có sẵn (class
     // inv-hl + data-tip).
     function buildDamagedCellHtml(item) {
-        const total = INVENTORY_STORES.reduce((sum, s) => sum + (Number(item[s]) || 0), 0);
+        // Tổng hàng ngang = 6 cửa hàng + Kho CB
+        const total = INVENTORY_STORES.reduce((sum, s) => sum + (Number(item[s]) || 0), 0)
+                    + (Number(item.CB) || 0);
         const totalDisplay = total.toLocaleString();
 
         const dmg = damagedSummary[item.part_code];
@@ -4340,11 +4342,13 @@
         const grandCell = document.getElementById('inv-total-grand');
         if (grandCell) grandCell.innerText = grandTotal.toLocaleString();
 
-        // "Kho CB" là kho ĐỘC LẬP - tính tổng riêng, KHÔNG cộng vào grandTotal
-        // (grandTotal chỉ đại diện đúng 6 cửa hàng NS1..NSM1 như tên cột ghi).
+        // "Kho CB" là kho độc lập - có cột riêng, nhưng vẫn được cộng vào tổng chung bên dưới.
         const cbTotal = data.reduce((sum, item) => sum + (Number(item.CB) || 0), 0);
         const cbCell = document.getElementById('inv-total-CB');
         if (cbCell) cbCell.innerText = cbTotal.toLocaleString();
+
+        // Tổng chung = 6 cửa hàng + Kho CB (khớp với cột Tổng Tồn từng dòng)
+        if (grandCell) grandCell.innerText = (grandTotal + cbTotal).toLocaleString();
     }
 
     function renderInventoryTable(data) {
