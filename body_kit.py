@@ -38,16 +38,21 @@ lưu trữ bền (persistent disk) trỏ vào thư mục static/body_kit_images 
 không mất sau mỗi lần deploy lại - nếu không, chỉ cần import lại file Excel
 là ảnh sẽ được tạo lại từ đầu.
 """
+import json
 import os
 import shutil
 import time
 import traceback
 
-from flask import Blueprint, request, jsonify, session, url_for
+from flask import Blueprint, request, jsonify, session, url_for, Response
+from psycopg2 import Binary
 from psycopg2.extras import execute_values
 
 from orders import get_orders_db, _get_orders_pool, ORDERS_DATABASE_URL
-from body_kit_import import parse_body_kit_excel, parse_model_category_excel
+from body_kit_import import (
+    parse_body_kit_excel, parse_model_category_excel,
+    classify_group_label, _extract_year,
+)
 
 body_kit_bp = Blueprint('body_kit', __name__)
 
@@ -119,6 +124,16 @@ def init_body_kit_tables():
         cursor.execute('ALTER TABLE body_kit_groups ADD COLUMN IF NOT EXISTS vehicle_family TEXT')
         cursor.execute('ALTER TABLE body_kit_groups ADD COLUMN IF NOT EXISTS sub_model TEXT')
         cursor.execute('ALTER TABLE body_kit_groups ADD COLUMN IF NOT EXISTS year INTEGER')
+        # Bộ áo THÊM THỦ CÔNG (admin + cửa hàng nhập tay trên giao diện):
+        #   is_manual   - TRUE = nhập tay, KHÔNG bị xoá khi admin nhập lại file Excel.
+        #   created_by  - tên đăng nhập người tạo (cửa hàng chỉ sửa/xoá được bộ áo do mình tạo).
+        #   image_data/image_mime - ẢNH LƯU THẲNG TRONG CSDL (bytea) thay vì file tĩnh, vì
+        #     dữ liệu nhập tay KHÔNG thể "import lại từ Excel" để dựng lại ảnh nếu filesystem
+        #     bị xoá sau mỗi lần deploy (xem cảnh báo ở đầu file).
+        cursor.execute('ALTER TABLE body_kit_groups ADD COLUMN IF NOT EXISTS is_manual BOOLEAN NOT NULL DEFAULT FALSE')
+        cursor.execute('ALTER TABLE body_kit_groups ADD COLUMN IF NOT EXISTS created_by TEXT')
+        cursor.execute('ALTER TABLE body_kit_groups ADD COLUMN IF NOT EXISTS image_data BYTEA')
+        cursor.execute('ALTER TABLE body_kit_groups ADD COLUMN IF NOT EXISTS image_mime TEXT')
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS body_kit_parts (
                 id SERIAL PRIMARY KEY,
@@ -191,7 +206,11 @@ def import_body_kit_excel():
         db = get_orders_db()
         cursor = db.cursor()
         try:
-            cursor.execute('TRUNCATE TABLE body_kit_parts, body_kit_groups RESTART IDENTITY')
+            # CHỈ xoá các nhóm nhập từ Excel (is_manual = FALSE) - bộ áo THÊM
+            # THỦ CÔNG được giữ nguyên. body_kit_parts tự xoá theo (ON DELETE
+            # CASCADE). Không còn RESTART IDENTITY: id nhóm thủ công phải giữ
+            # nguyên, id nhóm Excel mới chỉ đơn giản nối tiếp dãy số.
+            cursor.execute('DELETE FROM body_kit_groups WHERE is_manual = FALSE')
 
             # Mã xe nào có trong bảng tra category (nhập riêng qua
             # /api/admin/body-kit/import-model-categories) thì DÙNG NGUỒN
@@ -341,7 +360,7 @@ def import_body_kit_model_categories():
                 UPDATE body_kit_groups AS g
                 SET vehicle_family = c.vehicle_family, sub_model = c.sub_model
                 FROM body_kit_model_categories AS c
-                WHERE g.model_code = c.model_code
+                WHERE g.model_code = c.model_code AND g.is_manual = FALSE
             ''')
             updated_groups = cursor.rowcount
 
@@ -373,6 +392,26 @@ def import_body_kit_model_categories():
 # TRA CỨU (admin + cửa hàng đều xem được, để báo giá cho khách)
 # ----------------------------------------------------------------------------
 
+def _can_edit_group(r):
+    """Chỉ bộ áo THÊM THỦ CÔNG mới sửa/xoá được (bộ áo nhập từ Excel sẽ bị
+    thay khi nhập lại nên không cho sửa tay). Admin sửa/xoá được mọi bộ áo
+    thủ công; cửa hàng chỉ sửa/xoá bộ áo do chính tài khoản đó tạo."""
+    if not r['is_manual']:
+        return False
+    if session.get('role') == 'admin':
+        return True
+    return bool(r['created_by']) and r['created_by'] == session.get('user')
+
+
+def _group_image_url(r):
+    # Bộ áo thủ công: ảnh nằm trong CSDL, phục vụ qua route riêng (tham số v =
+    # mốc cập nhật để trình duyệt tải lại ảnh khi vừa đổi ảnh).
+    if r['is_manual'] and r['has_db_image']:
+        v = int(r['updated_at'].timestamp()) if r['updated_at'] else 0
+        return url_for('body_kit.get_body_kit_group_image', group_id=r['id'], v=v)
+    return _image_url(r['image_filename'])
+
+
 def _group_row_to_dict(r):
     return {
         'id': r['id'],
@@ -381,7 +420,10 @@ def _group_row_to_dict(r):
         'vehicle_family': r['vehicle_family'],
         'sub_model': r['sub_model'],
         'year': r['year'],
-        'image_url': _image_url(r['image_filename']),
+        'is_manual': bool(r['is_manual']),
+        'created_by': r['created_by'],
+        'can_edit': _can_edit_group(r),
+        'image_url': _group_image_url(r),
         'total_honda_price': float(r['total_honda_price']) if r['total_honda_price'] is not None else None,
         'total_crm_price': float(r['total_crm_price']) if r['total_crm_price'] is not None else None,
         'part_count': r['part_count'],
@@ -448,7 +490,8 @@ def list_body_kit_groups():
         like = f'%{q}%'
         cursor.execute('''
             SELECT DISTINCT g.id, g.group_label, g.model_code, g.vehicle_family, g.sub_model, g.year,
-                   g.image_filename, g.total_honda_price, g.total_crm_price, g.part_count
+                   g.image_filename, g.total_honda_price, g.total_crm_price, g.part_count,
+                   g.is_manual, g.created_by, g.updated_at, (g.image_data IS NOT NULL) AS has_db_image
             FROM body_kit_groups g
             LEFT JOIN body_kit_parts p ON p.group_id = g.id
             WHERE g.group_label ILIKE %s OR g.model_code ILIKE %s
@@ -468,7 +511,8 @@ def list_body_kit_groups():
         where_sql = ('WHERE ' + ' AND '.join(conditions)) if conditions else ''
         cursor.execute(f'''
             SELECT id, group_label, model_code, vehicle_family, sub_model, year,
-                   image_filename, total_honda_price, total_crm_price, part_count
+                   image_filename, total_honda_price, total_crm_price, part_count,
+                   is_manual, created_by, updated_at, (image_data IS NOT NULL) AS has_db_image
             FROM body_kit_groups
             {where_sql}
             ORDER BY year ASC NULLS LAST, group_label
@@ -477,7 +521,7 @@ def list_body_kit_groups():
 
     rows = [_group_row_to_dict(r) for r in cursor.fetchall()]
 
-    cursor.execute('SELECT COUNT(*) AS c, MAX(created_at) AS last_import FROM body_kit_groups')
+    cursor.execute('SELECT COUNT(*) AS c, MAX(created_at) FILTER (WHERE NOT is_manual) AS last_import FROM body_kit_groups')
     meta = cursor.fetchone()
     cursor.close()
 
@@ -498,7 +542,8 @@ def get_body_kit_group(group_id):
     db = get_orders_db()
     cursor = db.cursor()
     cursor.execute('''
-        SELECT id, group_label, model_code, vehicle_family, sub_model, year, image_filename, total_honda_price, total_crm_price, part_count
+        SELECT id, group_label, model_code, vehicle_family, sub_model, year, image_filename, total_honda_price, total_crm_price, part_count,
+               is_manual, created_by, updated_at, (image_data IS NOT NULL) AS has_db_image
         FROM body_kit_groups WHERE id = %s
     ''', (group_id,))
     g = cursor.fetchone()
@@ -572,6 +617,13 @@ def get_body_kit_group(group_id):
             expected_5pct = round(honda_price * 1.05 / 1000) * 1000
             is_adjusted_5pct = current_price >= expected_5pct - 0.5
 
+        # Bộ áo thủ công không có "giá Honda gốc" đáng tin để so sánh (người nhập
+        # tự điền hoặc bỏ trống) -> không hiện huy hiệu đã/chưa điều chỉnh +5%.
+        if g['is_manual']:
+            price_status = None
+            price_diff = None
+            is_adjusted_5pct = None
+
         parts.append({
             'seq': p['seq'],
             'part_code': p['part_code'],
@@ -591,3 +643,344 @@ def get_body_kit_group(group_id):
     data = _group_row_to_dict(g)
     data['parts'] = parts
     return jsonify({'success': True, 'data': data})
+
+
+# ----------------------------------------------------------------------------
+# THÊM / SỬA / XOÁ BỘ ÁO THỦ CÔNG (admin + cửa hàng đều được thêm; sửa/xoá xem
+# _can_edit_group). Bộ áo thủ công có is_manual = TRUE và KHÔNG bị xoá khi
+# admin nhập lại file Excel (xem import_body_kit_excel).
+# ----------------------------------------------------------------------------
+
+_MAX_MANUAL_PARTS = 300
+_MAX_IMAGE_BYTES = 3 * 1024 * 1024
+
+
+def _kit_user_allowed():
+    return 'user' in session and session.get('role') in ('admin', 'store')
+
+
+def _sniff_image_mime(data):
+    """Nhận diện định dạng ảnh theo NỘI DUNG file (không tin đuôi file/Content-Type
+    do trình duyệt gửi lên)."""
+    if data.startswith(b'\x89PNG\r\n\x1a\n'):
+        return 'image/png'
+    if data.startswith(b'\xff\xd8\xff'):
+        return 'image/jpeg'
+    if data[:6] in (b'GIF87a', b'GIF89a'):
+        return 'image/gif'
+    if data[:4] == b'RIFF' and data[8:12] == b'WEBP':
+        return 'image/webp'
+    return None
+
+
+def _read_uploaded_image():
+    """Trả về (bytes, mime) hoặc None nếu không có ảnh mới. Ném ValueError nếu ảnh không hợp lệ."""
+    f = request.files.get('image')
+    if not f or not f.filename:
+        return None
+    data = f.read(_MAX_IMAGE_BYTES + 1)
+    if not data:
+        return None
+    if len(data) > _MAX_IMAGE_BYTES:
+        raise ValueError('Ảnh quá lớn (tối đa 3MB).')
+    mime = _sniff_image_mime(data)
+    if not mime:
+        raise ValueError('Ảnh phải là định dạng JPG, PNG, GIF hoặc WEBP.')
+    return data, mime
+
+
+def _price_or_none(v, row_no):
+    if v is None or v == '':
+        return None
+    try:
+        n = float(v)
+    except (TypeError, ValueError):
+        raise ValueError(f'Dòng {row_no}: giá không hợp lệ.')
+    if n != n or n < 0 or n > 1e12:
+        raise ValueError(f'Dòng {row_no}: giá không hợp lệ.')
+    return n
+
+
+def _parse_group_form():
+    """Đọc + kiểm tra dữ liệu form (multipart) của 1 bộ áo thủ công. Ném
+    ValueError (thông báo tiếng Việt, hiển thị thẳng cho người dùng) nếu sai."""
+    form = request.form
+    label = (form.get('group_label') or '').strip()
+    if not label:
+        raise ValueError('Vui lòng nhập tên bộ áo (đời xe + màu).')
+    if len(label) > 300:
+        raise ValueError('Tên bộ áo quá dài (tối đa 300 ký tự).')
+
+    model_code = (form.get('model_code') or '').strip()[:50] or None
+    family = (form.get('vehicle_family') or '').strip()[:100] or None
+    sub_model = (form.get('sub_model') or '').strip()[:150] or None
+
+    year = None
+    year_raw = (form.get('year') or '').strip()
+    if year_raw:
+        try:
+            year = int(year_raw)
+        except ValueError:
+            raise ValueError('Năm không hợp lệ.')
+        if not 1950 <= year <= 2100:
+            raise ValueError('Năm phải nằm trong khoảng 1950 - 2100.')
+
+    try:
+        raw_parts = json.loads(form.get('parts') or '[]')
+    except ValueError:
+        raise ValueError('Dữ liệu phụ tùng không hợp lệ.')
+    if not isinstance(raw_parts, list):
+        raise ValueError('Dữ liệu phụ tùng không hợp lệ.')
+    if len(raw_parts) > _MAX_MANUAL_PARTS:
+        raise ValueError(f'Tối đa {_MAX_MANUAL_PARTS} phụ tùng cho 1 bộ áo.')
+
+    parts = []
+    seen = {}
+    for i, rp in enumerate(raw_parts, start=1):
+        if not isinstance(rp, dict):
+            raise ValueError('Dữ liệu phụ tùng không hợp lệ.')
+        code = str(rp.get('part_code') or '').strip()
+        name = str(rp.get('part_name') or '').strip()
+        repl = str(rp.get('replacement_code') or '').strip()
+        note = str(rp.get('note') or '').strip()
+        honda_raw = rp.get('honda_price')
+        if not any([code, name, repl, note]) and honda_raw in (None, ''):
+            continue  # dòng trống hoàn toàn -> bỏ qua
+        if not code:
+            raise ValueError(f'Dòng {i}: thiếu mã hàng.')
+        if len(code) > 100 or len(repl) > 255:
+            raise ValueError(f'Dòng {i}: mã hàng/thay thế quá dài.')
+        key = code.upper()
+        if key in seen:
+            raise ValueError(f"Mã hàng '{code}' bị trùng (dòng {seen[key]} và dòng {i}).")
+        seen[key] = i
+        parts.append({
+            'seq': len(parts) + 1,
+            'part_code': code,
+            'replacement_code': repl or None,
+            'part_name': name[:500] or None,
+            'honda_price': _price_or_none(honda_raw, i),
+            'note': note[:500] or None,
+        })
+    if not parts:
+        raise ValueError('Bộ áo cần có ít nhất 1 phụ tùng.')
+
+    return {
+        'group_label': label,
+        'model_code': model_code,
+        'vehicle_family': family,
+        'sub_model': sub_model,
+        'year': year,
+        'parts': parts,
+        'remove_image': form.get('remove_image') == '1',
+    }
+
+
+def _resolve_family(cursor, data):
+    """Dòng xe/đời của bộ áo thủ công: ưu tiên người dùng nhập tay; nếu để trống
+    thì tra theo mã model trong bảng tra chuẩn; cuối cùng mới suy luận từ tên."""
+    family = data['vehicle_family']
+    sub_model = data['sub_model']
+    if family:
+        return family, (sub_model or family)
+    if data['model_code']:
+        mapped = _load_model_category_map(cursor).get(data['model_code'])
+        if mapped:
+            return mapped[0], (sub_model or mapped[1])
+    guessed_family, guessed_sub = classify_group_label(data['group_label'])
+    return guessed_family, (sub_model or guessed_sub)
+
+
+def _total_honda(parts):
+    prices = [p['honda_price'] for p in parts if p['honda_price'] is not None]
+    return sum(prices) if prices else None
+
+
+def _insert_manual_parts(cursor, group_id, parts):
+    execute_values(
+        cursor,
+        '''INSERT INTO body_kit_parts
+               (group_id, seq, part_code, replacement_code, part_name, honda_price, note)
+           VALUES %s''',
+        [(group_id, p['seq'], p['part_code'], p['replacement_code'], p['part_name'],
+          p['honda_price'], p['note']) for p in parts],
+    )
+
+
+@body_kit_bp.route('/api/body-kit/groups', methods=['POST'])
+def create_body_kit_group():
+    if not _kit_user_allowed():
+        return jsonify({'error': 'Forbidden'}), 403
+    try:
+        data = _parse_group_form()
+        image = _read_uploaded_image()
+    except ValueError as e:
+        return jsonify({'error': str(e)}), 400
+
+    db = get_orders_db()
+    cursor = db.cursor()
+    try:
+        family, sub_model = _resolve_family(cursor, data)
+        year = data['year'] if data['year'] is not None else _extract_year(data['group_label'])
+        cursor.execute(
+            '''INSERT INTO body_kit_groups
+                   (group_label, model_code, vehicle_family, sub_model, year,
+                    total_honda_price, part_count, is_manual, created_by, image_data, image_mime)
+               VALUES (%s, %s, %s, %s, %s, %s, %s, TRUE, %s, %s, %s)
+               RETURNING id''',
+            (data['group_label'], data['model_code'], family, sub_model, year,
+             _total_honda(data['parts']), len(data['parts']), session.get('user'),
+             Binary(image[0]) if image else None, image[1] if image else None),
+        )
+        group_id = cursor.fetchone()['id']
+        _insert_manual_parts(cursor, group_id, data['parts'])
+        db.commit()
+    except Exception:
+        db.rollback()
+        traceback.print_exc()
+        return jsonify({'error': 'Lỗi khi lưu bộ áo vào CSDL.'}), 500
+    finally:
+        cursor.close()
+
+    return jsonify({'success': True, 'id': group_id, 'vehicle_family': family})
+
+
+def _load_editable_group(cursor, group_id):
+    """Trả về (row, error_response). Chỉ cho sửa/xoá bộ áo thủ công + đúng quyền."""
+    cursor.execute(
+        'SELECT id, is_manual, created_by FROM body_kit_groups WHERE id = %s', (group_id,))
+    row = cursor.fetchone()
+    if not row:
+        return None, (jsonify({'error': 'Không tìm thấy bộ áo.'}), 404)
+    if not row['is_manual']:
+        return None, (jsonify({'error': 'Chỉ sửa/xoá được bộ áo thêm thủ công. '
+                                        'Bộ áo nhập từ Excel sẽ được thay khi admin nhập lại file.'}), 403)
+    if not _can_edit_group(row):
+        return None, (jsonify({'error': 'Bạn chỉ được sửa/xoá bộ áo do chính mình thêm.'}), 403)
+    return row, None
+
+
+@body_kit_bp.route('/api/body-kit/groups/<int:group_id>', methods=['PUT'])
+def update_body_kit_group(group_id):
+    if not _kit_user_allowed():
+        return jsonify({'error': 'Forbidden'}), 403
+    try:
+        data = _parse_group_form()
+        image = _read_uploaded_image()
+    except ValueError as e:
+        return jsonify({'error': str(e)}), 400
+
+    db = get_orders_db()
+    cursor = db.cursor()
+    try:
+        row, err = _load_editable_group(cursor, group_id)
+        if err:
+            return err
+        family, sub_model = _resolve_family(cursor, data)
+        year = data['year'] if data['year'] is not None else _extract_year(data['group_label'])
+
+        image_sql = ''
+        image_params = []
+        if image:
+            image_sql = ', image_data = %s, image_mime = %s'
+            image_params = [Binary(image[0]), image[1]]
+        elif data['remove_image']:
+            image_sql = ', image_data = NULL, image_mime = NULL'
+
+        cursor.execute(
+            f'''UPDATE body_kit_groups
+                   SET group_label = %s, model_code = %s, vehicle_family = %s, sub_model = %s,
+                       year = %s, total_honda_price = %s, part_count = %s, updated_at = NOW()
+                       {image_sql}
+                   WHERE id = %s''',
+            [data['group_label'], data['model_code'], family, sub_model, year,
+             _total_honda(data['parts']), len(data['parts'])] + image_params + [group_id],
+        )
+        cursor.execute('DELETE FROM body_kit_parts WHERE group_id = %s', (group_id,))
+        _insert_manual_parts(cursor, group_id, data['parts'])
+        db.commit()
+    except Exception:
+        db.rollback()
+        traceback.print_exc()
+        return jsonify({'error': 'Lỗi khi cập nhật bộ áo.'}), 500
+    finally:
+        cursor.close()
+
+    return jsonify({'success': True, 'id': group_id, 'vehicle_family': family})
+
+
+@body_kit_bp.route('/api/body-kit/groups/<int:group_id>', methods=['DELETE'])
+def delete_body_kit_group(group_id):
+    if not _kit_user_allowed():
+        return jsonify({'error': 'Forbidden'}), 403
+    db = get_orders_db()
+    cursor = db.cursor()
+    try:
+        row, err = _load_editable_group(cursor, group_id)
+        if err:
+            return err
+        cursor.execute('DELETE FROM body_kit_groups WHERE id = %s', (group_id,))  # parts xoá theo (CASCADE)
+        db.commit()
+    except Exception:
+        db.rollback()
+        traceback.print_exc()
+        return jsonify({'error': 'Lỗi khi xoá bộ áo.'}), 500
+    finally:
+        cursor.close()
+    return jsonify({'success': True})
+
+
+@body_kit_bp.route('/api/body-kit/groups/<int:group_id>/image', methods=['GET'])
+def get_body_kit_group_image(group_id):
+    if not _kit_user_allowed():
+        return jsonify({'error': 'Forbidden'}), 403
+    db = get_orders_db()
+    cursor = db.cursor()
+    cursor.execute('SELECT image_data, image_mime FROM body_kit_groups WHERE id = %s', (group_id,))
+    row = cursor.fetchone()
+    cursor.close()
+    if not row or not row['image_data']:
+        return jsonify({'error': 'Không có ảnh.'}), 404
+    resp = Response(bytes(row['image_data']), mimetype=row['image_mime'] or 'image/jpeg')
+    resp.headers['Cache-Control'] = 'private, max-age=86400'
+    resp.headers['X-Content-Type-Options'] = 'nosniff'
+    return resp
+
+
+@body_kit_bp.route('/api/body-kit/part-lookup', methods=['POST'])
+def body_kit_part_lookup():
+    """Tra nhanh danh sách mã hàng trong CSDL CHÍNH (tên hàng từ tồn kho, giá bán
+    từ part_prices) để form thêm bộ áo tự điền tên + báo mã gõ sai. Khớp không
+    phân biệt hoa/thường, trả về mã CHUẨN như đang lưu trong hệ thống."""
+    if not _kit_user_allowed():
+        return jsonify({'error': 'Forbidden'}), 403
+    payload = request.get_json(silent=True) or {}
+    raw_codes = payload.get('codes')
+    if not isinstance(raw_codes, list):
+        return jsonify({'error': 'Dữ liệu không hợp lệ.'}), 400
+    upper_codes = sorted({str(c).strip().upper() for c in raw_codes if str(c).strip()})[:_MAX_MANUAL_PARTS]
+    if not upper_codes:
+        return jsonify({'success': True, 'data': {}})
+
+    from app import get_db
+    main_db = get_db()
+    cur = main_db.cursor()
+    cur.execute(
+        '''SELECT MIN(part_code) AS part_code, MAX(part_name) AS part_name, SUM(quantity) AS qty
+           FROM inventory_items WHERE UPPER(part_code) = ANY(%s) GROUP BY UPPER(part_code)''',
+        (upper_codes,))
+    result = {}
+    for r in cur.fetchall():
+        result[r['part_code'].upper()] = {
+            'part_code': r['part_code'], 'part_name': r['part_name'],
+            'sale_price': None, 'stock': float(r['qty'] or 0),
+        }
+    cur.execute(
+        'SELECT part_code, sale_price FROM part_prices WHERE UPPER(part_code) = ANY(%s)',
+        (upper_codes,))
+    for r in cur.fetchall():
+        entry = result.setdefault(r['part_code'].upper(), {
+            'part_code': r['part_code'], 'part_name': None, 'sale_price': None, 'stock': None})
+        entry['sale_price'] = float(r['sale_price']) if r['sale_price'] is not None else None
+    cur.close()
+    return jsonify({'success': True, 'data': result})

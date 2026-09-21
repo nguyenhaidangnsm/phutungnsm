@@ -13,7 +13,10 @@
             font-weight: normal;
             font-style: normal;
         }
-        body { background: #f4f6f9; font-family: 'SVN-MonaSans', sans-serif; }
+        /* Font thương hiệu (rộng, đậm) chỉ dùng cho tiêu đề; bảng dữ liệu và form
+           dùng font hệ thống để 19 cột gọn, đều và dễ đọc. */
+        body { background: #f4f6f9; font-family: system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; }
+        .brand-title { font-family: 'SVN-MonaSans', system-ui, sans-serif; }
         .topbar {
             background: #fff; border-bottom: 3px solid #0d6efd;
             padding: .75rem 1.25rem; display: flex; align-items: center;
@@ -23,18 +26,94 @@
         .card { border: none; border-radius: 14px; box-shadow: 0 6px 20px rgba(13,110,253,0.06); }
         .btn-nam-suong { background-color: #0d6efd; border-color: #0d6efd; color: #fff; }
         .btn-nam-suong:hover { background-color: #0b5ed7; border-color: #0a58ca; color: #fff; }
-        .status-badge { font-weight: 600; font-size: .75rem; }
-        table.table thead th { white-space: nowrap; background: #eef3ff; font-size: .82rem; }
-        table.table td { font-size: .85rem; vertical-align: middle; }
-        .container-main { max-width: 1500px; margin: 1.25rem auto; padding: 0 1rem; }
-        /* Nhóm hiển thị: dòng đầu tiên của 1 khách/1 ngày đặt có kẻ trên đậm
-           để tách với nhóm khách/ngày trước đó; các dòng cùng nhóm (cùng
-           khách + cùng ngày đặt, khác mã hàng) không có kẻ, trông liền mạch. */
-        tr.order-group-start td { border-top: 2px solid #adb5bd; }
-        /* Giữ xuống dòng đúng vị trí như trong ô Excel gốc (vd nhiều mã hàng
-           gộp chung 1 ô, cách nhau bằng dấu xuống dòng) thay vì bị dồn lại
-           thành 1 hàng dài. */
-        td.cell-multiline { white-space: pre-line; }
+        .container-main { max-width: none; margin: 1rem auto; padding: 0 1rem; }
+
+        /* ===== BẢNG ===== */
+        .bo-wrap {
+            overflow: auto; max-height: calc(100vh - 250px); min-height: 260px;
+            background: #fff; border: 1px solid #dfe5ef; border-radius: 12px 12px 0 0;
+        }
+        table.bo {
+            border-collapse: separate; border-spacing: 0; width: 100%;
+            font-size: .8rem; color: #1f2937;
+        }
+        table.bo thead th {
+            position: sticky; top: 0; z-index: 5;
+            background: #eaf0fd; color: #2b3a55; font-weight: 600; font-size: .76rem;
+            padding: .55rem .6rem; border-bottom: 2px solid #c6d4f3;
+            text-align: left; vertical-align: bottom; line-height: 1.25;
+        }
+        table.bo td {
+            padding: .42rem .6rem; border-bottom: 1px solid #e8ecf3;
+            background: var(--row-bg, #fff); vertical-align: middle; line-height: 1.3;
+        }
+        /* Mỗi yêu cầu đặt = 1 <tbody>: nền xen kẽ theo YÊU CẦU (không theo dòng),
+           kẻ đậm giữa các yêu cầu, tô sáng cả yêu cầu khi rê chuột. */
+        tbody.req { --row-bg: #fff; }
+        tbody.req:nth-of-type(even) { --row-bg: #f6f8fc; }
+        tbody.req:hover { --row-bg: #ebf2ff; }
+        tbody.req > tr:first-child > td { border-top: 2px solid #c9d1de; }
+        tbody.req > tr:last-child > td,
+        tbody.req > tr > td[rowspan] { border-bottom: 0; }
+
+        /* Độ rộng cột */
+        table.bo th, table.bo td { min-width: 84px; }
+        .c1 { width: 52px;  min-width: 52px !important;  max-width: 52px; }
+        .c2 { width: 108px; min-width: 108px !important; max-width: 108px; }
+        .c3 { width: 112px; min-width: 112px !important; max-width: 112px; }
+        .c4 { width: 176px; min-width: 176px !important; max-width: 176px; }
+        .col-sm { min-width: 56px !important; }
+        .col-wide { min-width: 220px !important; }
+        .col-act { min-width: 82px !important; width: 82px; }
+
+        table.bo thead th.t-center, .t-center { text-align: center; }
+        table.bo thead th.num { text-align: right; }
+        .num { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+        .t-wrap { white-space: pre-line; overflow-wrap: anywhere; }
+        td.c4 { font-weight: 600; overflow-wrap: anywhere; }
+        td { white-space: pre-line; }
+        .stt { font-weight: 700; color: #0d6efd; }
+        .stt-store { font-size: .65rem; color: #6b7280; }
+        .badge.status { font-weight: 600; font-size: .72rem; }
+        .note-ico { color: #b45309; cursor: help; margin-left: .25rem; }
+        .col-act .btn, td.c-act .btn { --bs-btn-padding-y: .1rem; --bs-btn-padding-x: .35rem; }
+        td.c-act { position: sticky; right: 0; z-index: 2; box-shadow: -2px 0 0 #e3e8f2; text-align: center; white-space: nowrap; }
+        th.col-act { position: sticky; right: 0; z-index: 6; box-shadow: -2px 0 0 #e3e8f2; }
+
+        /* Cố định 4 cột đầu (STT, Trạng thái, Ngày yêu cầu, Tên KH) khi cuộn ngang - chỉ trên màn hình rộng */
+        @media (min-width: 992px) {
+            table.bo .c1, table.bo .c2, table.bo .c3, table.bo .c4 { position: sticky; z-index: 2; }
+            table.bo th.c1, table.bo th.c2, table.bo th.c3, table.bo th.c4 { z-index: 6; }
+            table.bo .c1 { left: 0; }
+            table.bo .c2 { left: 52px; }
+            table.bo .c3 { left: 160px; }
+            table.bo .c4 { left: 272px; box-shadow: 2px 0 0 #dbe3f3; }
+        }
+
+        /* ===== SỬA TRỰC TIẾP TRÊN Ô (kiểu Google Sheets) ===== */
+        td.editable { cursor: text; }
+        td.editable:hover { outline: 1px solid #93c5fd; outline-offset: -1px; }
+        td.editable.saving { opacity: .5; }
+        td.editing { padding: .2rem !important; }
+        .cell-input {
+            width: 100%; box-sizing: border-box; border: 1px solid #0d6efd; border-radius: 4px;
+            padding: .25rem .4rem; font: inherit; color: inherit; background: #fff;
+        }
+        select.cell-input { padding: .2rem .3rem; }
+        .col-xs { width: 40px; min-width: 40px !important; max-width: 40px; text-align: center; }
+        .row-mini-btn {
+            border: none; background: none; color: #adb5bd; padding: 0 .15rem; font-size: .85rem;
+            line-height: 1; cursor: pointer;
+        }
+        .row-mini-btn:hover { color: #0d6efd; }
+        .row-mini-btn.danger:hover { color: #dc3545; }
+        .draft-store-select { font-size: .7rem; padding: .1rem .25rem; width: 100%; }
+
+        /* Dòng "Thêm đơn mới" ghim đầu bảng: viền đứt để phân biệt với dữ liệu đã lưu */
+        tbody.draft-tbody { --row-bg: #fffdf3; }
+        tbody.draft-tbody > tr > td { border-top: 1px dashed #eab308 !important; border-bottom: 1px dashed #eab308 !important; }
+        .draft-badge { font-weight: 600; font-size: .68rem; color: #b45309; }
+        .hint-bar { font-size: .78rem; color: #6b7280; }
     </style>
 </head>
 <body>
@@ -42,7 +121,7 @@
         <div class="d-flex align-items-center gap-2">
             <img src="{{ url_for('static', filename='logo.png') }}" alt="Logo" class="brand-logo">
             <div>
-                <div class="fw-bold text-dark">DANH SÁCH ĐẶT HÀNG</div>
+                <div class="fw-bold text-dark brand-title">DANH SÁCH ĐẶT HÀNG</div>
                 <div class="text-muted small">Theo dõi đặt hàng cho khách (BO khách hàng)</div>
             </div>
         </div>
@@ -57,7 +136,7 @@
             <div class="row g-2 align-items-end">
                 <div class="col-md-3">
                     <label class="form-label small fw-semibold text-secondary mb-1">Tìm kiếm</label>
-                    <input type="text" id="fSearch" class="form-control form-control-sm" placeholder="Tên khách, SĐT, mã hàng, PO...">
+                    <input type="text" id="fSearch" class="form-control form-control-sm" placeholder="Tên khách, SĐT, số khung, mã hàng, tên hàng...">
                 </div>
                 <div class="col-md-2">
                     <label class="form-label small fw-semibold text-secondary mb-1">Trạng thái</label>
@@ -79,163 +158,54 @@
                     </select>
                 </div>
                 {% endif %}
+                {% if role == 'admin' %}
                 <div class="col-md-auto ms-auto d-flex gap-2">
-                    {% if role == 'admin' %}
                     <button class="btn btn-outline-primary btn-sm" data-bs-toggle="modal" data-bs-target="#importModal">
                         <i class="bi bi-file-earmark-excel"></i> Nhập từ Excel
                     </button>
-                    {% endif %}
-                    <button class="btn btn-nam-suong btn-sm" onclick="openAddModal()">
-                        <i class="bi bi-plus-lg"></i> Thêm Đơn Đặt Hàng
-                    </button>
                 </div>
+                {% endif %}
             </div>
+            <div class="hint-bar mt-2"><i class="bi bi-info-circle"></i> Bấm vào bất kỳ ô nào để sửa trực tiếp (Enter để lưu, Esc để huỷ). Điền tên khách vào dòng vàng đầu bảng để thêm đơn mới.</div>
         </div>
 
-        <div class="card p-2">
-            <div class="table-responsive">
-                <table class="table table-hover align-middle mb-0">
+        <div class="card">
+            <div class="bo-wrap">
+                <table class="bo" id="ordersTable">
                     <thead>
                         <tr>
-                            <th>Trạng thái</th>
-                            {% if role == 'admin' %}<th>Chi nhánh</th>{% endif %}
-                            <th>Khách hàng</th>
+                            <th class="c1 t-center">STT</th>
+                            <th class="c2">Trạng thái</th>
+                            <th class="c3">Ngày yêu cầu</th>
+                            <th class="c4">Tên khách hàng</th>
                             <th>SĐT</th>
-                            <th>Xe</th>
-                            <th>Tên hàng</th>
+                            <th>Loại xe</th>
+                            <th>Số khung</th>
+                            <th class="col-sm">Màu</th>
+                            <th class="col-sm">Đời xe</th>
                             <th>Mã hàng</th>
-                            <th>Giá trị đặt</th>
-                            <th>Đặt cọc</th>
-                            <th>PO</th>
-                            <th>Ngày đặt</th>
-                            <th>Dự kiến giao</th>
-                            <th>Ngày giao</th>
-                            <th>Ghi chú</th>
-                            <th></th>
+                            <th class="col-wide">Tên hàng</th>
+                            <th class="col-sm t-center">SL</th>
+                            <th class="col-xs"></th>
+                            <th class="num">Giá trị đơn</th>
+                            <th class="num">Đặt cọc</th>
+                            <th class="t-center">Ngày đặt / xin nội bộ / soạn</th>
+                            <th>Loại đơn</th>
+                            <th class="t-center">Ngày PT về</th>
+                            <th class="t-center">Ngày gọi K/H</th>
+                            <th class="t-center">Ngày giao PT</th>
+                            <th class="col-act"></th>
                         </tr>
                     </thead>
-                    <tbody id="ordersBody">
-                        <tr><td colspan="15" class="text-center text-muted py-4">Đang tải...</td></tr>
-                    </tbody>
+                    <tbody class="draft-tbody" id="draftTbody"></tbody>
+                    <tbody id="loadingTbody"><tr><td colspan="21" class="text-center text-muted py-4">Đang tải...</td></tr></tbody>
                 </table>
             </div>
-            <div class="d-flex align-items-center justify-content-between flex-wrap gap-2 px-2 py-2">
+            <div class="d-flex align-items-center justify-content-between flex-wrap gap-2 px-3 py-2 border-top">
                 <div id="pagerInfo" class="small text-muted"></div>
                 <div class="btn-group btn-group-sm" role="group">
                     <button type="button" class="btn btn-outline-secondary" id="pagerPrev" onclick="goToPage(currentPage - 1)"><i class="bi bi-chevron-left"></i> Trước</button>
                     <button type="button" class="btn btn-outline-secondary" id="pagerNext" onclick="goToPage(currentPage + 1)">Sau <i class="bi bi-chevron-right"></i></button>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <!-- Modal thêm/sửa -->
-    <div class="modal fade" id="orderModal" tabindex="-1">
-        <div class="modal-dialog modal-lg modal-dialog-scrollable">
-            <div class="modal-content">
-                <div class="modal-header">
-                    <h5 class="modal-title" id="orderModalTitle">Thêm Đơn Đặt Hàng</h5>
-                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-                </div>
-                <div class="modal-body">
-                    <input type="hidden" id="f_id">
-                    <div class="row g-2">
-                        <div class="col-md-6">
-                            <label class="form-label small fw-semibold">Trạng thái</label>
-                            <select id="f_status" class="form-select form-select-sm">
-                                {% for s in status_options %}
-                                <option value="{{ s }}">{{ s }}</option>
-                                {% endfor %}
-                            </select>
-                        </div>
-                        {% if role == 'admin' %}
-                        <div class="col-md-6">
-                            <label class="form-label small fw-semibold">Chi nhánh</label>
-                            <select id="f_store_code" class="form-select form-select-sm">
-                                {% for s in store_list %}
-                                <option value="{{ s }}">{{ s }}</option>
-                                {% endfor %}
-                            </select>
-                        </div>
-                        {% endif %}
-                        <div class="col-md-6">
-                            <label class="form-label small fw-semibold">Tên khách hàng <span class="text-danger">*</span></label>
-                            <input type="text" id="f_customer_name" class="form-control form-control-sm">
-                        </div>
-                        <div class="col-md-6">
-                            <label class="form-label small fw-semibold">Số điện thoại</label>
-                            <input type="text" id="f_customer_phone" class="form-control form-control-sm">
-                        </div>
-                        <div class="col-md-12">
-                            <label class="form-label small fw-semibold">Địa chỉ</label>
-                            <input type="text" id="f_customer_address" class="form-control form-control-sm">
-                        </div>
-                        <div class="col-md-4">
-                            <label class="form-label small fw-semibold">Loại xe</label>
-                            <input type="text" id="f_vehicle_type" class="form-control form-control-sm">
-                        </div>
-                        <div class="col-md-4">
-                            <label class="form-label small fw-semibold">Màu xe</label>
-                            <input type="text" id="f_vehicle_color" class="form-control form-control-sm">
-                        </div>
-                        <div class="col-md-4">
-                            <label class="form-label small fw-semibold">Biển số</label>
-                            <input type="text" id="f_license_plate" class="form-control form-control-sm">
-                        </div>
-                        <div class="col-md-6">
-                            <label class="form-label small fw-semibold">Số khung</label>
-                            <input type="text" id="f_frame_number" class="form-control form-control-sm">
-                        </div>
-                        <div class="col-md-6">
-                            <label class="form-label small fw-semibold">Mã phụ tùng đặt hàng</label>
-                            <input type="text" id="f_part_code" class="form-control form-control-sm">
-                        </div>
-                        <div class="col-md-12">
-                            <label class="form-label small fw-semibold">Tên phụ tùng yêu cầu</label>
-                            <input type="text" id="f_part_name" class="form-control form-control-sm">
-                        </div>
-                        <div class="col-md-4">
-                            <label class="form-label small fw-semibold">Giá trị đặt hàng</label>
-                            <input type="text" id="f_order_value" class="form-control form-control-sm" placeholder="VD: 4,375,000">
-                        </div>
-                        <div class="col-md-4">
-                            <label class="form-label small fw-semibold">Tiền đặt cọc</label>
-                            <input type="text" id="f_deposit_amount" class="form-control form-control-sm">
-                        </div>
-                        <div class="col-md-4">
-                            <label class="form-label small fw-semibold">Mã PO đặt hàng</label>
-                            <input type="text" id="f_po_code" class="form-control form-control-sm">
-                        </div>
-                        <div class="col-md-4">
-                            <label class="form-label small fw-semibold">Ngày khách yêu cầu</label>
-                            <input type="date" id="f_customer_request_date" class="form-control form-control-sm">
-                        </div>
-                        <div class="col-md-4">
-                            <label class="form-label small fw-semibold">Ngày đặt hàng</label>
-                            <input type="date" id="f_order_date" class="form-control form-control-sm">
-                        </div>
-                        <div class="col-md-4">
-                            <label class="form-label small fw-semibold">Ngày dự kiến giao</label>
-                            <input type="date" id="f_expected_delivery_date" class="form-control form-control-sm">
-                        </div>
-                        <div class="col-md-4">
-                            <label class="form-label small fw-semibold">Ngày nhận hàng thực tế</label>
-                            <input type="date" id="f_actual_delivery_date" class="form-control form-control-sm">
-                        </div>
-                        <div class="col-md-4">
-                            <label class="form-label small fw-semibold">Ngày gọi khách</label>
-                            <input type="date" id="f_customer_call_date" class="form-control form-control-sm">
-                        </div>
-                        <div class="col-md-12">
-                            <label class="form-label small fw-semibold">Ghi chú gọi khách</label>
-                            <textarea id="f_call_note" class="form-control form-control-sm" rows="2"></textarea>
-                        </div>
-                    </div>
-                </div>
-                <div class="modal-footer">
-                    <div id="orderFormError" class="text-danger small me-auto"></div>
-                    <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Huỷ</button>
-                    <button type="button" class="btn btn-nam-suong btn-sm" onclick="saveOrder()">Lưu</button>
                 </div>
             </div>
         </div>
@@ -247,7 +217,7 @@
         <div class="modal-dialog">
             <div class="modal-content">
                 <div class="modal-header">
-                    <h5 class="modal-title">Nhập Danh Sách Đặt Hàng từ Excel</h5>
+                    <h5 class="modal-title">Nhập danh sách đặt hàng từ Excel</h5>
                     <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
                 </div>
                 <div class="modal-body">
@@ -265,8 +235,15 @@
                         <input type="file" id="imp_file" class="form-control form-control-sm" accept=".xlsx">
                         <div class="form-text">Đọc từ sheet "THEO DÕI B0 KHÁCH HÀNG-2026" (đúng tên sheet trong file báo cáo gốc).</div>
                     </div>
+                    <div class="form-check mb-2">
+                        <input class="form-check-input" type="checkbox" id="imp_replace">
+                        <label class="form-check-label small" for="imp_replace">
+                            Xoá <b>toàn bộ</b> đơn hiện có của chi nhánh này trước khi nhập (dùng khi nhập lại từ Excel để khỏi bị trùng)
+                        </label>
+                    </div>
                     <div class="alert alert-warning small py-2 mb-0">
-                        Toàn bộ dòng hợp lệ sẽ được ghi vào <b>1 lần duy nhất</b> (không có Tên khách hàng sẽ bị bỏ qua và liệt kê lại).
+                        Các dòng cùng 1 khách (ô tên khách được gộp trong Excel) sẽ thành 1 đơn nhiều mặt hàng.
+                        Dòng không có Tên khách hàng sẽ bị bỏ qua và liệt kê lại.
                         Nếu có lỗi giữa chừng, toàn bộ sẽ được huỷ - không tạo ra dữ liệu dở dang.
                     </div>
                     <div id="importResult" class="small mt-2"></div>
@@ -285,39 +262,63 @@
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     <script>
         const ROLE = "{{ role }}";
+        const STATUS_OPTIONS = {{ status_options|tojson }};
+        const STORE_LIST = {{ store_list|tojson }};
         const AUTO_REFRESH_SECONDS = 15; // tự động tải lại danh sách mỗi 15 giây
-        const PAGE_SIZE = 100; // số dòng/trang - tránh tải + dựng lại hàng nghìn dòng cùng lúc
-        let orderModal;
-        let isOrderModalOpen = false;
+        const PAGE_SIZE = 50;            // số YÊU CẦU (khách) mỗi trang
+        const COLS = 21;
+
+        // Field -> {type, scope}. scope 'header' = áp dụng cho cả yêu cầu (mọi mặt
+        // hàng), scope 'item' = riêng từng mặt hàng. Khớp với HEADER_*/ITEM_* ở orders.py.
+        const FIELD_META = {
+            customer_request_date: { type: 'date', scope: 'header' },
+            customer_name:         { type: 'text', scope: 'header' },
+            customer_phone:        { type: 'text', scope: 'header' },
+            vehicle_type:          { type: 'text', scope: 'header' },
+            frame_number:          { type: 'text', scope: 'header' },
+            vehicle_color:         { type: 'text', scope: 'header' },
+            vehicle_year:          { type: 'text', scope: 'header' },
+            order_value:           { type: 'money', scope: 'header' },
+            deposit_amount:        { type: 'money', scope: 'header' },
+            status:                 { type: 'select', scope: 'item' },
+            part_code:              { type: 'text', scope: 'item' },
+            part_name:               { type: 'text', scope: 'item' },
+            quantity:                { type: 'text', scope: 'item' },
+            order_type:              { type: 'text', scope: 'item' },
+            order_date:              { type: 'date', scope: 'item' },
+            expected_delivery_date:  { type: 'date', scope: 'item' },
+            customer_call_date:      { type: 'date', scope: 'item' },
+            actual_delivery_date:    { type: 'date', scope: 'item' },
+        };
+        const HEADER_FIELDS = Object.keys(FIELD_META).filter(f => FIELD_META[f].scope === 'header');
+        const ITEM_FIELDS = Object.keys(FIELD_META).filter(f => FIELD_META[f].scope === 'item');
+
         let currentPage = 1;
+        let requestsById = {};
+        let lastSignature = '';
+        let activeEdits = 0; // số ô đang mở sửa - tạm hoãn auto-refresh khi > 0
+        let draftRequest = makeDraft();
 
         document.addEventListener('DOMContentLoaded', () => {
-            const modalEl = document.getElementById('orderModal');
-            orderModal = new bootstrap.Modal(modalEl);
-            modalEl.addEventListener('shown.bs.modal', () => { isOrderModalOpen = true; });
-            modalEl.addEventListener('hidden.bs.modal', () => { isOrderModalOpen = false; });
-
+            renderDraft();
             loadOrders();
-            // Đổi bộ lọc/tìm kiếm -> luôn quay về trang 1 (kết quả lọc mới
-            // có thể ít/nhiều hơn hẳn, giữ nguyên số trang cũ sẽ dễ ra trang trống).
             document.getElementById('fSearch').addEventListener('keyup', e => { if (e.key === 'Enter') { currentPage = 1; loadOrders(); } });
             document.getElementById('fStatus').addEventListener('change', () => { currentPage = 1; loadOrders(); });
             const fStore = document.getElementById('fStore');
             if (fStore) fStore.addEventListener('change', () => { currentPage = 1; loadOrders(); });
 
-            // Tự động cập nhật: gọi lại loadOrders() định kỳ - KHÔNG tự tải
-            // lại khi đang mở modal thêm/sửa (tránh làm mất dữ liệu người
-            // dùng đang gõ dở) hoặc khi tab đang ẩn (đỡ tốn request vô ích).
+            // Sửa trực tiếp trên ô: 1 listener duy nhất, uỷ quyền theo click.
+            document.getElementById('ordersTable').addEventListener('click', e => {
+                const td = e.target.closest('td.editable');
+                if (td) beginEdit(td);
+            });
+
             setInterval(() => {
-                if (isOrderModalOpen) return;
-                if (document.hidden) return;
+                if (activeEdits > 0 || document.hidden) return;
                 loadOrders({ silent: true });
             }, AUTO_REFRESH_SECONDS * 1000);
-
-            // Khi người dùng quay lại tab (đổi tab trình duyệt rồi quay lại),
-            // cập nhật ngay thay vì đợi tới chu kỳ tiếp theo.
             document.addEventListener('visibilitychange', () => {
-                if (!document.hidden && !isOrderModalOpen) loadOrders({ silent: true });
+                if (!document.hidden && activeEdits === 0) loadOrders({ silent: true });
             });
         });
 
@@ -327,11 +328,22 @@
             loadOrders();
         }
 
+        /* ---------- Định dạng ---------- */
+        function escapeHtml(v) {
+            if (v === null || v === undefined) return '';
+            return String(v)
+                .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+        }
         function fmtMoney(v) {
             if (v === null || v === undefined || v === '') return '';
             return Number(v).toLocaleString('vi-VN');
         }
-
+        function fmtDate(iso) {           // 'YYYY-MM-DD' -> 'DD/MM/YYYY'
+            if (!iso) return '';
+            const p = String(iso).split('-');
+            return p.length === 3 ? `${p[2]}/${p[1]}/${p[0]}` : escapeHtml(iso);
+        }
         function statusBadgeClass(status) {
             const map = {
                 'Chưa đặt': 'bg-secondary',
@@ -343,14 +355,29 @@
             };
             return map[status] || 'bg-secondary';
         }
+        function fmtValue(field, v) {
+            const meta = FIELD_META[field];
+            if (meta.type === 'money') return fmtMoney(v);
+            if (meta.type === 'date') return fmtDate(v);
+            if (field === 'status') return `<span class="badge rounded-pill status ${statusBadgeClass(v)}">${escapeHtml(v)}</span>`;
+            return escapeHtml(v);
+        }
 
+        /* ---------- Tải + vẽ bảng ---------- */
         function updatePagerUI(total, page, pageSize) {
             const totalPages = Math.max(1, Math.ceil(total / pageSize));
             document.getElementById('pagerInfo').textContent =
                 total === 0 ? 'Không có đơn hàng nào.' :
-                `Trang ${page}/${totalPages} - tổng ${total.toLocaleString('vi-VN')} đơn hàng`;
+                `Trang ${page}/${totalPages} - tổng ${total.toLocaleString('vi-VN')} đơn`;
             document.getElementById('pagerPrev').disabled = page <= 1;
             document.getElementById('pagerNext').disabled = page >= totalPages;
+        }
+
+        function setTableMessage(html, cls) {
+            document.getElementById('ordersTable').querySelectorAll('tbody:not(#draftTbody)').forEach(t => t.remove());
+            document.getElementById('ordersTable').insertAdjacentHTML('beforeend',
+                `<tbody id="loadingTbody"><tr><td colspan="${COLS}" class="text-center ${cls} py-4">${html}</td></tr></tbody>`);
+            lastSignature = '';
         }
 
         async function loadOrders(opts = {}) {
@@ -365,34 +392,402 @@
             params.set('page', currentPage);
             params.set('page_size', PAGE_SIZE);
 
-            const tbody = document.getElementById('ordersBody');
-            // Tự động cập nhật ngầm (silent): giữ nguyên bảng đang hiển thị,
-            // chỉ thay dữ liệu khi có kết quả mới - tránh chớp về "Đang tải..."
-            // mỗi 15 giây gây khó chịu khi đang xem/đọc bảng.
-            if (!silent) {
-                tbody.innerHTML = '<tr><td colspan="15" class="text-center text-muted py-4">Đang tải...</td></tr>';
-            }
+            if (!silent) setTableMessage('Đang tải...', 'text-muted');
 
             try {
                 const res = await fetch('/api/orders?' + params.toString());
                 const json = await res.json();
                 if (!res.ok || !json.success) throw new Error(json.error || 'Lỗi tải dữ liệu');
-                renderRows(json.data);
+                const sig = JSON.stringify(json.data);
+                if (!(silent && sig === lastSignature)) {
+                    renderRequests(json.data);
+                    lastSignature = sig;
+                }
                 updatePagerUI(json.total ?? json.data.length, json.page ?? currentPage, json.page_size ?? PAGE_SIZE);
             } catch (e) {
-                if (!silent) {
-                    tbody.innerHTML = `<tr><td colspan="15" class="text-center text-danger py-4">${e.message}</td></tr>`;
-                }
-                // Lỗi khi tự động cập nhật ngầm: bỏ qua lặng lẽ, giữ nguyên
-                // dữ liệu cũ đang hiển thị, chờ chu kỳ sau thử lại.
+                if (!silent) setTableMessage(escapeHtml(e.message), 'text-danger');
             }
         }
 
+        // Tải lại đúng 1 yêu cầu (sau khi sửa/thêm/xoá 1 ô) thay vì tải lại cả
+        // trang - giữ nguyên vị trí cuộn, đúng như thao tác trên Google Sheets.
+        async function refreshRequest(rid) {
+            const res = await fetch('/api/orders?request_id=' + encodeURIComponent(rid) + '&page_size=1');
+            const json = await res.json();
+            if (!res.ok || !json.success) throw new Error(json.error || 'Lỗi tải lại dữ liệu');
+            const rq = json.data && json.data[0];
+            if (rq) {
+                requestsById[rq.request_id] = rq;
+                renderRequestInPlace(rq);
+            } else {
+                // Yêu cầu không còn tồn tại (đã bị xoá ở nơi khác) - bỏ khỏi bảng
+                delete requestsById[rid];
+                const old = document.getElementById('req-' + rid);
+                if (old) old.remove();
+            }
+        }
+
+        function renderRequests(list) {
+            requestsById = {};
+            document.getElementById('ordersTable').querySelectorAll('tbody:not(#draftTbody)').forEach(t => t.remove());
+            if (!list.length) {
+                setTableMessage('Chưa có đơn đặt hàng nào.', 'text-muted');
+                return;
+            }
+            list.forEach(rq => { requestsById[rq.request_id] = rq; });
+            document.getElementById('ordersTable').insertAdjacentHTML('beforeend', list.map(rq => renderRequest(rq)).join(''));
+        }
+
+        function renderRequestInPlace(rq) {
+            const html = renderRequest(rq);
+            const old = document.getElementById('req-' + rq.request_id);
+            if (old) {
+                old.outerHTML = html;
+            } else {
+                document.getElementById('draftTbody').insertAdjacentHTML('afterend', html);
+            }
+        }
+
+        function isUniform(items, f) {
+            const v0 = items[0][f] ?? null;
+            return items.every(it => (it[f] ?? null) === v0);
+        }
+
+        // 1 yêu cầu = 1 <tbody>. Giống Excel gốc:
+        //  - Ô của KHÁCH/XE (STT, ngày yêu cầu, tên, SĐT, xe...) luôn gộp dọc (rowspan).
+        //  - Ô Trạng thái, Giá trị đơn, Đặt cọc, Ngày PT về / gọi K/H / giao PT: gộp dọc
+        //    khi mọi mặt hàng có CÙNG giá trị; nếu khác nhau thì hiện riêng từng dòng.
+        //  - Mã hàng, tên hàng, SL, ngày đặt, loại đơn: luôn mỗi mặt hàng 1 dòng.
+        // Mọi ô hiển thị đều bấm-để-sửa (class "editable" + data-rid/data-field/data-scope/data-item).
+        function renderRequest(rq) {
+            const items = rq.items;
+            const n = items.length;
+            const rs = n > 1 ? ` rowspan="${n}"` : '';
+            const rid = escapeHtml(rq.request_id);
+
+            const stt = `<div class="stt">${escapeHtml(rq.seq_no)}</div>` +
+                (ROLE === 'admin' ? `<div class="stt-store">${escapeHtml(rq.store_code)}</div>` : '');
+            const actions = `<button class="btn btn-sm btn-outline-danger" title="Xoá cả đơn" onclick="deleteRequest('${rid}')"><i class="bi bi-trash"></i></button>`;
+
+            // Ô header, luôn gộp dọc cho cả đơn, bấm để sửa
+            const headerTd = (field, cls) =>
+                (i) => i === 0 ? `<td class="${cls} editable" data-rid="${rid}" data-field="${field}" data-scope="header"${rs}>${fmtValue(field, rq[field])}</td>` : '';
+            const plainSpan = (cls, html) => (i) => i === 0 ? `<td class="${cls}"${rs}>${html}</td>` : '';
+
+            // Ô có thể là header (order_value/deposit_amount) hoặc item (status, các
+            // ngày), gộp dọc khi mọi mặt hàng đang cùng giá trị, ngược lại 1 dòng/mặt hàng.
+            const flex = (field) => {
+                const meta = FIELD_META[field];
+                const uniform = n === 1 || isUniform(items, field);
+                const cls = field === 'status' ? 'c2' : 't-center';
+                return (it, i) => {
+                    const val = meta.scope === 'header' ? rq[field] : it[field];
+                    const itemAttr = meta.scope === 'header' ? '' : ` data-item="${it.id ?? ''}"`;
+                    if (uniform) {
+                        return i === 0 ? `<td class="${cls} editable" data-rid="${rid}" data-field="${field}" data-scope="${meta.scope}"${itemAttr}${rs}>${fmtValue(field, val)}</td>` : '';
+                    }
+                    return `<td class="${cls} editable" data-rid="${rid}" data-field="${field}" data-scope="${meta.scope}"${itemAttr}>${fmtValue(field, val)}</td>`;
+                };
+            };
+            const cStatus = flex('status');
+            const cValue = flex('order_value');
+            const cDeposit = flex('deposit_amount');
+            const cExpected = flex('expected_delivery_date');
+            const cCall = flex('customer_call_date');
+            const cActual = flex('actual_delivery_date');
+
+            // Ô riêng từng mặt hàng, không bao giờ gộp dọc
+            const itemTd = (field, cls, extra) => (it) =>
+                `<td class="${cls || ''} editable" data-rid="${rid}" data-field="${field}" data-scope="item" data-item="${it.id ?? ''}">${fmtValue(field, it[field])}${extra ? extra(it) : ''}</td>`;
+            const cPartCode = itemTd('part_code');
+            const cPartName = itemTd('part_name', 't-wrap', it => it.call_note ? ` <i class="bi bi-chat-left-text note-ico" title="${escapeHtml(it.call_note)}" onclick="event.stopPropagation()"></i>` : '');
+            const cQuantity = itemTd('quantity', 't-center');
+            const cOrderDate = itemTd('order_date', 't-center');
+            const cOrderType = itemTd('order_type');
+
+            const rows = items.map((it, i) => {
+                const isLast = i === n - 1;
+                const rowActions =
+                    (n > 1 ? `<button class="row-mini-btn danger" title="Xoá mặt hàng này" onclick="removeItemRow('${rid}','${it.id}')"><i class="bi bi-x-lg"></i></button>` : '') +
+                    (isLast ? `<button class="row-mini-btn" title="Thêm mặt hàng" onclick="addItemRow('${rid}')"><i class="bi bi-plus-lg"></i></button>` : '');
+                return '<tr>' +
+                    plainSpan('c1 t-center', stt)(i) +
+                    cStatus(it, i) +
+                    headerTd('customer_request_date', 'c3 t-center')(i) +
+                    headerTd('customer_name', 'c4')(i) +
+                    headerTd('customer_phone', '')(i) +
+                    headerTd('vehicle_type', '')(i) +
+                    headerTd('frame_number', '')(i) +
+                    headerTd('vehicle_color', 'col-sm')(i) +
+                    headerTd('vehicle_year', 'col-sm')(i) +
+                    cPartCode(it) +
+                    cPartName(it) +
+                    cQuantity(it) +
+                    `<td class="col-xs">${rowActions}</td>` +
+                    cValue(it, i) +
+                    cDeposit(it, i) +
+                    cOrderDate(it) +
+                    cOrderType(it) +
+                    cExpected(it, i) +
+                    cCall(it, i) +
+                    cActual(it, i) +
+                    plainSpan('c-act', actions)(i) +
+                    '</tr>';
+            });
+            return `<tbody class="req" id="req-${rid}">${rows.join('')}</tbody>`;
+        }
+
+        /* ---------- Sửa trực tiếp trên ô ---------- */
+        function beginEdit(td) {
+            if (td.classList.contains('editing')) return;
+            const rid = td.dataset.rid;
+            const scope = td.dataset.scope;
+            const field = td.dataset.field;
+            const itemId = td.dataset.item;
+            const rq = rid === '__draft__' ? draftRequest : requestsById[rid];
+            if (!rq) return;
+
+            let rawVal;
+            if (scope === 'header') rawVal = rq[field];
+            else { const it = rq.items.find(x => String(x.id ?? '') === String(itemId ?? '')); rawVal = it ? it[field] : ''; }
+            if (rawVal === null || rawVal === undefined) rawVal = '';
+
+            const meta = FIELD_META[field];
+            td.classList.add('editing');
+            activeEdits++;
+
+            let inputHtml;
+            if (meta.type === 'select') {
+                inputHtml = `<select class="cell-input">` +
+                    STATUS_OPTIONS.map(s => `<option value="${escapeHtml(s)}" ${s === rawVal ? 'selected' : ''}>${escapeHtml(s)}</option>`).join('') +
+                    `</select>`;
+            } else if (meta.type === 'date') {
+                inputHtml = `<input type="date" class="cell-input" value="${escapeHtml(rawVal)}">`;
+            } else if (meta.type === 'money') {
+                const shown = rawVal === '' || rawVal === null ? '' : Number(rawVal).toLocaleString('en-US');
+                inputHtml = `<input type="text" class="cell-input text-end" value="${escapeHtml(shown)}">`;
+            } else {
+                inputHtml = `<input type="text" class="cell-input" value="${escapeHtml(rawVal)}">`;
+            }
+            td.innerHTML = inputHtml;
+            const input = td.querySelector('.cell-input');
+            input.focus();
+            if (input.select) input.select();
+
+            let settled = false;
+            const cancel = () => {
+                if (settled) return;
+                settled = true;
+                activeEdits--;
+                renderCellOwner(rq);
+            };
+            const commit = async () => {
+                if (settled) return;
+                settled = true;
+                activeEdits--;
+                let newVal = input.value;
+                if (meta.type === 'money') {
+                    newVal = newVal.trim() === '' ? null : parseFloat(newVal.replace(/,/g, ''));
+                    if (newVal !== null && isNaN(newVal)) newVal = null;
+                } else if (meta.type === 'date') {
+                    newVal = newVal || null;
+                }
+                const before = rawVal === undefined ? null : rawVal;
+                const after = newVal === undefined ? null : newVal;
+                if (String(before ?? '') === String(after ?? '')) {
+                    renderCellOwner(rq); // không đổi gì - chỉ vẽ lại để thoát chế độ sửa
+                    return;
+                }
+                await applyEdit(rq, scope, field, itemId, newVal, td);
+            };
+
+            input.addEventListener('keydown', e => {
+                if (e.key === 'Enter') { e.preventDefault(); input.blur(); }
+                else if (e.key === 'Escape') { e.preventDefault(); cancel(); }
+            });
+            input.addEventListener('blur', commit);
+            if (meta.type === 'select') input.addEventListener('change', () => input.blur());
+        }
+
+        function renderCellOwner(rq) {
+            if (rq === draftRequest) renderDraft();
+            else renderRequestInPlace(rq);
+        }
+
+        async function applyEdit(rq, scope, field, itemId, newVal, td) {
+            if (scope === 'header') {
+                rq[field] = newVal;
+            } else {
+                const it = rq.items.find(x => String(x.id ?? '') === String(itemId ?? ''));
+                if (it) it[field] = newVal;
+            }
+
+            if (rq === draftRequest) {
+                // Dòng "thêm mới": chỉ thực sự lưu lên máy chủ khi đã có tên khách hàng.
+                if (!rq.customer_name || !rq.customer_name.trim()) {
+                    renderDraft();
+                    return;
+                }
+                try {
+                    await createRequest(rq);
+                    draftRequest = makeDraft();
+                    renderDraft();
+                    currentPage = 1;
+                    loadOrders();
+                } catch (e) {
+                    renderDraft();
+                    alert(e.message);
+                }
+                return;
+            }
+
+            const prev = JSON.parse(JSON.stringify(rq));
+            renderRequestInPlace(rq);
+            const savingTd = document.querySelector(`#req-${cssId(rq.request_id)} [data-field="${field}"]${scope === 'item' ? `[data-item="${itemId}"]` : ''}`);
+            if (savingTd) savingTd.classList.add('saving');
+            try {
+                await persistRequest(rq);
+                await refreshRequest(rq.request_id);
+            } catch (e) {
+                requestsById[rq.request_id] = prev;
+                renderRequestInPlace(prev);
+                alert('Lỗi lưu: ' + e.message);
+            }
+        }
+
+        function cssId(v) { return String(v).replace(/([^a-zA-Z0-9_-])/g, '\\$1'); }
+
+        function buildPayload(rq) {
+            const header = {};
+            HEADER_FIELDS.forEach(f => { header[f] = rq[f] ?? ''; });
+            const items = rq.items.map(it => {
+                const o = {};
+                if (it.id !== null && it.id !== undefined) o.id = it.id;
+                ITEM_FIELDS.forEach(f => { o[f] = it[f] ?? ''; });
+                return o;
+            });
+            return { header, items };
+        }
+
+        async function persistRequest(rq) {
+            const payload = buildPayload(rq);
+            payload.request_id = rq.request_id;
+            const res = await fetch('/api/orders/save', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload),
+            });
+            const json = await res.json();
+            if (!res.ok || !json.success) throw new Error(json.error || 'Lỗi lưu dữ liệu');
+            return json;
+        }
+
+        async function createRequest(rq) {
+            const payload = buildPayload(rq);
+            if (ROLE === 'admin') payload.store_code = rq.store_code;
+            const res = await fetch('/api/orders/save', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload),
+            });
+            const json = await res.json();
+            if (!res.ok || !json.success) throw new Error(json.error || 'Lỗi lưu dữ liệu');
+            return json;
+        }
+
+        /* ---------- Thêm / xoá mặt hàng ngay trong dòng ---------- */
+        function blankItem() {
+            return {
+                id: null, status: STATUS_OPTIONS[0], part_code: '', part_name: '', quantity: '',
+                order_type: '', order_date: null, expected_delivery_date: null,
+                customer_call_date: null, actual_delivery_date: null,
+            };
+        }
+
+        function addItemRow(rid) {
+            const rq = rid === '__draft__' ? draftRequest : requestsById[rid];
+            if (!rq) return;
+            rq.items.push(blankItem());
+            renderCellOwner(rq);
+            const sel = `${rid === '__draft__' ? '#draftTbody' : '#req-' + cssId(rid)} tr:last-child td[data-field="part_code"]`;
+            const td = document.querySelector(sel);
+            if (td) beginEdit(td);
+        }
+
+        async function removeItemRow(rid, itemId) {
+            const rq = requestsById[rid];
+            if (!rq || rq.items.length <= 1) return;
+            if (!confirm('Xoá mặt hàng này khỏi đơn?')) return;
+            const prev = JSON.parse(JSON.stringify(rq));
+            rq.items = rq.items.filter(it => String(it.id ?? '') !== String(itemId ?? ''));
+            renderRequestInPlace(rq);
+            try {
+                await persistRequest(rq);
+                await refreshRequest(rid);
+            } catch (e) {
+                requestsById[rid] = prev;
+                renderRequestInPlace(prev);
+                alert('Lỗi xoá: ' + e.message);
+            }
+        }
+
+        async function deleteRequest(rid) {
+            const rq = requestsById[rid];
+            const n = rq ? rq.items.length : 0;
+            const label = rq ? `"${rq.customer_name}" (${n} mặt hàng)` : 'này';
+            if (!confirm(`Xoá toàn bộ đơn đặt hàng của khách ${label}?`)) return;
+            try {
+                const res = await fetch('/api/orders/delete', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ request_id: rid }),
+                });
+                const json = await res.json();
+                if (!res.ok || !json.success) throw new Error(json.error || 'Lỗi xoá');
+                delete requestsById[rid];
+                const el = document.getElementById('req-' + rid);
+                if (el) el.remove();
+            } catch (e) {
+                alert(e.message);
+            }
+        }
+
+        /* ---------- Dòng "Thêm đơn mới" ghim đầu bảng ---------- */
+        function makeDraft() {
+            return {
+                request_id: null,
+                store_code: STORE_LIST && STORE_LIST.length ? STORE_LIST[0] : '',
+                seq_no: null,
+                customer_name: '', customer_phone: '', vehicle_type: '', frame_number: '',
+                vehicle_color: '', vehicle_year: '', customer_request_date: null,
+                order_value: null, deposit_amount: null,
+                items: [blankItem()],
+            };
+        }
+
+        function renderDraft() {
+            document.getElementById('draftTbody').innerHTML = renderRequest({ ...draftRequest, request_id: '__draft__' });
+            const sttTd = document.querySelector('#draftTbody tr:first-child td.c1');
+            if (sttTd) {
+                sttTd.classList.remove('editable');
+                sttTd.removeAttribute('data-field');
+                sttTd.innerHTML = ROLE === 'admin'
+                    ? `<div class="draft-badge mb-1">+ Mới</div><select class="draft-store-select" onchange="draftRequest.store_code=this.value">` +
+                      STORE_LIST.map(s => `<option value="${escapeHtml(s)}" ${s === draftRequest.store_code ? 'selected' : ''}>${escapeHtml(s)}</option>`).join('') +
+                      `</select>`
+                    : `<div class="draft-badge">+ Mới</div>`;
+            }
+            const actTd = document.querySelector('#draftTbody tr:first-child td.c-act');
+            if (actTd) actTd.innerHTML = '';
+        }
+
+        /* ---------- Nhập từ Excel (admin) ---------- */
         async function submitImport() {
             const storeSel = document.getElementById('imp_store_code');
             const fileInput = document.getElementById('imp_file');
             const resultBox = document.getElementById('importResult');
             const btn = document.getElementById('importSubmitBtn');
+            const replace = document.getElementById('imp_replace').checked;
 
             if (!storeSel.value) {
                 resultBox.innerHTML = '<span class="text-danger">Vui lòng chọn chi nhánh.</span>';
@@ -402,10 +797,12 @@
                 resultBox.innerHTML = '<span class="text-danger">Vui lòng chọn file Excel.</span>';
                 return;
             }
+            if (replace && !confirm(`Sẽ XOÁ TOÀN BỘ đơn hiện có của chi nhánh ${storeSel.value} rồi nhập lại từ Excel. Tiếp tục?`)) return;
 
             const fd = new FormData();
             fd.append('store_code', storeSel.value);
             fd.append('file', fileInput.files[0]);
+            if (replace) fd.append('replace', '1');
 
             btn.disabled = true;
             resultBox.innerHTML = '<span class="text-muted">Đang import, vui lòng đợi (file lớn có thể mất một chút thời gian)...</span>';
@@ -414,7 +811,7 @@
                 const res = await fetch('/api/orders/import', { method: 'POST', body: fd });
                 const json = await res.json();
                 if (!res.ok || !json.success) throw new Error(json.error || 'Lỗi import');
-                let html = `<span class="text-success">Đã import thành công ${json.inserted} đơn hàng.</span>`;
+                let html = `<span class="text-success">Đã import thành công ${json.inserted} mặt hàng (${json.requests} đơn).</span>`;
                 if (json.skipped) {
                     html += `<br><span class="text-warning">Bỏ qua ${json.skipped} dòng do thiếu Tên khách hàng` +
                         (json.skipped_rows_excel && json.skipped_rows_excel.length ?
@@ -422,177 +819,12 @@
                         `.</span>`;
                 }
                 resultBox.innerHTML = html;
-                currentPage = 1; // về trang đầu để thấy ngay dữ liệu vừa import
+                currentPage = 1;
                 loadOrders();
             } catch (e) {
-                resultBox.innerHTML = `<span class="text-danger">${e.message}</span>`;
+                resultBox.innerHTML = `<span class="text-danger">${escapeHtml(e.message)}</span>`;
             } finally {
                 btn.disabled = false;
-            }
-        }
-
-        function escapeHtml(v) {
-            if (v === null || v === undefined) return '';
-            return String(v)
-                .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-                .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
-        }
-
-        // Khoá nhóm: cùng khách hàng + cùng ngày đặt (order_date) coi là 1
-        // lần đặt hàng (dù có nhiều mã hàng khác nhau). Khác ngày đặt (kể cả
-        // cùng khách) -> tách nhóm riêng.
-        function groupKey(r) {
-            return `${r.customer_name || ''}__${r.order_date || ''}`;
-        }
-
-        function renderRows(rows) {
-            const tbody = document.getElementById('ordersBody');
-            if (!rows.length) {
-                tbody.innerHTML = '<tr><td colspan="15" class="text-center text-muted py-4">Chưa có đơn đặt hàng nào.</td></tr>';
-                return;
-            }
-            let prevKey = null;
-            tbody.innerHTML = rows.map(r => {
-                const key = groupKey(r);
-                // Dòng đầu tiên của 1 nhóm khách/ngày mới -> kẻ trên đậm để
-                // phân tách trực quan với nhóm trước; đồng thời hiển thị đủ
-                // tên/SĐT/xe. Các dòng tiếp theo trong CÙNG nhóm -> để trống
-                // các ô lặp lại (tên KH, SĐT, xe) cho đỡ rối mắt, giống cách
-                // Excel gốc gộp ô dọc.
-                const isGroupStart = key !== prevKey;
-                prevKey = key;
-                const rowClass = isGroupStart ? ' class="order-group-start"' : '';
-                const customerCell = isGroupStart ? escapeHtml(r.customer_name) : '';
-                const phoneCell = isGroupStart ? escapeHtml(r.customer_phone) : '';
-                const vehicleCell = isGroupStart ? escapeHtml([r.vehicle_type, r.vehicle_color].filter(Boolean).join(' - ')) : '';
-                return `
-                <tr${rowClass}>
-                    <td><span class="badge status-badge ${statusBadgeClass(r.status)}">${escapeHtml(r.status)}</span></td>
-                    ${ROLE === 'admin' ? `<td>${escapeHtml(r.store_code)}</td>` : ''}
-                    <td>${customerCell}</td>
-                    <td>${phoneCell}</td>
-                    <td>${vehicleCell}</td>
-                    <td class="cell-multiline">${escapeHtml(r.part_name)}</td>
-                    <td class="cell-multiline">${escapeHtml(r.part_code)}</td>
-                    <td>${fmtMoney(r.order_value)}</td>
-                    <td>${fmtMoney(r.deposit_amount)}</td>
-                    <td>${escapeHtml(r.po_code)}</td>
-                    <td>${escapeHtml(r.order_date)}</td>
-                    <td>${escapeHtml(r.expected_delivery_date)}</td>
-                    <td>${escapeHtml(r.actual_delivery_date)}</td>
-                    <td class="cell-multiline">${escapeHtml(r.call_note)}</td>
-                    <td class="text-nowrap">
-                        <button class="btn btn-sm btn-outline-primary" onclick='openEditModal(${JSON.stringify(r)})'><i class="bi bi-pencil"></i></button>
-                        <button class="btn btn-sm btn-outline-danger" onclick="deleteOrder(${r.id})"><i class="bi bi-trash"></i></button>
-                    </td>
-                </tr>
-            `;
-            }).join('');
-        }
-
-        function resetForm() {
-            document.getElementById('orderFormError').textContent = '';
-            ['id', 'customer_name', 'customer_phone', 'customer_address', 'vehicle_type',
-             'vehicle_color', 'license_plate', 'frame_number', 'part_code', 'part_name',
-             'order_value', 'deposit_amount', 'po_code', 'customer_request_date', 'order_date',
-             'expected_delivery_date', 'actual_delivery_date', 'customer_call_date', 'call_note'
-            ].forEach(f => { const el = document.getElementById('f_' + f); if (el) el.value = ''; });
-            document.getElementById('f_status').value = document.getElementById('f_status').options[0].value;
-        }
-
-        function openAddModal() {
-            resetForm();
-            document.getElementById('orderModalTitle').textContent = 'Thêm Đơn Đặt Hàng';
-            orderModal.show();
-        }
-
-        function openEditModal(r) {
-            resetForm();
-            document.getElementById('orderModalTitle').textContent = 'Sửa Đơn Đặt Hàng';
-            document.getElementById('f_id').value = r.id;
-            document.getElementById('f_status').value = r.status || '';
-            const storeSel = document.getElementById('f_store_code');
-            if (storeSel) storeSel.value = r.store_code || '';
-            document.getElementById('f_customer_name').value = r.customer_name || '';
-            document.getElementById('f_customer_phone').value = r.customer_phone || '';
-            document.getElementById('f_customer_address').value = r.customer_address || '';
-            document.getElementById('f_vehicle_type').value = r.vehicle_type || '';
-            document.getElementById('f_vehicle_color').value = r.vehicle_color || '';
-            document.getElementById('f_license_plate').value = r.license_plate || '';
-            document.getElementById('f_frame_number').value = r.frame_number || '';
-            document.getElementById('f_part_code').value = r.part_code || '';
-            document.getElementById('f_part_name').value = r.part_name || '';
-            document.getElementById('f_order_value').value = r.order_value ?? '';
-            document.getElementById('f_deposit_amount').value = r.deposit_amount ?? '';
-            document.getElementById('f_po_code').value = r.po_code || '';
-            document.getElementById('f_customer_request_date').value = r.customer_request_date || '';
-            document.getElementById('f_order_date').value = r.order_date || '';
-            document.getElementById('f_expected_delivery_date').value = r.expected_delivery_date || '';
-            document.getElementById('f_actual_delivery_date').value = r.actual_delivery_date || '';
-            document.getElementById('f_customer_call_date').value = r.customer_call_date || '';
-            document.getElementById('f_call_note').value = r.call_note || '';
-            orderModal.show();
-        }
-
-        async function saveOrder() {
-            const id = document.getElementById('f_id').value;
-            const payload = {
-                status: document.getElementById('f_status').value,
-                customer_name: document.getElementById('f_customer_name').value,
-                customer_phone: document.getElementById('f_customer_phone').value,
-                customer_address: document.getElementById('f_customer_address').value,
-                vehicle_type: document.getElementById('f_vehicle_type').value,
-                vehicle_color: document.getElementById('f_vehicle_color').value,
-                license_plate: document.getElementById('f_license_plate').value,
-                frame_number: document.getElementById('f_frame_number').value,
-                part_code: document.getElementById('f_part_code').value,
-                part_name: document.getElementById('f_part_name').value,
-                order_value: document.getElementById('f_order_value').value,
-                deposit_amount: document.getElementById('f_deposit_amount').value,
-                po_code: document.getElementById('f_po_code').value,
-                customer_request_date: document.getElementById('f_customer_request_date').value,
-                order_date: document.getElementById('f_order_date').value,
-                expected_delivery_date: document.getElementById('f_expected_delivery_date').value,
-                actual_delivery_date: document.getElementById('f_actual_delivery_date').value,
-                customer_call_date: document.getElementById('f_customer_call_date').value,
-                call_note: document.getElementById('f_call_note').value,
-            };
-            const storeSel = document.getElementById('f_store_code');
-            if (storeSel) payload.store_code = storeSel.value;
-
-            if (id) payload.id = parseInt(id, 10);
-
-            const url = id ? '/api/orders/update' : '/api/orders/save';
-            const errEl = document.getElementById('orderFormError');
-            errEl.textContent = '';
-            try {
-                const res = await fetch(url, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(payload),
-                });
-                const json = await res.json();
-                if (!res.ok || !json.success) throw new Error(json.error || 'Lỗi lưu dữ liệu');
-                orderModal.hide();
-                loadOrders();
-            } catch (e) {
-                errEl.textContent = e.message;
-            }
-        }
-
-        async function deleteOrder(id) {
-            if (!confirm('Xoá đơn đặt hàng này?')) return;
-            try {
-                const res = await fetch('/api/orders/delete', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ id }),
-                });
-                const json = await res.json();
-                if (!res.ok || !json.success) throw new Error(json.error || 'Lỗi xoá');
-                loadOrders();
-            } catch (e) {
-                alert(e.message);
             }
         }
     </script>

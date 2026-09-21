@@ -1972,7 +1972,8 @@
         <h6 class="fw-bold mb-2"><i class="bi bi-file-earmark-arrow-up-fill me-2 text-primary"></i>Nhập Bảng Giá Từ Excel</h6>
         <div class="small text-muted mb-3">
             Chọn đúng file gốc dạng "BẢNG GIÁ BỘ ÁO XE HONDA" (sheet "Bô nhựa các đời xe"). Mỗi lần nhập sẽ
-            <strong>THAY THẾ TOÀN BỘ</strong> dữ liệu cũ bằng dữ liệu trong file mới - hãy chắc chắn dùng
+            <strong>THAY THẾ</strong> toàn bộ dữ liệu nhập từ Excel trước đó bằng dữ liệu trong file mới
+            (các bộ áo <strong>thêm thủ công được giữ nguyên</strong>) - hãy chắc chắn dùng
             đúng file mới nhất trước khi nhập.
         </div>
         <div class="d-flex flex-wrap align-items-center gap-2">
@@ -2005,7 +2006,12 @@
     <div class="card card-custom p-3 mb-3 mb-md-4">
         <div class="d-flex flex-wrap justify-content-between align-items-center mb-3 gap-2">
             <h5 class="mb-0"><i class="bi bi-palette-fill me-2 text-primary"></i>Bảng Giá Bộ Áo Xe Honda</h5>
-            <span class="text-muted small" id="bodyKitVisibleCount"></span>
+            <div class="d-flex align-items-center gap-2">
+                <span class="text-muted small" id="bodyKitVisibleCount"></span>
+                <button type="button" class="btn btn-success btn-sm" onclick="openBodyKitForm()">
+                    <i class="bi bi-plus-circle-fill me-1"></i>Thêm Bộ Áo
+                </button>
+            </div>
         </div>
         <input type="text" class="form-control form-control-sm mb-3" placeholder="Tìm theo đời xe, màu, mã model hoặc mã/tên phụ tùng..."
                id="bodyKitSearchInput" oninput="debouncedLoadBodyKitGroups()">
@@ -2056,6 +2062,19 @@
                             <div class="small text-muted">Tổng tiền mã hàng đã chọn (<span id="bodyKitSelectedCount">0</span>)</div>
                             <div class="fw-bold text-primary fs-5" id="bodyKitSelectedSum">0 đ</div>
                         </div>
+                        <div class="d-flex flex-wrap align-items-center gap-2 mt-2">
+                            <span class="badge bg-info-subtle text-info-emphasis" id="bodyKitManualBadge" style="display:none;">
+                                <i class="bi bi-pencil-square me-1"></i>Thêm thủ công<span id="bodyKitManualBy"></span>
+                            </span>
+                            <span id="bodyKitManualActions" style="display:none;">
+                                <button type="button" class="btn btn-outline-primary btn-sm" onclick="editBodyKitFromDetail()">
+                                    <i class="bi bi-pencil me-1"></i>Sửa
+                                </button>
+                                <button type="button" class="btn btn-outline-danger btn-sm" onclick="deleteBodyKitFromDetail()">
+                                    <i class="bi bi-trash me-1"></i>Xoá
+                                </button>
+                            </span>
+                        </div>
                     </div>
                 </div>
                 <div class="table-responsive">
@@ -2084,6 +2103,100 @@
         </div>
     </div>
 </div>
+
+       {% if role == 'admin' or role == 'store' %}
+<!-- Modal THÊM / SỬA bộ áo thủ công (admin + cửa hàng). Bộ áo thêm ở đây KHÔNG bị
+     xoá khi admin nhập lại file Excel. -->
+<div class="modal fade" id="bodyKitFormModal" tabindex="-1" data-bs-backdrop="static">
+    <div class="modal-dialog modal-xl modal-dialog-scrollable">
+        <div class="modal-content border-0 shadow">
+            <div class="modal-header bg-success text-white">
+                <h5 class="modal-title fw-bold fs-6" id="bodyKitFormTitle">Thêm Bộ Áo</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body p-3 p-md-4">
+                <input type="hidden" id="bkfId">
+                <div class="row g-3 mb-3">
+                    <div class="col-12 col-md-8">
+                        <label class="form-label small fw-semibold mb-1">Tên bộ áo (đời xe + màu) <span class="text-danger">*</span></label>
+                        <input type="text" class="form-control form-control-sm" id="bkfLabel" maxlength="300"
+                               placeholder="VD: Air Blade 125 2023 màu Đen - NH436">
+                    </div>
+                    <div class="col-6 col-md-2">
+                        <label class="form-label small fw-semibold mb-1">Mã model</label>
+                        <input type="text" class="form-control form-control-sm" id="bkfModel" maxlength="50" placeholder="VD: M3">
+                    </div>
+                    <div class="col-6 col-md-2">
+                        <label class="form-label small fw-semibold mb-1">Năm</label>
+                        <input type="number" class="form-control form-control-sm" id="bkfYear" min="1950" max="2100" placeholder="2023">
+                    </div>
+                    <div class="col-12 col-md-6">
+                        <label class="form-label small fw-semibold mb-1">Dòng xe (menu)</label>
+                        <input type="text" class="form-control form-control-sm" id="bkfFamily" maxlength="100"
+                               list="bkfFamilyList" placeholder="Chọn dòng xe có sẵn hoặc gõ tên mới">
+                        <datalist id="bkfFamilyList"></datalist>
+                        <div class="form-text small">Để trống: hệ thống tự tra theo mã model, hoặc đoán từ tên bộ áo.</div>
+                    </div>
+                    <div class="col-12 col-md-6">
+                        <label class="form-label small fw-semibold mb-1">Ảnh minh hoạ (tuỳ chọn)</label>
+                        <div class="d-flex align-items-center gap-2">
+                            <input type="file" class="form-control form-control-sm" id="bkfImage" accept="image/png,image/jpeg,image/gif,image/webp" onchange="bkfImageChosen(this)">
+                            <img id="bkfImagePreview" src="" alt="" class="rounded border" style="display:none; height:48px; width:64px; object-fit:contain;">
+                        </div>
+                        <div class="form-check mt-1" id="bkfRemoveImageWrap" style="display:none;">
+                            <input class="form-check-input" type="checkbox" id="bkfRemoveImage">
+                            <label class="form-check-label small" for="bkfRemoveImage">Xoá ảnh hiện tại</label>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-2">
+                    <h6 class="fw-bold mb-0">Danh sách phụ tùng <span class="text-muted fw-normal small" id="bkfPartCount"></span></h6>
+                    <div class="d-flex gap-2">
+                        <button type="button" class="btn btn-outline-secondary btn-sm" onclick="bkfToggleBulk()">
+                            <i class="bi bi-clipboard-plus me-1"></i>Dán nhiều mã
+                        </button>
+                        <button type="button" class="btn btn-outline-success btn-sm" onclick="addBodyKitFormRow().querySelector('.bkf-code').focus()">
+                            <i class="bi bi-plus-lg me-1"></i>Thêm dòng
+                        </button>
+                    </div>
+                </div>
+                <div id="bkfBulkBox" class="border rounded-3 p-2 mb-2 bg-light" style="display:none;">
+                    <div class="small text-muted mb-1">Dán danh sách mã hàng (mỗi mã 1 dòng, hoặc cách nhau bằng dấu phẩy/khoảng trắng). Tên hàng + giá bán sẽ tự điền theo dữ liệu hệ thống.</div>
+                    <textarea class="form-control form-control-sm" id="bkfBulkText" rows="4"></textarea>
+                    <button type="button" class="btn btn-primary btn-sm mt-2" onclick="bkfBulkAdd()">Thêm các mã này</button>
+                </div>
+                <div class="table-responsive">
+                    <table class="table table-sm align-middle mb-0 small">
+                        <thead>
+                            <tr>
+                                <th style="width:40px;">#</th>
+                                <th>Mã hàng *</th>
+                                <th>Tên hàng</th>
+                                <th>Thay thế</th>
+                                <th>Giá gốc (tuỳ chọn)</th>
+                                <th>Ghi chú</th>
+                                <th style="width:44px;"></th>
+                            </tr>
+                        </thead>
+                        <tbody id="bkfPartsBody"></tbody>
+                    </table>
+                </div>
+                <div class="form-text small mt-2">
+                    Cột "Giá bán hiện tại" và "Tồn hiện tại" trong bảng chi tiết luôn lấy theo dữ liệu hệ thống; "Giá gốc" chỉ để tham khảo, có thể bỏ trống.
+                </div>
+            </div>
+            <div class="modal-footer">
+                <span class="small text-muted me-auto" id="bkfStatus"></span>
+                <button type="button" class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">Huỷ</button>
+                <button type="button" class="btn btn-success btn-sm" id="bkfSaveBtn" onclick="saveBodyKitForm()">
+                    <i class="bi bi-check-lg me-1"></i>Lưu Bộ Áo
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endif %}
 
        {% if role == 'admin' %}
 <!-- LOCATION PANE (Vị Trí Hàng Hóa) -->
@@ -4708,7 +4821,7 @@
             <button type="button" class="bodykit-family-btn ${_bodyKitSelectedFamily === f.family ? 'active' : ''}"
                     onclick="selectBodyKitFamily(${escapeHtmlAttr(JSON.stringify(f.family))})">
                 <span class="bk-icon">🏍️</span>
-                <span class="bk-name">${escapeHtmlAttr(f.family)}</span>
+                <span class="bk-name">${_bkEsc(f.family)}</span>
                 <span class="bk-count">${f.group_count}</span>
             </button>
         `).join('');
@@ -4772,8 +4885,9 @@
                         ${g.image_url
                             ? `<div class="w-100 rounded-3 mb-2 bg-light" style="height:120px;"><img src="${g.image_url}" class="w-100 h-100 rounded-3" style="object-fit:contain;" loading="lazy"></div>`
                             : `<div class="w-100 rounded-3 mb-2 bg-light d-flex align-items-center justify-content-center text-muted" style="height:120px;"><i class="bi bi-image fs-2"></i></div>`}
-                        <div class="small fw-semibold" style="line-height:1.3;">${escapeHtmlAttr(g.group_label)}</div>
-                        <div class="small text-muted">${g.model_code || ''} · ${g.part_count} phụ tùng</div>
+                        <div class="small fw-semibold" style="line-height:1.3;">${_bkEsc(g.group_label)}</div>
+                        <div class="small text-muted">${_bkEsc(g.model_code || '')} · ${g.part_count} phụ tùng
+                            ${g.is_manual ? '<span class="badge bg-info-subtle text-info-emphasis ms-1">Thủ công</span>' : ''}</div>
                     </div>
                 </div>
             `).join('');
@@ -4885,7 +4999,10 @@
 
     async function openBodyKitDetail(groupId) {
         const modalEl = document.getElementById('bodyKitDetailModal');
-        new bootstrap.Modal(modalEl).show();
+        bootstrap.Modal.getOrCreateInstance(modalEl).show();
+        _bodyKitCurrentGroup = null;
+        document.getElementById('bodyKitManualBadge').style.display = 'none';
+        document.getElementById('bodyKitManualActions').style.display = 'none';
 
         document.getElementById('bodyKitDetailTitle').innerText = 'Đang tải...';
         document.getElementById('bodyKitDetailParts').innerHTML =
@@ -4907,6 +5024,11 @@
 
             document.getElementById('bodyKitDetailTitle').innerText = g.group_label;
             document.getElementById('bodyKitDetailModel').innerText = g.model_code || '—';
+
+            _bodyKitCurrentGroup = g;
+            document.getElementById('bodyKitManualBadge').style.display = g.is_manual ? '' : 'none';
+            document.getElementById('bodyKitManualBy').innerText = (g.is_manual && g.created_by) ? ` · ${g.created_by}` : '';
+            document.getElementById('bodyKitManualActions').style.display = g.can_edit ? '' : 'none';
 
             const imgWrap = document.getElementById('bodyKitDetailImageWrap');
             const img = document.getElementById('bodyKitDetailImage');
@@ -4945,12 +5067,12 @@
                     <tr>
                         <td><input type="checkbox" class="bodyKitPartCheck" data-price="${priceForSum}" onchange="updateBodyKitSelectedSum()"></td>
                         <td>${p.seq ?? ''}</td>
-                        <td><span class="part-code">${escapeHtmlAttr(p.part_code || '')}</span></td>
-                        <td>${p.part_name || ''}</td>
-                        <td class="text-muted">${p.replacement_code || ''}</td>
+                        <td><span class="part-code">${_bkEsc(p.part_code || '')}</span></td>
+                        <td>${_bkEsc(p.part_name || '')}</td>
+                        <td class="text-muted">${_bkEsc(p.replacement_code || '')}</td>
                         <td class="text-end">${priceCellHtml(p)}</td>
                         <td class="text-end">${p.current_stock != null ? p.current_stock : '<span class="text-muted">—</span>'}</td>
-                        <td class="text-muted">${p.note || ''}</td>
+                        <td class="text-muted">${_bkEsc(p.note || '')}</td>
                     </tr>
                 `;
                 }).join('');
@@ -4964,6 +5086,317 @@
         }
     }
 
+    // ------------------------------------------------------------------
+    // THÊM / SỬA / XOÁ BỘ ÁO THỦ CÔNG (admin + cửa hàng đều thêm được).
+    // - Bộ áo thêm ở đây (is_manual) KHÔNG bị xoá khi admin nhập lại Excel.
+    // - Sửa/xoá: admin được mọi bộ áo thủ công; cửa hàng chỉ bộ áo do chính
+    //   tài khoản mình tạo (server quyết định, trả về g.can_edit).
+    // - Mọi chuỗi người dùng nhập đều phải qua _bkEsc() trước khi đưa vào
+    //   innerHTML (chống stored XSS).
+    // ------------------------------------------------------------------
+    let _bodyKitCurrentGroup = null;
+    let _bkfImageBlob = null;   // ảnh đã thu nhỏ, sẵn sàng gửi lên (null = không đổi ảnh)
+
+    function _bkEsc(s) {
+        return String(s == null ? '' : s)
+            .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+    }
+
+    function _bkParseMoney(v) {
+        const digits = String(v == null ? '' : v).replace(/[^\d]/g, '');
+        return digits ? Number(digits) : null;
+    }
+
+    function bkfFormatMoney(el) {
+        const n = _bkParseMoney(el.value);
+        el.value = n == null ? '' : n.toLocaleString('vi-VN');
+    }
+
+    function bkfRenumber() {
+        const rows = document.querySelectorAll('#bkfPartsBody tr');
+        rows.forEach((tr, i) => { tr.querySelector('.bkf-seq').innerText = i + 1; });
+        const cnt = document.getElementById('bkfPartCount');
+        if (cnt) cnt.innerText = rows.length ? `(${rows.length} dòng)` : '';
+    }
+
+    function addBodyKitFormRow(p) {
+        p = p || {};
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+            <td class="text-muted bkf-seq"></td>
+            <td style="min-width:170px;">
+                <input type="text" class="form-control form-control-sm bkf-code" maxlength="100"
+                       placeholder="Mã hàng" value="${_bkEsc(p.part_code)}" onchange="bkfLookupRows([this.closest('tr')])">
+                <div class="bkf-hint small mt-1"></div>
+            </td>
+            <td style="min-width:220px;"><input type="text" class="form-control form-control-sm bkf-name" maxlength="500" value="${_bkEsc(p.part_name)}"></td>
+            <td style="min-width:110px;"><input type="text" class="form-control form-control-sm bkf-repl" maxlength="255" value="${_bkEsc(p.replacement_code)}"></td>
+            <td style="min-width:130px;"><input type="text" inputmode="numeric" class="form-control form-control-sm bkf-honda text-end"
+                       oninput="bkfFormatMoney(this)" value="${p.honda_price != null ? Math.round(p.honda_price).toLocaleString('vi-VN') : ''}"></td>
+            <td style="min-width:150px;"><input type="text" class="form-control form-control-sm bkf-note" maxlength="500" value="${_bkEsc(p.note)}"></td>
+            <td><button type="button" class="btn btn-sm btn-outline-danger" title="Xoá dòng" onclick="removeBodyKitFormRow(this)"><i class="bi bi-x-lg"></i></button></td>`;
+        document.getElementById('bkfPartsBody').appendChild(tr);
+        bkfRenumber();
+        return tr;
+    }
+
+    function removeBodyKitFormRow(btn) {
+        btn.closest('tr').remove();
+        bkfRenumber();
+    }
+
+    // Tra mã hàng trong hệ thống (tên hàng, giá bán, tồn) -> tự điền tên nếu ô
+    // tên đang trống, chuẩn hoá mã về đúng dạng đang lưu, cảnh báo mã lạ.
+    async function bkfLookupRows(rows) {
+        const codeOf = r => r.querySelector('.bkf-code').value.trim();
+        const codes = [...new Set(rows.map(codeOf).filter(Boolean))];
+        rows.forEach(r => { r.querySelector('.bkf-hint').innerHTML = codeOf(r) ? '<span class="text-muted">Đang tra...</span>' : ''; });
+        if (!codes.length) return;
+        try {
+            const res = await fetch('/api/body-kit/part-lookup', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ codes })
+            });
+            const json = await res.json();
+            if (!json.success) throw new Error(json.error || 'lookup failed');
+            rows.forEach(r => {
+                const codeEl = r.querySelector('.bkf-code');
+                const hint = r.querySelector('.bkf-hint');
+                const code = codeEl.value.trim();
+                if (!code) { hint.innerHTML = ''; return; }
+                const info = json.data[code.toUpperCase()];
+                if (!info) {
+                    hint.innerHTML = '<span class="text-warning-emphasis">⚠ Chưa có trong hệ thống - kiểm tra lại mã</span>';
+                    return;
+                }
+                codeEl.value = info.part_code;
+                const nameEl = r.querySelector('.bkf-name');
+                if (!nameEl.value.trim() && info.part_name) nameEl.value = info.part_name;
+                const bits = [info.sale_price != null ? 'Giá bán: ' + _fmtVnd(info.sale_price) : 'Chưa có giá bán'];
+                if (info.stock != null) bits.push('Tồn: ' + info.stock);
+                hint.innerHTML = `<span class="text-success">${_bkEsc(bits.join(' · '))}</span>`;
+            });
+        } catch (err) {
+            console.error('Lỗi bkfLookupRows:', err);
+            rows.forEach(r => { r.querySelector('.bkf-hint').innerHTML = ''; });
+        }
+    }
+
+    function bkfToggleBulk() {
+        const box = document.getElementById('bkfBulkBox');
+        box.style.display = box.style.display === 'none' ? '' : 'none';
+    }
+
+    function bkfBulkAdd() {
+        const textEl = document.getElementById('bkfBulkText');
+        const existing = new Set([...document.querySelectorAll('#bkfPartsBody .bkf-code')]
+            .map(i => i.value.trim().toUpperCase()).filter(Boolean));
+        const codes = textEl.value.split(/[\s,;]+/).map(c => c.trim()).filter(Boolean);
+        if (codes.some(c => !existing.has(c.toUpperCase()))) {
+            // Bỏ các dòng còn trống hoàn toàn (vd dòng trắng mặc định lúc mở form) cho gọn.
+            document.querySelectorAll('#bkfPartsBody tr').forEach(tr => {
+                const isEmpty = ['.bkf-code', '.bkf-name', '.bkf-repl', '.bkf-honda', '.bkf-note']
+                    .every(sel => !tr.querySelector(sel).value.trim());
+                if (isEmpty) tr.remove();
+            });
+        }
+        const newRows = [];
+        codes.forEach(c => {
+            const key = c.toUpperCase();
+            if (existing.has(key)) return;
+            existing.add(key);
+            newRows.push(addBodyKitFormRow({ part_code: c }));
+        });
+        textEl.value = '';
+        if (newRows.length) bkfLookupRows(newRows);
+        else alert('Không có mã mới nào để thêm (trống hoặc đã có trong bảng).');
+    }
+
+    // Thu nhỏ ảnh ở trình duyệt (ảnh chụp điện thoại thường 3-8MB) - tối đa
+    // 1200px cạnh dài, JPEG chất lượng 0.85; server giới hạn 3MB.
+    function bkfImageChosen(input) {
+        _bkfImageBlob = null;
+        const prev = document.getElementById('bkfImagePreview');
+        const file = input.files && input.files[0];
+        if (!file) { prev.style.display = 'none'; return; }
+        if (!file.type.startsWith('image/')) {
+            alert('Vui lòng chọn file ảnh.');
+            input.value = '';
+            prev.style.display = 'none';
+            return;
+        }
+        const url = URL.createObjectURL(file);
+        const img = new Image();
+        img.onload = () => {
+            const MAX = 1200;
+            const scale = Math.min(1, MAX / Math.max(img.width, img.height));
+            if (scale === 1 && file.size <= 1024 * 1024) {
+                _bkfImageBlob = file;   // ảnh đã nhỏ: giữ nguyên
+            } else {
+                const canvas = document.createElement('canvas');
+                canvas.width = Math.round(img.width * scale);
+                canvas.height = Math.round(img.height * scale);
+                const ctx = canvas.getContext('2d');
+                ctx.fillStyle = '#fff';               // nền trắng cho ảnh PNG trong suốt
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+                ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+                canvas.toBlob(b => { _bkfImageBlob = b || file; }, 'image/jpeg', 0.85);
+            }
+            prev.src = url;
+            prev.style.display = '';
+        };
+        img.onerror = () => {
+            alert('Không đọc được ảnh này.');
+            input.value = '';
+            prev.style.display = 'none';
+        };
+        img.src = url;
+    }
+
+    async function openBodyKitForm(groupId) {
+        const modalEl = document.getElementById('bodyKitFormModal');
+        document.getElementById('bkfId').value = groupId || '';
+        document.getElementById('bodyKitFormTitle').innerText = groupId ? 'Sửa Bộ Áo' : 'Thêm Bộ Áo';
+        ['bkfLabel', 'bkfModel', 'bkfYear', 'bkfFamily', 'bkfBulkText'].forEach(id => { document.getElementById(id).value = ''; });
+        document.getElementById('bkfImage').value = '';
+        document.getElementById('bkfImagePreview').style.display = 'none';
+        document.getElementById('bkfRemoveImage').checked = false;
+        document.getElementById('bkfRemoveImageWrap').style.display = 'none';
+        document.getElementById('bkfBulkBox').style.display = 'none';
+        document.getElementById('bkfPartsBody').innerHTML = '';
+        document.getElementById('bkfStatus').innerText = '';
+        _bkfImageBlob = null;
+
+        // Gợi ý dòng xe có sẵn (từ menu) cho ô "Dòng xe".
+        if (!_bodyKitMenuCache) await loadBodyKitMenu();
+        document.getElementById('bkfFamilyList').innerHTML = (_bodyKitMenuCache || [])
+            .filter(f => f.family !== 'Khác')
+            .map(f => `<option value="${_bkEsc(f.family)}"></option>`).join('');
+
+        if (!groupId) {
+            addBodyKitFormRow();
+            bootstrap.Modal.getOrCreateInstance(modalEl).show();
+            return;
+        }
+        try {
+            const res = await fetch(`/api/body-kit/groups/${groupId}`);
+            const json = await res.json();
+            if (!json.success) { alert(json.error || 'Không tải được bộ áo để sửa.'); return; }
+            const g = json.data;
+            document.getElementById('bkfLabel').value = g.group_label || '';
+            document.getElementById('bkfModel').value = g.model_code || '';
+            document.getElementById('bkfYear').value = g.year || '';
+            document.getElementById('bkfFamily').value = g.vehicle_family || '';
+            if (g.image_url) {
+                const prev = document.getElementById('bkfImagePreview');
+                prev.src = g.image_url;
+                prev.style.display = '';
+                document.getElementById('bkfRemoveImageWrap').style.display = '';
+            }
+            (g.parts || []).forEach(p => addBodyKitFormRow(p));
+            if (!g.parts || !g.parts.length) addBodyKitFormRow();
+            bootstrap.Modal.getOrCreateInstance(modalEl).show();
+            bkfLookupRows([...document.querySelectorAll('#bkfPartsBody tr')]);
+        } catch (err) {
+            console.error('Lỗi openBodyKitForm:', err);
+            alert('Lỗi kết nối máy chủ.');
+        }
+    }
+
+    async function saveBodyKitForm() {
+        const id = document.getElementById('bkfId').value;
+        const label = document.getElementById('bkfLabel').value.trim();
+        if (!label) { alert('Vui lòng nhập tên bộ áo (đời xe + màu).'); return; }
+
+        const parts = [];
+        const seen = new Map();
+        const rows = [...document.querySelectorAll('#bkfPartsBody tr')];
+        for (let i = 0; i < rows.length; i++) {
+            const tr = rows[i];
+            const code = tr.querySelector('.bkf-code').value.trim();
+            const name = tr.querySelector('.bkf-name').value.trim();
+            const repl = tr.querySelector('.bkf-repl').value.trim();
+            const note = tr.querySelector('.bkf-note').value.trim();
+            const honda = _bkParseMoney(tr.querySelector('.bkf-honda').value);
+            if (!code && !name && !repl && !note && honda == null) continue;   // dòng trống
+            if (!code) { alert(`Dòng ${i + 1}: thiếu mã hàng.`); return; }
+            const key = code.toUpperCase();
+            if (seen.has(key)) { alert(`Mã hàng "${code}" bị trùng (dòng ${seen.get(key)} và dòng ${i + 1}).`); return; }
+            seen.set(key, i + 1);
+            parts.push({ part_code: code, part_name: name, replacement_code: repl, honda_price: honda, note });
+        }
+        if (!parts.length) { alert('Bộ áo cần có ít nhất 1 phụ tùng.'); return; }
+
+        const fd = new FormData();
+        fd.append('group_label', label);
+        fd.append('model_code', document.getElementById('bkfModel').value.trim());
+        fd.append('vehicle_family', document.getElementById('bkfFamily').value.trim());
+        fd.append('year', document.getElementById('bkfYear').value.trim());
+        fd.append('parts', JSON.stringify(parts));
+        if (_bkfImageBlob) fd.append('image', _bkfImageBlob, 'image.jpg');
+        if (document.getElementById('bkfRemoveImage').checked) fd.append('remove_image', '1');
+
+        const btn = document.getElementById('bkfSaveBtn');
+        const status = document.getElementById('bkfStatus');
+        btn.disabled = true;
+        status.innerText = 'Đang lưu...';
+        try {
+            const res = await fetch(id ? `/api/body-kit/groups/${id}` : '/api/body-kit/groups',
+                                    { method: id ? 'PUT' : 'POST', body: fd });
+            const json = await res.json();
+            if (!json.success) {
+                status.innerText = '';
+                alert(json.error || 'Lưu bộ áo thất bại.');
+                return;
+            }
+            bootstrap.Modal.getOrCreateInstance(document.getElementById('bodyKitFormModal')).hide();
+            // Chuyển thẳng tới dòng xe của bộ áo vừa lưu để người dùng thấy ngay.
+            _bodyKitMenuCache = null;
+            _bodyKitSelectedFamily = json.vehicle_family || null;
+            _bodyKitSelectedSubModel = null;
+            const searchEl = document.getElementById('bodyKitSearchInput');
+            if (searchEl) searchEl.value = '';
+            renderBodyKitMenuVisibility();
+            await loadBodyKitMenu();
+            loadBodyKitGroups();
+        } catch (err) {
+            console.error('Lỗi saveBodyKitForm:', err);
+            alert('Lỗi kết nối máy chủ khi lưu bộ áo.');
+        } finally {
+            btn.disabled = false;
+            status.innerText = '';
+        }
+    }
+
+    function editBodyKitFromDetail() {
+        if (!_bodyKitCurrentGroup) return;
+        const id = _bodyKitCurrentGroup.id;
+        const el = document.getElementById('bodyKitDetailModal');
+        // Đóng modal chi tiết xong mới mở form (Bootstrap không xếp chồng 2 modal ổn định).
+        el.addEventListener('hidden.bs.modal', () => openBodyKitForm(id), { once: true });
+        bootstrap.Modal.getOrCreateInstance(el).hide();
+    }
+
+    async function deleteBodyKitFromDetail() {
+        const g = _bodyKitCurrentGroup;
+        if (!g) return;
+        if (!confirm(`Xoá bộ áo "${g.group_label}"? Thao tác này không thể hoàn tác.`)) return;
+        try {
+            const res = await fetch(`/api/body-kit/groups/${g.id}`, { method: 'DELETE' });
+            const json = await res.json();
+            if (!json.success) { alert(json.error || 'Xoá thất bại.'); return; }
+            bootstrap.Modal.getOrCreateInstance(document.getElementById('bodyKitDetailModal')).hide();
+            _bodyKitMenuCache = null;
+            await loadBodyKitMenu();
+            loadBodyKitGroups();
+        } catch (err) {
+            console.error('Lỗi deleteBodyKitFromDetail:', err);
+            alert('Lỗi kết nối máy chủ khi xoá.');
+        }
+    }
+
     async function importBodyKitExcel() {
         const input = document.getElementById('bodyKitImportFile');
         const btn = document.getElementById('bodyKitImportBtn');
@@ -4972,7 +5405,7 @@
             alert('Vui lòng chọn 1 file Excel (.xlsx) trước.');
             return;
         }
-        if (!confirm('Nhập dữ liệu mới sẽ THAY THẾ TOÀN BỘ bảng giá bộ áo hiện tại. Tiếp tục?')) return;
+        if (!confirm('Nhập dữ liệu mới sẽ THAY THẾ toàn bộ bảng giá bộ áo đã nhập từ Excel trước đó (bộ áo thêm thủ công được giữ nguyên). Tiếp tục?')) return;
 
         const formData = new FormData();
         formData.append('file', input.files[0]);
