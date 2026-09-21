@@ -86,11 +86,14 @@ def init_price_adjustment_tables(cursor):
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_price_adj_proposals_part_created ON price_adjustment_proposals(part_code, created_at DESC)')
 
 
-_GIA_TANG_RATE = 0.05  # Mức % tăng giá cố định áp dụng ở Bước 2 của form đề
-                        # xuất 1 mã (Giá bán = Giá cũ + 5% Giá cũ), và cũng
-                        # là ý nghĩa thống nhất của cột "thue" trong bảng
-                        # price_adjustment_proposals cho MỌI dòng (thủ công
-                        # lẫn import) - xem price_adjustment_propose().
+_GIA_TANG_RATE = 0.05  # Mức % tăng giá MẶC ĐỊNH áp dụng ở Bước 2 của form đề
+                        # xuất 1 mã (Giá bán = Giá cũ + X% Giá cũ) khi người
+                        # dùng không tự nhập mức khác - xem tham số
+                        # "muc_tang_percent" trong price_adjustment_propose().
+                        # Đây cũng là ý nghĩa thống nhất của cột "thue" trong
+                        # bảng price_adjustment_proposals cho MỌI dòng (thủ
+                        # công lẫn import): LUÔN là mức % đã thực sự áp dụng
+                        # ở Bước 2, không phải Thuế người dùng gõ ở Bước 1.
 
 
 def _round_to_thousand(value):
@@ -120,12 +123,13 @@ def _compute_gia_cu(gia_de_xuat_hvn, thue_frac):
     return _compute_gia_ban(gia_de_xuat_hvn, thue_frac)
 
 
-def _compute_gia_ban_tu_gia_cu(gia_cu):
+def _compute_gia_ban_tu_gia_cu(gia_cu, muc_tang_rate=_GIA_TANG_RATE):
     """BƯỚC 2 (dùng cho form "Đề Xuất Tăng Giá 1 Mã Hàng"):
-    Giá bán (giá tăng) = (Giá cũ * 5%) + Giá cũ, làm tròn đến hàng nghìn.
-    Mức 5% ở bước này CỐ ĐỊNH, không liên quan tới Thuế (%) mà người dùng
-    nhập ở bước 1 - Thuế chỉ dùng để tính ra Giá cũ."""
-    raw = (gia_cu * _GIA_TANG_RATE) + gia_cu
+    Giá bán (giá tăng) = (Giá cũ * muc_tang_rate) + Giá cũ, làm tròn đến hàng
+    nghìn. muc_tang_rate là số thập phân (0.05 = 5%), do người dùng tự chọn ở
+    Bước 2 (mặc định 5% nếu không nhập gì khác) - KHÔNG liên quan tới Thuế
+    (%) mà người dùng nhập ở Bước 1, Thuế chỉ dùng để tính ra Giá cũ."""
+    raw = (gia_cu * muc_tang_rate) + gia_cu
     return _round_to_thousand(raw)
 
 
@@ -426,9 +430,11 @@ def price_adjustment_import():
 def price_adjustment_lookup():
     """Tra cứu nhanh 1 mã hàng khi admin/store gõ vào ô "Mã hàng" của form đề
     xuất: trả về Tên hàng đã biết (nếu có), Thuế đã dùng lần gần nhất (để tự
-    điền lại, vẫn cho sửa), mã có thuộc tồn kho hệ thống hay không, và mã này
+    điền lại, vẫn cho sửa), mã có thuộc tồn kho hệ thống hay không, mã này
     đã từng được đề xuất tăng giá hay chưa (kèm thông tin lần đề xuất gần
-    nhất) để cảnh báo tránh đề xuất trùng."""
+    nhất) để cảnh báo tránh đề xuất trùng, và Giá bán hiện có trong danh mục
+    giá (catalog_price) - dùng cho phần "Kiểm Tra Hàng Loạt Mã Hàng" để hiện
+    giá ngay cả với mã CHƯA từng được đề xuất tăng giá lần nào."""
     if 'user' not in session:
         return jsonify({'error': 'Unauthorized'}), 401
 
@@ -449,6 +455,14 @@ def price_adjustment_lookup():
         ORDER BY created_at DESC LIMIT 1
     ''', (part_code,))
     last_proposal = cursor.fetchone()
+
+    # Giá bán HIỆN CÓ trong danh mục giá (part_prices) - dùng để hiển thị/
+    # cộng tổng cho những mã "CHƯA ĐIỀU CHỈNH" (chưa từng có last_proposal
+    # nên không có gì để hiện ở đó, nhưng mã vẫn có giá bán hiện tại nếu đã
+    # từng được nhập giá qua tính năng khác).
+    cursor.execute('SELECT sale_price FROM part_prices WHERE part_code = %s', (part_code,))
+    price_row = cursor.fetchone()
+    catalog_price = float(price_row['sale_price']) if price_row and price_row['sale_price'] is not None else None
 
     part_name = _find_existing_part_name(cursor, part_code)
 
@@ -471,6 +485,7 @@ def price_adjustment_lookup():
         'thue_suggest': thue_suggest,
         'already_adjusted': last_proposal is not None,
         'last_proposal': None,
+        'catalog_price': catalog_price,
     }
     if last_proposal:
         result['last_proposal'] = {
@@ -661,6 +676,23 @@ def price_adjustment_propose():
 
     part_name = str(data.get('part_name', '') or '').strip()
 
+    # Mức tăng giá ở Bước 2 - MẶC ĐỊNH 5% nếu client không gửi gì (giữ hành
+    # vi cũ), nhưng cho phép người dùng tự nhập mức khác (VD 8%, 10%...) qua
+    # trường "muc_tang_percent" trên form. Cho phép 0 (đề xuất giữ nguyên giá
+    # cũ, không tăng) tới 1000% để không giới hạn quá chặt các trường hợp
+    # đặc biệt; số âm luôn bị từ chối.
+    muc_tang_raw = data.get('muc_tang_percent', None)
+    if muc_tang_raw is None or muc_tang_raw == '':
+        muc_tang_percent = _GIA_TANG_RATE * 100
+    else:
+        try:
+            muc_tang_percent = float(muc_tang_raw)
+            if muc_tang_percent < 0 or muc_tang_percent > 1000:
+                raise ValueError()
+        except (TypeError, ValueError):
+            return jsonify({'error': 'Mức tăng (%) không hợp lệ (phải là số từ 0 đến 1000).'}), 400
+    muc_tang_rate = muc_tang_percent / 100.0
+
     db = get_db()
     cursor = db.cursor()
     try:
@@ -671,7 +703,7 @@ def price_adjustment_propose():
 
         # Công thức 2 bước cho form đề xuất 1 mã (KHÁC với import hàng loạt):
         #   Bước 1 - Giá cũ = (Giá đề xuất HVN * Thuế) + Giá đề xuất HVN
-        #   Bước 2 - Giá bán = (Giá cũ * 5%) + Giá cũ, làm tròn hàng nghìn
+        #   Bước 2 - Giá bán = (Giá cũ * muc_tang_rate) + Giá cũ, làm tròn hàng nghìn
         if from_catalog_price:
             cursor.execute('SELECT sale_price FROM part_prices WHERE part_code = %s', (part_code,))
             price_row = cursor.fetchone()
@@ -680,10 +712,10 @@ def price_adjustment_propose():
                 return jsonify({'error': 'Mã hàng này chưa có Giá bán trong danh mục - vui lòng nhập Thuế và Giá đề xuất HVN.'}), 400
             gia_cu = _round_to_thousand(catalog_price)
             gia_de_xuat_hvn = gia_cu
-            thue_percent = _GIA_TANG_RATE * 100
+            thue_percent = muc_tang_percent
         else:
             gia_cu = _compute_gia_cu(gia_de_xuat_hvn, thue_frac)
-        gia_ban = _compute_gia_ban_tu_gia_cu(gia_cu)
+        gia_ban = _compute_gia_ban_tu_gia_cu(gia_cu, muc_tang_rate)
         now = vn_now()
         actor = _current_actor_name()
         store_code = session.get('store_code') if session.get('role') == 'store' else None
@@ -694,11 +726,12 @@ def price_adjustment_propose():
         # quán dù dữ liệu đến từ đâu (tránh hiển thị sai như khi trước: cột
         # "THUẾ" trên UI hoá ra lại là % tăng giá, cột "GIÁ ĐỀ XUẤT HVN" hoá
         # ra lại là Giá cũ), ta LƯU:
-        #   - "thue"            = _GIA_TANG_RATE (5% - đúng % tăng giá đã áp
-        #                          dụng ở Bước 2, GIỐNG cột "TĂNG GIÁ 5%" của
-        #                          file import) - KHÔNG lưu Thuế (%) người
-        #                          dùng gõ ở Bước 1 (giá trị đó chỉ là bước
-        #                          đệm để tính ra Giá cũ, không cần giữ lại).
+        #   - "thue"            = muc_tang_rate (mức % tăng giá THỰC TẾ đã áp
+        #                          dụng ở Bước 2 cho lần đề xuất này - mặc
+        #                          định 5% nếu người dùng không tự nhập mức
+        #                          khác) - KHÔNG lưu Thuế (%) người dùng gõ ở
+        #                          Bước 1 (giá trị đó chỉ là bước đệm để tính
+        #                          ra Giá cũ, không cần giữ lại).
         #   - "gia_de_xuat_hvn" = gia_cu (Giá cũ đã tính ở Bước 1) - KHÔNG
         #                          lưu Giá đề xuất HVN người dùng gõ.
         cursor.execute('''
@@ -706,7 +739,7 @@ def price_adjustment_propose():
                 (part_code, part_name, thue, gia_de_xuat_hvn, gia_ban, store_code, created_by, created_at)
             VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
             RETURNING id
-        ''', (part_code, part_name, _GIA_TANG_RATE, gia_cu, gia_ban, store_code, actor, now))
+        ''', (part_code, part_name, muc_tang_rate, gia_cu, gia_ban, store_code, actor, now))
         new_id = cursor.fetchone()['id']
 
         # Mã mới (chưa có trong tồn kho hệ thống) -> tự động lưu vào danh mục
@@ -734,6 +767,7 @@ def price_adjustment_propose():
             'gia_de_xuat_hvn': gia_de_xuat_hvn,
             'gia_cu': gia_cu,
             'gia_ban': gia_ban,
+            'muc_tang_percent': muc_tang_percent,
             'created_by': actor,
             'created_at': now.strftime('%d/%m/%Y %H:%M'),
         })

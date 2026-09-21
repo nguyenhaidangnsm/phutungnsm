@@ -102,6 +102,16 @@
               <i class="bi bi-trash"></i>
             </button>
           </div>
+          <div class="mb-2">
+            <label class="form-label small mb-0">Hình dạng sàn</label>
+            <select id="floor-shape-select" class="form-select form-select-sm">
+              <option value="rect">Hình chữ nhật</option>
+              <option value="L">Chữ L</option>
+              <option value="U">Chữ U</option>
+              <option value="T">Chữ T</option>
+              <option value="custom">Tự nhập các đỉnh</option>
+            </select>
+          </div>
           <div class="row g-2 align-items-end mb-2">
             <div class="col">
               <label class="form-label small mb-0">Rộng (m)</label>
@@ -114,6 +124,13 @@
             <div class="col-auto">
               <button id="floor-save-btn" type="button" class="btn btn-sm btn-outline-primary">Lưu</button>
             </div>
+          </div>
+          <div id="floor-poly-wrap" class="d-none mb-2">
+            <svg id="floor-poly-preview" class="w-100 border rounded bg-white mb-1" style="height:140px" aria-label="Xem trước hình dạng sàn"></svg>
+            <label class="form-label small mb-0" for="floor-poly-input">Các đỉnh của sàn (m)</label>
+            <textarea id="floor-poly-input" rows="6" class="form-control form-control-sm font-monospace" spellcheck="false"></textarea>
+            <div id="floor-poly-msg" class="form-text"></div>
+            <div class="form-text">Mỗi dòng một đỉnh, dạng <code>x, z</code>, đi vòng quanh mép sàn. x theo chiều rộng, z theo chiều sâu, gốc (0, 0) là góc trái-trong của sàn. Số thập phân dùng dấu chấm (vd 7.5).</div>
           </div>
           <hr class="my-2">
           <div class="row g-2 align-items-end">
@@ -142,7 +159,7 @@
             <div class="row g-2">
               <div class="col-6">
                 <label class="form-label small mb-0">Mã kệ *</label>
-                <input id="new-code" type="text" class="form-control form-control-sm" placeholder="VD: A1" required>
+                <input id="new-code" type="text" class="form-control form-control-sm" placeholder="VD: A1">
               </div>
               <div class="col-6">
                 <label class="form-label small mb-0">Tên hiển thị</label>
@@ -154,12 +171,15 @@
                   <option value="shelf">Kệ nhiều tầng</option>
                   <option value="floor_area">Khu để hàng dưới sàn</option>
                   <option value="wall">Vách ngăn</option>
+                  <option value="door">Cửa</option>
+                  <option value="stairs">Cầu thang</option>
                 </select>
               </div>
               <div class="col-6">
                 <label class="form-label small mb-0">Màu</label>
                 <input id="new-color" type="color" class="form-control form-control-sm form-control-color" value="#3d6da3">
               </div>
+              <div class="col-12"><div id="new-type-hint" class="form-text mt-0 d-none"></div></div>
               <div class="col-4">
                 <label class="form-label small mb-0">Rộng (m)</label>
                 <input id="new-width" type="number" step="0.1" min="0.1" max="30" class="form-control form-control-sm" value="1.2">
@@ -215,12 +235,15 @@
                 <option value="shelf">Kệ nhiều tầng</option>
                 <option value="floor_area">Khu để hàng dưới sàn</option>
                 <option value="wall">Vách ngăn</option>
+                  <option value="door">Cửa</option>
+                  <option value="stairs">Cầu thang</option>
               </select>
             </div>
             <div class="col-6">
               <label class="form-label small mb-0">Màu</label>
               <input id="detail-color" type="color" class="form-control form-control-sm form-control-color">
             </div>
+            <div class="col-12"><div id="detail-type-hint" class="form-text mt-0 d-none"></div></div>
             <div class="col-4">
               <label class="form-label small mb-0">Rộng (m)</label>
               <input id="detail-width" type="number" step="0.1" min="0.1" max="30" class="form-control form-control-sm">
@@ -414,7 +437,10 @@ canvasContainer.appendChild(renderer.domElement);
 
 const controls = new OrbitControls(camera, renderer.domElement);
 controls.enableDamping = true;
-controls.dampingFactor = 0.08;
+controls.dampingFactor = 0.15;   // càng lớn thì càng dừng nhanh, bớt cảm giác "trôi" sau khi lăn chuột (mặc định cũ 0.08)
+// Tốc độ phóng to / thu nhỏ bằng con lăn chuột: mỗi nấc lăn đổi khoảng cách camera ~ 0.95^zoomSpeed
+// (1 = ~5% mỗi nấc, 3 = ~14%, 5 = ~23%). Muốn nhanh hơn / chậm hơn thì chỉnh số này.
+controls.zoomSpeed = 3;
 controls.maxPolarAngle = Math.PI / 2 - 0.02;
 controls.minDistance = 1;
 controls.maxDistance = 300;
@@ -426,6 +452,7 @@ scene.add(dirLight);
 
 let floorMesh = null;
 let gridHelper = null;
+let floorOutline = null;
 
 function resizeRenderer() {
   const w = canvasContainer.clientWidth || 1;
@@ -436,23 +463,80 @@ function resizeRenderer() {
 }
 window.addEventListener('resize', resizeRenderer);
 
+function disposeObject(obj) {
+  if (!obj) return;
+  scene.remove(obj);
+  if (obj.geometry) obj.geometry.dispose();
+  if (obj.material) obj.material.dispose();
+}
+
+// Các giao điểm của đường thẳng (axis 0: x = c, axis 1: z = c) với mép đa giác,
+// sắp xếp tăng dần theo trục còn lại. Ghép từng cặp liên tiếp = đoạn nằm TRONG sàn.
+function polygonCrossings(poly, axis, c) {
+  const other = 1 - axis, res = [];
+  for (let i = 0; i < poly.length; i++) {
+    const a = poly[i], b = poly[(i + 1) % poly.length];
+    if ((a[axis] <= c) !== (b[axis] <= c)) {
+      const t = (c - a[axis]) / (b[axis] - a[axis]);
+      res.push(a[other] + t * (b[other] - a[other]));
+    }
+  }
+  return res.sort((p, q) => p - q);
+}
+
 function buildFloor() {
-  if (floorMesh) { scene.remove(floorMesh); floorMesh.geometry.dispose(); floorMesh.material.dispose(); }
-  if (gridHelper) { scene.remove(gridHelper); }
+  disposeObject(floorMesh);
+  disposeObject(gridHelper);
+  disposeObject(floorOutline);
+  floorMesh = gridHelper = floorOutline = null;
 
   const { width, depth } = state.floor;
-  const geo = new THREE.PlaneGeometry(width, depth);
+  const poly = floorPolygon();
   const mat = new THREE.MeshStandardMaterial({ color: 0xd9dee3, side: THREE.DoubleSide });
-  floorMesh = new THREE.Mesh(geo, mat);
-  floorMesh.rotation.x = -Math.PI / 2;
-  floorMesh.position.set(width / 2, 0, depth / 2);
-  scene.add(floorMesh);
-
   const span = Math.max(width, depth);
   const divisions = Math.max(4, Math.min(60, Math.round(span)));
-  gridHelper = new THREE.GridHelper(span, divisions, 0xaab2bb, 0xc7ccd1);
-  gridHelper.position.set(width / 2, 0.01, depth / 2);
+
+  if (!poly) {
+    // Sàn hình chữ nhật (mặc định).
+    floorMesh = new THREE.Mesh(new THREE.PlaneGeometry(width, depth), mat);
+    floorMesh.rotation.x = -Math.PI / 2;
+    floorMesh.position.set(width / 2, 0, depth / 2);
+    scene.add(floorMesh);
+
+    gridHelper = new THREE.GridHelper(span, divisions, 0xaab2bb, 0xc7ccd1);
+    gridHelper.position.set(width / 2, 0.01, depth / 2);
+    scene.add(gridHelper);
+    return;
+  }
+
+  // Sàn đa giác. Mặt phẳng sàn bị xoay -90° quanh trục X nên điểm (x, y) của
+  // Shape thành (x, 0, -y) ngoài không gian 3D -> dùng y = -z để ra đúng z.
+  const shape = new THREE.Shape();
+  poly.forEach(([x, z], i) => { if (i === 0) shape.moveTo(x, -z); else shape.lineTo(x, -z); });
+  shape.closePath();
+  floorMesh = new THREE.Mesh(new THREE.ShapeGeometry(shape), mat);
+  floorMesh.rotation.x = -Math.PI / 2;
+  scene.add(floorMesh);
+
+  // Lưới chỉ vẽ phần nằm trong sàn.
+  const step = span / divisions;
+  const verts = [];
+  for (let g = step; g < width; g += step) {
+    const zs = polygonCrossings(poly, 0, g);
+    for (let k = 0; k + 1 < zs.length; k += 2) verts.push(g, 0.01, zs[k], g, 0.01, zs[k + 1]);
+  }
+  for (let g = step; g < depth; g += step) {
+    const xs = polygonCrossings(poly, 1, g);
+    for (let k = 0; k + 1 < xs.length; k += 2) verts.push(xs[k], 0.01, g, xs[k + 1], 0.01, g);
+  }
+  const gridGeo = new THREE.BufferGeometry();
+  gridGeo.setAttribute('position', new THREE.Float32BufferAttribute(verts, 3));
+  gridHelper = new THREE.LineSegments(gridGeo, new THREE.LineBasicMaterial({ color: 0xc7ccd1 }));
   scene.add(gridHelper);
+
+  const outlineGeo = new THREE.BufferGeometry().setFromPoints(poly.map(([x, z]) => new THREE.Vector3(x, 0.02, z)));
+  floorOutline = new THREE.LineLoop(outlineGeo, new THREE.LineBasicMaterial({ color: 0x5b6673 }));
+  scene.add(floorOutline);
 }
 
 function frameFloorInView() {
@@ -466,7 +550,7 @@ function frameFloorInView() {
 // ---------------------------------------------------------------------
 // THREE.JS: DỰNG / CẬP NHẬT KỆ
 // ---------------------------------------------------------------------
-const TYPE_DEFAULT_COLOR = { shelf: 0x3d6da3, floor_area: 0xc9a66b, wall: 0x9aa5b1 };
+const TYPE_DEFAULT_COLOR = { shelf: 0x3d6da3, floor_area: 0xc9a66b, wall: 0x9aa5b1, door: 0x8a5a2b, stairs: 0x7d8b99 };
 
 function colorToHex(c, fallback) {
   if (!c) return fallback;
@@ -496,7 +580,119 @@ function makeLabelSprite(text) {
   return sprite;
 }
 
+// Cửa / cầu thang không có tầng-ô-ngăn. Mỗi loại dùng 1 khối VÔ HÌNH làm vùng
+// bấm-kéo (thay cho `box` của kệ) và 1 viền chỉ hiện khi đang được chọn.
+function finishOpeningGroup(group, shelf, hitGeo) {
+  const box = new THREE.Mesh(hitGeo, new THREE.MeshStandardMaterial({ transparent: true, opacity: 0, depthWrite: false }));
+  box.userData.shelfId = shelf.id;
+  group.add(box);
+
+  const edges = new THREE.LineSegments(new THREE.EdgesGeometry(hitGeo), new THREE.LineBasicMaterial({ color: 0x1c2530 }));
+  edges.visible = false;
+  group.add(edges);
+
+  const label = makeLabelSprite(shelf.code);
+  label.position.set(0, shelf.height + 0.35, 0);
+  group.add(label);
+
+  group.position.set(shelf.pos_x, 0, shelf.pos_z);
+  group.rotation.y = shelf.rotation_y;
+  return { group, box, edges, dividers: [], label, cellHi: null, outlineOnSelect: true };
+}
+
+// CỬA: khung (2 cột + thanh ngang) + cánh cửa + tay nắm. Cung trắng trên sàn ở
+// phía mặt trước (+Z) là vùng cánh cửa quét khi mở; xoay cửa để đổi phía mở.
+function buildDoorGroup(shelf) {
+  const group = new THREE.Group();
+  group.userData.shelfId = shelf.id;
+  const w = shelf.width, h = shelf.height, d = shelf.depth;
+  const color = new THREE.Color(colorToHex(shelf.color, TYPE_DEFAULT_COLOR.door));
+  const post = Math.min(0.08, w * 0.12);
+  const frameMat = new THREE.MeshStandardMaterial({ color });
+  const addBox = (bw, bh, bd, x, y, z, mat) => {
+    const m = new THREE.Mesh(new THREE.BoxGeometry(bw, bh, bd), mat);
+    m.position.set(x, y, z);
+    group.add(m);
+    return m;
+  };
+  addBox(post, h, d, -(w - post) / 2, h / 2, 0, frameMat);      // cột trái
+  addBox(post, h, d, (w - post) / 2, h / 2, 0, frameMat);       // cột phải
+  addBox(w, post, d, 0, h - post / 2, 0, frameMat);             // thanh ngang trên
+
+  const leafW = w - 2 * post, leafH = h - post;
+  const leafT = Math.max(0.03, Math.min(d * 0.4, 0.05));
+  const leafMat = new THREE.MeshStandardMaterial({ color: color.clone().offsetHSL(0, 0, 0.12), transparent: true, opacity: 0.88 });
+  addBox(leafW, leafH, leafT, 0, leafH / 2, 0, leafMat);        // cánh cửa
+
+  const knobMat = new THREE.MeshStandardMaterial({ color: 0xd9d9d9 });
+  for (const side of [1, -1]) {                                 // tay nắm 2 mặt
+    const knob = new THREE.Mesh(new THREE.SphereGeometry(0.035, 12, 8), knobMat);
+    knob.position.set(leafW / 2 - 0.1, h * 0.48, side * (leafT / 2 + 0.03));
+    group.add(knob);
+  }
+
+  // Cung quét của cánh cửa (bản lề ở cột trái), nằm phẳng trên sàn phía +Z.
+  const swing = new THREE.Mesh(
+    new THREE.RingGeometry(Math.max(0.05, leafW - 0.02), leafW, 32, 1, 0, Math.PI / 2),
+    new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.75, side: THREE.DoubleSide })
+  );
+  swing.rotation.x = Math.PI / 2;
+  swing.position.set(-leafW / 2, 0.02, 0);
+  group.add(swing);
+
+  const hitGeo = new THREE.BoxGeometry(w, h, d);
+  hitGeo.translate(0, h / 2, 0);
+  return finishOpeningGroup(group, shelf, hitGeo);
+}
+
+// CẦU THANG: các bậc tăng dần, bậc thấp nhất ở phía mặt trước (+Z), đi lên về
+// phía sau (-Z). Số bậc tính từ chiều cao (mỗi bậc cao ~18 cm). Mũi tên trắng
+// chỉ hướng đi lên; vùng bấm-kéo là khối nêm bao đúng độ dốc.
+function buildStairsGroup(shelf) {
+  const group = new THREE.Group();
+  group.userData.shelfId = shelf.id;
+  const w = shelf.width, h = shelf.height, d = shelf.depth;
+  const color = colorToHex(shelf.color, TYPE_DEFAULT_COLOR.stairs);
+  const n = Math.max(3, Math.min(40, Math.round(h / 0.18)));
+  const rise = h / n, run = d / n;
+  const stepMat = new THREE.MeshStandardMaterial({ color });
+  const lineMat = new THREE.LineBasicMaterial({ color: 0x1c2530 });
+  for (let i = 0; i < n; i++) {
+    const sh = rise * (i + 1);
+    const geo = new THREE.BoxGeometry(w, sh, run);
+    const step = new THREE.Mesh(geo, stepMat);
+    step.position.set(0, sh / 2, d / 2 - run * (i + 0.5));
+    group.add(step);
+    const outline = new THREE.LineSegments(new THREE.EdgesGeometry(geo), lineMat);
+    outline.position.copy(step.position);
+    group.add(outline);
+  }
+
+  const slope = Math.atan2(h, d);
+  const a = new THREE.Shape();
+  a.moveTo(0, 0.3); a.lineTo(-0.16, -0.05); a.lineTo(-0.05, -0.05); a.lineTo(-0.05, -0.3);
+  a.lineTo(0.05, -0.3); a.lineTo(0.05, -0.05); a.lineTo(0.16, -0.05); a.closePath();
+  const arrow = new THREE.Mesh(
+    new THREE.ShapeGeometry(a),
+    new THREE.MeshBasicMaterial({ color: 0xffffff, side: THREE.DoubleSide })
+  );
+  arrow.rotation.x = slope - Math.PI / 2;          // nằm dọc theo mặt dốc, đầu mũi tên hướng lên
+  arrow.scale.setScalar(Math.min(1, w / 0.6));
+  arrow.position.set(0, h / 2 + rise + 0.03, 0);   // nằm ngay trên đường nối mép trước các bậc
+  group.add(arrow);
+
+  // Khối nêm (tam giác cạnh bên, kéo dài theo bề rộng) làm vùng bấm-kéo.
+  const prof = new THREE.Shape();
+  prof.moveTo(d / 2, 0); prof.lineTo(-d / 2, 0); prof.lineTo(-d / 2, h); prof.closePath();
+  const hitGeo = new THREE.ExtrudeGeometry(prof, { depth: w, bevelEnabled: false });
+  hitGeo.rotateY(-Math.PI / 2);
+  hitGeo.translate(w / 2, 0, 0);
+  return finishOpeningGroup(group, shelf, hitGeo);
+}
+
 function buildShelfGroup(shelf) {
+  if (shelf.shelf_type === 'door') return buildDoorGroup(shelf);
+  if (shelf.shelf_type === 'stairs') return buildStairsGroup(shelf);
   const group = new THREE.Group();
   group.userData.shelfId = shelf.id;
 
@@ -605,6 +801,7 @@ function applySelectionHighlight() {
   for (const [id, obj] of shelfObjects) {
     const isSel = id === state.selectedId;
     obj.edges.material.color.set(isSel ? 0xffc107 : 0x1c2530);
+    if (obj.outlineOnSelect) obj.edges.visible = isSel;
     obj.box.material.emissive.set(isSel ? 0x332200 : 0x000000);
   }
   updateCellHighlight();
@@ -707,6 +904,15 @@ renderer.domElement.addEventListener('pointermove', (evt) => {
   const halfW = shelf.width / 2, halfD = shelf.depth / 2;
   nx = Math.min(Math.max(nx, halfW), Math.max(halfW, state.floor.width - halfW));
   nz = Math.min(Math.max(nz, halfD), Math.max(halfD, state.floor.depth - halfD));
+  // Sàn không phải hình chữ nhật: không cho kéo kệ ra khỏi mép sàn. Nếu đi chéo
+  // bị chặn thì thử trượt dọc theo 1 trục để kệ chạy sát mép được. Kệ đang nằm
+  // sẵn NGOÀI sàn (vd vừa đổi hình dạng sàn) thì cho kéo tự do để đưa vào lại.
+  const cur = obj.group.position;
+  if (floorPolygon() && shelfFitsFloor(shelf, cur.x, cur.z) && !shelfFitsFloor(shelf, nx, nz)) {
+    if (shelfFitsFloor(shelf, nx, cur.z)) nz = cur.z;
+    else if (shelfFitsFloor(shelf, cur.x, nz)) nx = cur.x;
+    else return;
+  }
   obj.group.position.set(nx, 0, nz);
   if (Math.abs(nx - dragging.startX) > 0.02 || Math.abs(nz - dragging.startZ) > 0.02) dragging.moved = true;
 });
@@ -780,7 +986,39 @@ function focusShelf(id, opts = {}) {
 // ---------------------------------------------------------------------
 // SIDEBAR: DANH SÁCH KỆ
 // ---------------------------------------------------------------------
-const TYPE_LABEL = { shelf: 'Kệ', floor_area: 'Khu để sàn', wall: 'Vách ngăn' };
+const TYPE_LABEL = { shelf: 'Kệ', floor_area: 'Khu để sàn', wall: 'Vách ngăn', door: 'Cửa', stairs: 'Cầu thang' };
+// Loại khối chỉ để vẽ sơ đồ, không chứa hàng (khớp _NON_STORAGE_TYPES bên warehouse3d.py).
+const NON_STORAGE_TYPES = new Set(['wall', 'door', 'stairs']);
+
+// Gợi ý ý nghĩa Rộng / Cao / Sâu và mặc định kích thước cho cửa, cầu thang.
+const TYPE_HINTS = {
+  door: 'Cửa: Rộng = bề rộng cửa, Cao = chiều cao cửa, Sâu = độ dày khung. Cung trắng trên sàn là phía cánh cửa mở ra; xoay để đổi phía.',
+  stairs: 'Cầu thang: Rộng = bề rộng bậc, Cao = độ cao lên, Sâu = chiều dài mặt dốc. Mũi tên trắng chỉ hướng đi lên (về phía sau của khối); xoay để đổi hướng.',
+};
+const TYPE_DEFAULT_DIMS = {
+  door: { width: 1, height: 2.1, depth: 0.15, color: '#8a5a2b' },
+  stairs: { width: 1.2, height: 2.8, depth: 3, color: '#7d8b99' },
+  other: { width: 1.2, height: 2, depth: 0.6, color: '#3d6da3' },
+};
+
+function setTypeHint(id, type) {
+  const el = document.getElementById(id);
+  const hint = TYPE_HINTS[type] || '';
+  el.textContent = hint;
+  el.classList.toggle('d-none', !hint);
+}
+
+// Mã tự đặt cho cửa / cầu thang khi để trống: CUA-1, CT-2... (lầu 2 trở lên có thêm L2 để không trùng mã giữa các lầu).
+function autoCode(type) {
+  const prefix = { door: 'CUA', stairs: 'CT' }[type];
+  if (!prefix) return '';
+  const fl = state.floors.find(f => f.id === state.floorId);
+  const base = fl && fl.floor_order > 1 ? `${prefix}-L${fl.floor_order}-` : `${prefix}-`;
+  const used = new Set(state.shelves.map(s => s.code));
+  let n = 1;
+  while (used.has(base + n)) n++;
+  return base + n;
+}
 
 function renderShelfList() {
   const container = document.getElementById('shelf-list');
@@ -798,8 +1036,7 @@ function renderShelfList() {
     el.innerHTML = `<span>
         <strong>${escapeHtml(shelf.code)}</strong>${shelf.label ? (' · ' + escapeHtml(shelf.label)) : ''}<br>
         <small class="${shelf.id === state.selectedId ? '' : 'text-muted'}">
-          ${TYPE_LABEL[shelf.shelf_type] || shelf.shelf_type}${shelf.shelf_type === 'shelf' ? (' · ' + structText(shelf)) : ''}
-          · ${itemCount} mã hàng
+          ${TYPE_LABEL[shelf.shelf_type] || shelf.shelf_type}${shelf.shelf_type === 'shelf' ? (' · ' + structText(shelf)) : ''}${NON_STORAGE_TYPES.has(shelf.shelf_type) ? '' : ' · ' + itemCount + ' mã hàng'}
         </small>
       </span>`;
     el.addEventListener('click', () => focusShelf(shelf.id));
@@ -845,6 +1082,7 @@ function renderDetailPanel() {
   document.getElementById('detail-slots').value = shelf.slots_per_cell || 1;
   document.getElementById('detail-color').value = shelf.color || '#3d6da3';
   document.getElementById('detail-struct-wrap').classList.toggle('d-none', shelf.shelf_type !== 'shelf');
+  setTypeHint('detail-type-hint', shelf.shelf_type);
 
   renderLevelItems(shelf);
 }
@@ -857,8 +1095,8 @@ function renderLevelItems(shelf) {
   picker.innerHTML = '';
   wrap.innerHTML = '';
 
-  if (shelf.shelf_type === 'wall') {
-    wrap.innerHTML = '<p class="text-muted small">Vách ngăn không gán được mã hàng.</p>';
+  if (NON_STORAGE_TYPES.has(shelf.shelf_type)) {
+    wrap.innerHTML = `<p class="text-muted small">${TYPE_LABEL[shelf.shelf_type]} không gán được mã hàng.</p>`;
     return;
   }
   if (shelf.shelf_type === 'floor_area') {
@@ -1004,6 +1242,7 @@ async function saveCellSlots(shelf, lvl, cell, rawValue) {
 
 // Đếm mã hàng sẽ bị gỡ nếu áp cấu trúc mới (để hỏi xác nhận trước khi lưu).
 function countOrphansAfterEdit(shelf, type, levels, cells, defSlots) {
+  if (NON_STORAGE_TYPES.has(type)) return (shelf.items || []).length;   // đổi sang vách/cửa/cầu thang: gỡ hết
   const own = shelf.cell_slots || {};
   return (shelf.items || []).filter(it => {
     if (type !== 'shelf') return it.level_index > 1 || it.cell_index > 1 || it.slot_index > 1;
@@ -1042,6 +1281,204 @@ async function removeItem(shelfId, level, cell, slot, partCode) {
 }
 
 // ---------------------------------------------------------------------
+// HÌNH DẠNG SÀN (đa giác): kiểm tra, xem trước, mẫu chữ L / U / T
+// ---------------------------------------------------------------------
+const MAX_FLOOR_POINTS = 60;   // khớp _MAX_FLOOR_POINTS bên warehouse3d.py
+const MAX_FLOOR_SIZE = 200;    // khớp _MAX_FLOOR_SIZE
+
+function floorPolygon() {
+  return state.floor && Array.isArray(state.floor.shape) ? state.floor.shape : null;
+}
+
+function pointInPolygon(x, z, poly) {
+  let inside = false;
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    const [xi, zi] = poly[i], [xj, zj] = poly[j];
+    if ((zi > z) !== (zj > z) && x < (xj - xi) * (z - zi) / (zj - zi) + xi) inside = !inside;
+  }
+  return inside;
+}
+
+function orient(p, q, r) { return (q[0] - p[0]) * (r[1] - p[1]) - (q[1] - p[1]) * (r[0] - p[0]); }
+function onSegment(p, q, r) {
+  return Math.min(p[0], q[0]) <= r[0] && r[0] <= Math.max(p[0], q[0])
+      && Math.min(p[1], q[1]) <= r[1] && r[1] <= Math.max(p[1], q[1]);
+}
+function segmentsIntersect(p1, p2, p3, p4) {
+  const d1 = orient(p3, p4, p1), d2 = orient(p3, p4, p2), d3 = orient(p1, p2, p3), d4 = orient(p1, p2, p4);
+  if (((d1 > 0 && d2 < 0) || (d1 < 0 && d2 > 0)) && ((d3 > 0 && d4 < 0) || (d3 < 0 && d4 > 0))) return true;
+  return (d1 === 0 && onSegment(p3, p4, p1)) || (d2 === 0 && onSegment(p3, p4, p2))
+      || (d3 === 0 && onSegment(p1, p2, p3)) || (d4 === 0 && onSegment(p1, p2, p4));
+}
+
+// Các điểm chuẩn của khung chân kệ (4 góc + 4 trung điểm cạnh), có tính góc xoay.
+function shelfFootprint(shelf, x, z) {
+  const hw = shelf.width / 2, hd = shelf.depth / 2;
+  const c = Math.cos(shelf.rotation_y || 0), s = Math.sin(shelf.rotation_y || 0);
+  return [[-hw, -hd], [hw, -hd], [hw, hd], [-hw, hd], [0, -hd], [hw, 0], [0, hd], [-hw, 0]]
+    .map(([lx, lz]) => [x + lx * c + lz * s, z - lx * s + lz * c]);
+}
+
+function shelfFitsFloor(shelf, x, z) {
+  const poly = floorPolygon();
+  if (!poly) return true;
+  return shelfFootprint(shelf, x, z).every(([px, pz]) => pointInPolygon(px, pz, poly));
+}
+
+// Vị trí mặc định cho kệ mới: tâm sàn, hoặc điểm trong sàn gần tâm nhất
+// (sàn chữ L/U/T có thể có tâm rơi vào phần khuyết).
+function defaultShelfSpot() {
+  const w = state.floor.width, d = state.floor.depth, poly = floorPolygon();
+  if (!poly || pointInPolygon(w / 2, d / 2, poly)) return { x: w / 2, z: d / 2 };
+  let best = null, bestDist = Infinity;
+  for (let x = 0.5; x < w; x += 0.5) {
+    for (let z = 0.5; z < d; z += 0.5) {
+      if (!pointInPolygon(x, z, poly)) continue;
+      const dist = (x - w / 2) ** 2 + (z - d / 2) ** 2;
+      if (dist < bestDist) { best = { x, z }; bestDist = dist; }
+    }
+  }
+  return best || { x: w / 2, z: d / 2 };
+}
+
+function polygonArea(pts) {
+  let a = 0;
+  for (let i = 0; i < pts.length; i++) {
+    const p = pts[i], q = pts[(i + 1) % pts.length];
+    a += p[0] * q[1] - q[0] * p[1];
+  }
+  return Math.abs(a) / 2;
+}
+
+// Đọc ô nhập đỉnh: mỗi dòng 1 điểm "x, z" (ngăn cách bằng dấu phẩy / khoảng trắng / chấm phẩy).
+// Trả về { points } hoặc { error } - luật khớp _parse_floor_shape bên server.
+function parseFloorPoints(text) {
+  const pts = [];
+  for (const line of text.split('\n')) {
+    const t = line.trim();
+    if (!t) continue;
+    const parts = t.split(/[\s,;]+/).filter(Boolean);
+    if (parts.length !== 2 || parts.some(p => !/^-?\d+(\.\d+)?$/.test(p))) {
+      return { error: `Dòng "${t}" cần đúng 2 số dạng x, z (số thập phân dùng dấu chấm).` };
+    }
+    const x = parseFloat(parts[0]), z = parseFloat(parts[1]);
+    if (x < 0 || z < 0 || x > MAX_FLOOR_SIZE || z > MAX_FLOOR_SIZE) {
+      return { error: `Toạ độ phải từ 0 đến ${MAX_FLOOR_SIZE} mét (dòng "${t}").` };
+    }
+    pts.push([Math.round(x * 100) / 100, Math.round(z * 100) / 100]);
+  }
+  if (pts.length > 1 && pts[0][0] === pts[pts.length - 1][0] && pts[0][1] === pts[pts.length - 1][1]) pts.pop();
+  if (pts.length < 3) return { error: 'Cần ít nhất 3 đỉnh.' };
+  if (pts.length > MAX_FLOOR_POINTS) return { error: `Tối đa ${MAX_FLOOR_POINTS} đỉnh.` };
+  const n = pts.length;
+  for (let i = 0; i < n; i++) {
+    const q = pts[(i + 1) % n];
+    if (pts[i][0] === q[0] && pts[i][1] === q[1]) return { error: 'Có 2 đỉnh liền kề trùng nhau.' };
+  }
+  for (let i = 0; i < n; i++) {
+    for (let j = i + 1; j < n; j++) {
+      if (j === i + 1 || (i === 0 && j === n - 1)) continue;
+      if (segmentsIntersect(pts[i], pts[(i + 1) % n], pts[j], pts[(j + 1) % n])) {
+        return { error: 'Các cạnh của sàn đang cắt nhau - kiểm tra lại thứ tự các đỉnh.' };
+      }
+    }
+  }
+  if (polygonArea(pts) < 1) return { error: 'Diện tích sàn quá nhỏ (tối thiểu 1 m²).' };
+  return { points: pts };
+}
+
+function pointsToText(pts) { return pts.map(p => `${p[0]}, ${p[1]}`).join('\n'); }
+
+// Mẫu hình dạng dựng từ Rộng x Sâu hiện tại; người dùng sửa số đỉnh tiếp trong ô nhập.
+function presetPoints(kind, W, D) {
+  const r = v => Math.round(v * 10) / 10;
+  if (kind === 'L') {
+    const cw = W * 0.4, cd = D * 0.5;                 // phần khuyết ở góc phải-sau
+    return [[0, 0], [W - cw, 0], [W - cw, cd], [W, cd], [W, D], [0, D]].map(p => [r(p[0]), r(p[1])]);
+  }
+  if (kind === 'U') {
+    const nw = W * 0.4, nd = D * 0.55, x1 = (W - nw) / 2;   // phần khuyết giữa cạnh sau
+    return [[0, 0], [x1, 0], [x1, nd], [x1 + nw, nd], [x1 + nw, 0], [W, 0], [W, D], [0, D]].map(p => [r(p[0]), r(p[1])]);
+  }
+  if (kind === 'T') {
+    const bd = D * 0.4, sw = W * 0.4, x1 = (W - sw) / 2;    // thanh ngang phía sau + thân giữa
+    return [[0, 0], [W, 0], [W, bd], [x1 + sw, bd], [x1 + sw, D], [x1, D], [x1, bd], [0, bd]].map(p => [r(p[0]), r(p[1])]);
+  }
+  return [[0, 0], [W, 0], [W, D], [0, D]].map(p => [r(p[0]), r(p[1])]);
+}
+
+const floorShapeSelect = document.getElementById('floor-shape-select');
+const floorWidthInput = document.getElementById('floor-width-input');
+const floorDepthInput = document.getElementById('floor-depth-input');
+const floorPolyWrap = document.getElementById('floor-poly-wrap');
+const floorPolyInput = document.getElementById('floor-poly-input');
+
+function currentFloorInputSize() {
+  const clamp = v => Math.min(MAX_FLOOR_SIZE, Math.max(2, v));
+  return [
+    clamp(parseFloat(floorWidthInput.value) || state.floor.width),
+    clamp(parseFloat(floorDepthInput.value) || state.floor.depth),
+  ];
+}
+
+function renderPolyPreview() {
+  const svg = document.getElementById('floor-poly-preview');
+  const msg = document.getElementById('floor-poly-msg');
+  const res = parseFloorPoints(floorPolyInput.value);
+  if (res.error) {
+    svg.innerHTML = '';
+    msg.className = 'form-text text-danger';
+    msg.textContent = res.error;
+    return;
+  }
+  const pts = res.points;
+  const maxX = Math.max(...pts.map(p => p[0])), maxZ = Math.max(...pts.map(p => p[1]));
+  svg.setAttribute('viewBox', `-1 -1 ${maxX + 2} ${maxZ + 2}`);
+  svg.innerHTML = `<polygon points="${pts.map(p => p.join(',')).join(' ')}" fill="#d9dee3" stroke="#5b6673" stroke-width="2" stroke-linejoin="round" vector-effect="non-scaling-stroke"></polygon>`;
+  msg.className = 'form-text';
+  msg.textContent = `${pts.length} đỉnh, rộng ${maxX} m, sâu ${maxZ} m, diện tích ${Math.round(polygonArea(pts) * 10) / 10} m².`;
+  if (floorShapeSelect.value === 'custom') { floorWidthInput.value = maxX; floorDepthInput.value = maxZ; }
+}
+
+function applyShapeMode(mode) {
+  floorPolyWrap.classList.toggle('d-none', mode === 'rect');
+  // Ở chế độ tự nhập, rộng/sâu do các đỉnh quyết định nên khoá 2 ô này.
+  floorWidthInput.disabled = floorDepthInput.disabled = (mode === 'custom');
+  if (mode === 'rect') return;
+  const [W, D] = currentFloorInputSize();
+  if (mode === 'custom') {
+    if (!floorPolyInput.value.trim()) floorPolyInput.value = pointsToText(presetPoints('rect', W, D));
+  } else {
+    floorPolyInput.value = pointsToText(presetPoints(mode, W, D));
+  }
+  renderPolyPreview();
+}
+
+function syncFloorForm() {
+  floorWidthInput.value = state.floor.width;
+  floorDepthInput.value = state.floor.depth;
+  if (floorPolygon()) {
+    floorShapeSelect.value = 'custom';
+    floorPolyInput.value = pointsToText(state.floor.shape);
+  } else {
+    floorShapeSelect.value = 'rect';
+    floorPolyInput.value = '';
+  }
+  applyShapeMode(floorShapeSelect.value);
+}
+
+floorShapeSelect.addEventListener('change', () => applyShapeMode(floorShapeSelect.value));
+[floorWidthInput, floorDepthInput].forEach(el => el.addEventListener('input', () => {
+  const m = floorShapeSelect.value;
+  if (m === 'L' || m === 'U' || m === 'T') applyShapeMode(m);   // dựng lại mẫu theo kích thước mới
+}));
+floorPolyInput.addEventListener('input', () => {
+  floorShapeSelect.value = 'custom';
+  floorWidthInput.disabled = floorDepthInput.disabled = true;
+  renderPolyPreview();
+});
+
+// ---------------------------------------------------------------------
 // TẢI / LƯU DỮ LIỆU
 // ---------------------------------------------------------------------
 function renderFloorSelect() {
@@ -1061,8 +1498,7 @@ async function loadLayout() {
     state.floorId = data.floor.id;
     state.floors = data.floors;
     state.shelves = data.shelves;
-    document.getElementById('floor-width-input').value = state.floor.width;
-    document.getElementById('floor-depth-input').value = state.floor.depth;
+    syncFloorForm();
     document.getElementById('store-badge').textContent = state.storeCode;
     renderFloorSelect();
     rebuildScene();
@@ -1112,13 +1548,23 @@ document.getElementById('floor-select').addEventListener('change', async (e) => 
 });
 
 document.getElementById('floor-save-btn').addEventListener('click', async () => {
-  const width = parseFloat(document.getElementById('floor-width-input').value);
-  const depth = parseFloat(document.getElementById('floor-depth-input').value);
+  let body;
+  if (floorShapeSelect.value === 'rect') {
+    body = { width: parseFloat(floorWidthInput.value), depth: parseFloat(floorDepthInput.value), shape: null };
+  } else {
+    const res = parseFloorPoints(floorPolyInput.value);
+    if (res.error) { showToast(res.error, 'danger'); return; }
+    body = { shape: res.points };
+  }
   try {
-    await apiSend(`/api/warehouse3d/${state.storeCode}/floors/${state.floorId}`, 'PUT', { width, depth });
+    const data = await apiSend(`/api/warehouse3d/${state.storeCode}/floors/${state.floorId}`, 'PUT', body);
     await loadLayout();
     frameFloorInView();
-    showToast('Đã lưu kích thước sàn.', 'success');
+    if (data.outside_shelves && data.outside_shelves.length) {
+      showToast(`Đã lưu sàn. Kệ đang nằm ngoài sàn mới: ${data.outside_shelves.join(', ')} - kéo lại vào trong sàn.`, 'warning');
+    } else {
+      showToast('Đã lưu hình dạng và kích thước sàn.', 'success');
+    }
   } catch (err) { showToast(err.message, 'danger'); }
 });
 
@@ -1140,7 +1586,7 @@ document.getElementById('floor-add-btn').addEventListener('click', async () => {
   if (!name) { showToast('Vui lòng nhập tên lầu mới.', 'danger'); return; }
   try {
     const data = await apiSend(`/api/warehouse3d/${state.storeCode}/floors`, 'POST', {
-      name, width: state.floor.width, depth: state.floor.depth,
+      name, width: state.floor.width, depth: state.floor.depth, shape: state.floor.shape || null,
     });
     state.floorId = data.floor.id;
     state.selectedId = null;
@@ -1167,9 +1613,10 @@ document.getElementById('floor-delete-btn').addEventListener('click', async () =
 
 document.getElementById('add-shelf-form').addEventListener('submit', async (e) => {
   e.preventDefault();
+  const spot = defaultShelfSpot();
   const payload = {
     floor_id: state.floorId,
-    code: document.getElementById('new-code').value.trim(),
+    code: document.getElementById('new-code').value.trim() || autoCode(document.getElementById('new-type').value),
     label: document.getElementById('new-label').value.trim(),
     shelf_type: document.getElementById('new-type').value,
     width: parseFloat(document.getElementById('new-width').value) || 1.2,
@@ -1179,8 +1626,8 @@ document.getElementById('add-shelf-form').addEventListener('submit', async (e) =
     cells_per_level: parseInt(document.getElementById('new-cells').value) || 1,
     slots_per_cell: parseInt(document.getElementById('new-slots').value) || 1,
     color: document.getElementById('new-color').value,
-    pos_x: state.floor.width / 2,
-    pos_z: state.floor.depth / 2,
+    pos_x: spot.x,
+    pos_z: spot.z,
     rotation_y: 0,
   };
   if (!payload.code) { showToast('Vui lòng nhập mã kệ.', 'danger'); return; }
@@ -1194,7 +1641,28 @@ document.getElementById('add-shelf-form').addEventListener('submit', async (e) =
   } catch (err) { showToast(err.message, 'danger'); }
 });
 
+let newFormPrevType = 'shelf';
+function syncNewFormType(t) {
+  if (TYPE_DEFAULT_DIMS[t] || TYPE_DEFAULT_DIMS[newFormPrevType]) {
+    const dm = TYPE_DEFAULT_DIMS[t] || TYPE_DEFAULT_DIMS.other;
+    document.getElementById('new-width').value = dm.width;
+    document.getElementById('new-height').value = dm.height;
+    document.getElementById('new-depth').value = dm.depth;
+    document.getElementById('new-color').value = dm.color;
+  }
+  newFormPrevType = t;
+  setTypeHint('new-type-hint', t);
+  document.getElementById('new-code').placeholder = (t === 'door' || t === 'stairs') ? 'Để trống để tự đặt' : 'VD: A1';
+}
+document.getElementById('new-type').addEventListener('change', (e) => syncNewFormType(e.target.value));
+document.getElementById('add-shelf-form').addEventListener('reset', () => {
+  newFormPrevType = 'shelf';
+  setTypeHint('new-type-hint', 'shelf');
+  document.getElementById('new-code').placeholder = 'VD: A1';
+});
+
 document.getElementById('detail-type').addEventListener('change', (e) => {
+  setTypeHint('detail-type-hint', e.target.value);
   document.getElementById('detail-struct-wrap').classList.toggle('d-none', e.target.value !== 'shelf');
 });
 

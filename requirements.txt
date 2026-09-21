@@ -9,3 +9,4 @@ flask-compress
 Flask-Limiter
 orjson
 certifi
+Pillow

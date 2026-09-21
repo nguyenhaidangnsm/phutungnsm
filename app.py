@@ -24,6 +24,7 @@ import zlib
 import ssl
 import urllib.request
 import urllib.error
+from PIL import Image, ImageOps
 
 # Dùng bộ chứng chỉ gốc (CA) của certifi để xác thực HTTPS khi gọi ra ngoài
 # (vd. webhook Google Sheets) - một số máy chủ (đặc biệt là Windows, hoặc
@@ -1022,6 +1023,28 @@ def init_db():
         ''')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_damaged_items_part_code ON damaged_items(part_code)')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_damaged_items_store ON damaged_items(store_code)')
+
+        # 7c. Ảnh đính kèm cho từng lần báo hư hỏng - TÁCH RIÊNG bảng (không
+        #     thêm cột BYTEA vào damaged_items) để API /api/damaged (danh
+        #     sách) KHÔNG BAO GIỜ phải tải dữ liệu ảnh nặng, chỉ khi người
+        #     dùng thật sự mở ảnh mới gọi endpoint riêng. Ảnh được NÉN/RESIZE
+        #     phía server (xem resize_damaged_image()) trước khi lưu để giảm
+        #     dung lượng CSDL và băng thông tải xuống tối đa - mỗi ảnh
+        #     thường chỉ còn vài chục-vài trăm KB dù ảnh gốc chụp bằng điện
+        #     thoại có thể vài MB. Giới hạn số ảnh/lần báo ở tầng API
+        #     (MAX_DAMAGED_IMAGES_PER_ITEM) để tránh phình CSDL.
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS damaged_item_images (
+                id SERIAL PRIMARY KEY,
+                damaged_item_id INTEGER NOT NULL REFERENCES damaged_items(id) ON DELETE CASCADE,
+                content_type VARCHAR(30) NOT NULL DEFAULT 'image/webp',
+                image_data BYTEA NOT NULL,
+                byte_size INTEGER NOT NULL,
+                created_by VARCHAR(50),
+                created_at TIMESTAMP NOT NULL DEFAULT NOW()
+            )
+        ''')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_damaged_item_images_item ON damaged_item_images(damaged_item_id)')
 
         # 8. Cache bảng đối soát đã tính sẵn cho mỗi cửa hàng, LƯU TRONG CSDL
         #    (không chỉ RAM của 1 tiến trình) để dùng CHUNG được giữa NHIỀU
@@ -2232,6 +2255,59 @@ def parse_damaged_excel(file_storage):
         })
 
     return rows, skipped_rows
+
+
+# ---- Ảnh cho "Hàng Cần Xử Lý" (damaged_items) --------------------------
+# Giới hạn số ảnh lưu cho MỖI lần báo hư hỏng, để tránh 1 dòng dữ liệu kéo
+# theo hàng chục ảnh làm phình CSDL vô tội vạ.
+MAX_DAMAGED_IMAGES_PER_ITEM = 4
+# Giới hạn dung lượng ảnh GỐC nhận từ client (trước khi nén) - chặn sớm
+# trước khi Pillow phải giải mã ảnh quá khổ, tốn RAM/CPU vô ích.
+MAX_DAMAGED_IMAGE_SOURCE_BYTES = 15 * 1024 * 1024  # 15MB/ảnh gốc
+# Cạnh dài nhất sau khi resize - đủ nét để xem tình trạng hư hỏng trên
+# điện thoại/màn hình, không cần giữ độ phân giải gốc của ảnh chụp.
+DAMAGED_IMAGE_MAX_EDGE = 1280
+
+
+def resize_damaged_image(file_storage):
+    """Đọc 1 ảnh do người dùng tải lên, tự sửa xoay theo EXIF (ảnh chụp từ
+    điện thoại), resize về tối đa DAMAGED_IMAGE_MAX_EDGE ở cạnh dài nhất rồi
+    nén sang WebP (nhẹ hơn JPEG/PNG cùng chất lượng) - MỤC ĐÍCH: giảm tối
+    đa dung lượng lưu trong CSDL (cột BYTEA) và băng thông khi tải ảnh về
+    sau này, vì ảnh gốc chụp điện thoại có thể vài MB trong khi bản đã nén
+    thường chỉ còn vài chục-vài trăm KB mà vẫn đủ xem rõ.
+
+    Trả về (image_bytes, content_type). Ném ValueError nếu file không phải
+    ảnh hợp lệ hoặc vượt quá MAX_DAMAGED_IMAGE_SOURCE_BYTES."""
+    file_storage.seek(0, os.SEEK_END)
+    size = file_storage.tell()
+    file_storage.seek(0)
+    if size <= 0:
+        raise ValueError('File ảnh trống.')
+    if size > MAX_DAMAGED_IMAGE_SOURCE_BYTES:
+        raise ValueError(f'Ảnh quá lớn (tối đa {MAX_DAMAGED_IMAGE_SOURCE_BYTES // (1024*1024)}MB/ảnh).')
+
+    try:
+        img = Image.open(file_storage)
+        img.load()
+    except Exception:
+        raise ValueError('File không phải là ảnh hợp lệ.')
+
+    # Sửa xoay theo thẻ EXIF Orientation rồi bỏ luôn EXIF (không cần lưu
+    # metadata máy ảnh/GPS... trong CSDL, vừa nhẹ vừa tránh lộ vị trí chụp).
+    img = ImageOps.exif_transpose(img)
+    if img.mode not in ('RGB', 'L'):
+        img = img.convert('RGB')
+
+    w, h = img.size
+    longest = max(w, h)
+    if longest > DAMAGED_IMAGE_MAX_EDGE:
+        ratio = DAMAGED_IMAGE_MAX_EDGE / float(longest)
+        img = img.resize((max(1, round(w * ratio)), max(1, round(h * ratio))), Image.LANCZOS)
+
+    buf = io.BytesIO()
+    img.save(buf, format='WEBP', quality=72, method=4)
+    return buf.getvalue(), 'image/webp'
 
 
 def get_summary_from_data(combined_data):
@@ -4180,6 +4256,19 @@ def get_damaged():
             ORDER BY part_code, id DESC
         ''', (part_codes,))
         part_names = {r['part_code']: r['part_name'] for r in cursor.fetchall()}
+
+    # Chỉ lấy SỐ LƯỢNG ảnh mỗi lần báo (COUNT), KHÔNG lấy dữ liệu ảnh, để
+    # danh sách hiển thị được badge "có N ảnh" mà không tốn băng thông tải
+    # ảnh - ảnh thật chỉ tải khi người dùng bấm xem (xem /api/damaged/<id>/images).
+    item_ids = [r['id'] for r in rows]
+    image_counts = {}
+    if item_ids:
+        cursor.execute('''
+            SELECT damaged_item_id, COUNT(*) AS c
+            FROM damaged_item_images WHERE damaged_item_id = ANY(%s)
+            GROUP BY damaged_item_id
+        ''', (item_ids,))
+        image_counts = {r['damaged_item_id']: r['c'] for r in cursor.fetchall()}
     cursor.close()
 
     data = []
@@ -4193,6 +4282,7 @@ def get_damaged():
             'note': r['note'],
             'created_by': r['created_by'],
             'created_at': format_vi_datetime(r['created_at']) if r['created_at'] else None,
+            'image_count': image_counts.get(r['id'], 0),
         })
 
     return jsonify({'success': True, 'data': data})
@@ -4251,7 +4341,7 @@ def save_damaged():
     cursor.execute('''
         INSERT INTO damaged_items (store_code, part_code, quantity, note, created_by, created_at)
         VALUES (%s, %s, %s, %s, %s, %s)
-    ''', (store_code, part_code, quantity, note, session['user'], now))
+    ''', (store_code, part_code, quantity, note, _current_actor_name(), now))
     db.commit()
     cursor.close()
 
@@ -4382,13 +4472,14 @@ def import_damaged_excel():
         valid_parts = {r['part_code'] for r in cursor.fetchall()}
 
         now = vn_now()
+        actor_name = _current_actor_name()
         insert_rows = []
         not_in_stock = 0
         for r in rows:
             if r['part_code'] not in valid_parts:
                 not_in_stock += 1
                 continue
-            insert_rows.append((store_code, r['part_code'], r['quantity'], r['note'], session['user'], now))
+            insert_rows.append((store_code, r['part_code'], r['quantity'], r['note'], actor_name, now))
 
         if insert_rows:
             execute_values(
@@ -4418,6 +4509,185 @@ def import_damaged_excel():
             pass
         cursor.close()
         return jsonify({'error': str(e)}), 500
+
+
+def _damaged_item_store_code(cursor, item_id):
+    """Trả về store_code của 1 lần báo hư hỏng (dùng để kiểm tra quyền
+    thêm/xem/xoá ảnh), hoặc None nếu không tồn tại."""
+    cursor.execute('SELECT store_code FROM damaged_items WHERE id = %s', (item_id,))
+    row = cursor.fetchone()
+    return row['store_code'] if row else None
+
+
+@app.route('/api/damaged/<int:item_id>/images', methods=['GET'])
+def get_damaged_images(item_id):
+    """Trả về DANH SÁCH METADATA ảnh (id, dung lượng, người/ngày đăng) của
+    1 lần báo hư hỏng - KHÔNG kèm dữ liệu ảnh (xem endpoint riêng
+    /api/damaged/image/<id>) để việc mở xem danh sách ảnh không tốn băng
+    thông tải cả ảnh khi người dùng chỉ đang xem có bao nhiêu ảnh."""
+    if 'user' not in session:
+        return jsonify({'error': 'Unauthorized'}), 401
+    role = session['role']
+    if role not in ('store', 'admin'):
+        return jsonify({'error': 'Forbidden'}), 403
+
+    db = get_db()
+    cursor = db.cursor()
+    store_code = _damaged_item_store_code(cursor, item_id)
+    if store_code is None:
+        cursor.close()
+        return jsonify({'error': 'Không tìm thấy lần báo hư hỏng.'}), 404
+    if role == 'store' and store_code != session['store_code']:
+        cursor.close()
+        return jsonify({'error': 'Forbidden'}), 403
+
+    cursor.execute('''
+        SELECT id, byte_size, created_by, created_at
+        FROM damaged_item_images WHERE damaged_item_id = %s ORDER BY created_at ASC
+    ''', (item_id,))
+    rows = cursor.fetchall()
+    cursor.close()
+
+    return jsonify({'success': True, 'data': [
+        {
+            'id': r['id'],
+            'url': url_for('get_damaged_image', image_id=r['id']),
+            'byte_size': r['byte_size'],
+            'created_by': r['created_by'],
+            'created_at': format_vi_datetime(r['created_at']) if r['created_at'] else None,
+        } for r in rows
+    ]})
+
+
+@app.route('/api/damaged/image/<int:image_id>', methods=['GET'])
+def get_damaged_image(image_id):
+    """Trả thẳng dữ liệu nhị phân của 1 ảnh. Đặt Cache-Control dài hạn +
+    immutable vì ảnh KHÔNG BAO GIỜ bị sửa đè sau khi tạo (chỉ có thể xoá
+    rồi thêm ảnh mới với id khác) - giúp trình duyệt/CDN không tải lại ảnh
+    đã xem, tiết kiệm băng thông đáng kể khi mở lại nhiều lần."""
+    if 'user' not in session:
+        return jsonify({'error': 'Unauthorized'}), 401
+    role = session['role']
+    if role not in ('store', 'admin'):
+        return jsonify({'error': 'Forbidden'}), 403
+
+    db = get_db()
+    cursor = db.cursor()
+    cursor.execute('''
+        SELECT i.image_data, i.content_type, d.store_code
+        FROM damaged_item_images i
+        JOIN damaged_items d ON d.id = i.damaged_item_id
+        WHERE i.id = %s
+    ''', (image_id,))
+    row = cursor.fetchone()
+    cursor.close()
+
+    if not row:
+        return jsonify({'error': 'Không tìm thấy ảnh.'}), 404
+    if role == 'store' and row['store_code'] != session['store_code']:
+        return jsonify({'error': 'Forbidden'}), 403
+
+    resp = send_file(
+        io.BytesIO(bytes(row['image_data'])),
+        mimetype=row['content_type'],
+        max_age=31536000,
+        conditional=True,
+    )
+    resp.headers['Cache-Control'] = 'private, max-age=31536000, immutable'
+    return resp
+
+
+@app.route('/api/damaged/<int:item_id>/images/upload', methods=['POST'])
+@limiter.limit("30 per minute")
+def upload_damaged_image(item_id):
+    """Thêm 1 ảnh cho 1 lần báo hư hỏng đã có sẵn. Store chỉ thêm được cho
+    lần báo của chính mình; Admin thêm được cho bất kỳ. Ảnh luôn được
+    resize + nén sang WebP trước khi lưu (xem resize_damaged_image()) để
+    tiết kiệm CSDL/băng thông."""
+    if 'user' not in session:
+        return jsonify({'error': 'Unauthorized'}), 401
+    role = session['role']
+    if role not in ('store', 'admin'):
+        return jsonify({'error': 'Forbidden'}), 403
+
+    image_file = request.files.get('image')
+    if not image_file:
+        return jsonify({'error': 'Vui lòng chọn ảnh để tải lên.'}), 400
+
+    db = get_db()
+    cursor = db.cursor()
+    store_code = _damaged_item_store_code(cursor, item_id)
+    if store_code is None:
+        cursor.close()
+        return jsonify({'error': 'Không tìm thấy lần báo hư hỏng.'}), 404
+    if role == 'store' and store_code != session['store_code']:
+        cursor.close()
+        return jsonify({'error': 'Forbidden'}), 403
+
+    cursor.execute('SELECT COUNT(*) AS c FROM damaged_item_images WHERE damaged_item_id = %s', (item_id,))
+    current_count = cursor.fetchone()['c']
+    if current_count >= MAX_DAMAGED_IMAGES_PER_ITEM:
+        cursor.close()
+        return jsonify({'error': f'Mỗi lần báo hư hỏng chỉ được tối đa {MAX_DAMAGED_IMAGES_PER_ITEM} ảnh.'}), 400
+
+    try:
+        image_bytes, content_type = resize_damaged_image(image_file)
+    except ValueError as e:
+        cursor.close()
+        return jsonify({'error': str(e)}), 400
+
+    now = vn_now()
+    cursor.execute('''
+        INSERT INTO damaged_item_images (damaged_item_id, content_type, image_data, byte_size, created_by, created_at)
+        VALUES (%s, %s, %s, %s, %s, %s) RETURNING id
+    ''', (item_id, content_type, psycopg2.Binary(image_bytes), len(image_bytes), _current_actor_name(), now))
+    new_id = cursor.fetchone()['id']
+    db.commit()
+    cursor.close()
+
+    return jsonify({
+        'success': True,
+        'id': new_id,
+        'url': url_for('get_damaged_image', image_id=new_id),
+        'byte_size': len(image_bytes),
+    })
+
+
+@app.route('/api/damaged/image/delete', methods=['POST'])
+def delete_damaged_image():
+    """Xoá 1 ảnh đã đính kèm. Store chỉ xoá được ảnh của lần báo thuộc
+    chính cửa hàng mình; Admin xoá được ảnh của bất kỳ lần báo nào."""
+    if 'user' not in session:
+        return jsonify({'error': 'Unauthorized'}), 401
+    role = session['role']
+    if role not in ('store', 'admin'):
+        return jsonify({'error': 'Forbidden'}), 403
+
+    data = request.json or {}
+    try:
+        image_id = int(data.get('id'))
+    except (TypeError, ValueError):
+        return jsonify({'error': 'Dữ liệu không hợp lệ.'}), 400
+
+    db = get_db()
+    cursor = db.cursor()
+    cursor.execute('''
+        SELECT d.store_code FROM damaged_item_images i
+        JOIN damaged_items d ON d.id = i.damaged_item_id
+        WHERE i.id = %s
+    ''', (image_id,))
+    row = cursor.fetchone()
+    if not row:
+        cursor.close()
+        return jsonify({'error': 'Không tìm thấy ảnh.'}), 404
+    if role == 'store' and row['store_code'] != session['store_code']:
+        cursor.close()
+        return jsonify({'error': 'Forbidden'}), 403
+
+    cursor.execute('DELETE FROM damaged_item_images WHERE id = %s', (image_id,))
+    db.commit()
+    cursor.close()
+    return jsonify({'success': True})
 
 
 @app.route('/api/version', methods=['GET'])

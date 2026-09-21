@@ -12,12 +12,17 @@ Tách riêng ra file này (giống stocktake.py/price_adjustment.py/dashboard.py
 MÔ HÌNH DỮ LIỆU  (Lầu -> Kệ -> Tầng -> Ô -> Ngăn)
   - warehouse_floors: 1 CỬA HÀNG CÓ THỂ CÓ NHIỀU LẦU - mỗi lầu 1 dòng, có
     tên riêng (vd "Tầng trệt", "Lầu 1"), thứ tự hiển thị (floor_order) và
-    kích thước sàn riêng (rộng x sâu, đơn vị mét). Cửa hàng nào chưa từng
+    kích thước sàn riêng (rộng x sâu, đơn vị mét) và HÌNH DẠNG sàn: mặc định
+    là hình chữ nhật; nếu cột floor_shape có giá trị (JSON [[x, z], ...] - các
+    đỉnh đa giác đi vòng quanh mép sàn, mét, gốc (0, 0) là góc trái-trong) thì
+    sàn có hình đó (chữ L, U, T, hình bất kỳ...) và floor_width/floor_depth tự
+    được đặt bằng hộp bao ngoài của các đỉnh. Cửa hàng nào chưa từng
     lưu thì tự tạo 1 lầu mặc định "Tầng trệt" 20 x 15 khi truy cập lần đầu
     (xem _ensure_floors()). LƯU Ý: đây là "lầu" của toà nhà kho (building
     floor) - khác với "Tầng" (level) của 1 cái kệ nhiều tầng bên dưới.
   - warehouse_shelves: từng "khối" đặt trong kho (kệ nhiều tầng / khu để
-    hàng dưới sàn / vách ngăn) - có toạ độ TÂM khối (pos_x, pos_z, tính từ
+    hàng dưới sàn / vách ngăn / cửa / cầu thang - 3 loại cuối chỉ để vẽ sơ đồ,
+    không gán được mã hàng) - có toạ độ TÂM khối (pos_x, pos_z, tính từ
     góc trái-trong của sàn kho khi nhìn từ trên xuống), kích thước
     (width/height/depth), góc xoay quanh trục đứng (rotation_y, đơn vị
     RADIAN) và cấu trúc bên trong (chỉ có ý nghĩa với loại "shelf"):
@@ -80,13 +85,19 @@ HƯỚNG DẪN ĐĂNG KÝ (2 chỗ cần thêm vào app.py, không cần sửa g
      ở menu chính trong index.html nếu muốn (không bắt buộc để chạy được).
 =============================================================================
 """
+import json
+import math
+
 from flask import Blueprint, request, jsonify, session, render_template, redirect, url_for
 
 from app import get_db, vn_now, format_vi_datetime, _valid_store_codes, _current_actor_name
 
 warehouse3d_bp = Blueprint('warehouse3d', __name__)
 
-_VALID_SHELF_TYPES = {'shelf', 'floor_area', 'wall'}
+_VALID_SHELF_TYPES = {'shelf', 'floor_area', 'wall', 'door', 'stairs'}
+# Các loại khối KHÔNG dùng để chứa hàng: không gán được mã hàng, không có ô/ngăn.
+_NON_STORAGE_TYPES = {'wall', 'door', 'stairs'}
+_NON_STORAGE_LABELS = {'wall': 'vách ngăn', 'door': 'cửa', 'stairs': 'cầu thang'}
 _MAX_DIM = 30          # kích thước tối đa 1 chiều (mét) - chặn nhập nhầm số quá lớn
 _MAX_LEVELS = 20
 _MAX_CELLS = 20         # số ô tối đa mỗi tầng
@@ -130,6 +141,8 @@ def init_warehouse3d_tables(cursor):
         END $$;
     ''')
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_warehouse_floors_store ON warehouse_floors(store_code)')
+    # Hình dạng sàn (đa giác) - NULL = hình chữ nhật floor_width x floor_depth như cũ.
+    cursor.execute('ALTER TABLE warehouse_floors ADD COLUMN IF NOT EXISTS floor_shape TEXT')
 
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS warehouse_shelves (
@@ -265,6 +278,114 @@ def _check_store_access(cursor, store_code):
     return True, None
 
 
+_MAX_FLOOR_POINTS = 60    # số đỉnh tối đa của 1 sàn đa giác
+_MAX_FLOOR_SIZE = 200     # mét - khớp giới hạn rộng/sâu của sàn chữ nhật
+
+
+def _load_shape(raw):
+    """Đọc cột floor_shape (chuỗi JSON) -> [[x, z], ...] hoặc None (sàn chữ nhật)."""
+    if not raw:
+        return None
+    try:
+        pts = [[float(p[0]), float(p[1])] for p in json.loads(raw)]
+    except (ValueError, TypeError, IndexError, KeyError):
+        return None
+    return pts if len(pts) >= 3 else None
+
+
+def _orient(p, q, r):
+    return (q[0] - p[0]) * (r[1] - p[1]) - (q[1] - p[1]) * (r[0] - p[0])
+
+
+def _on_segment(p, q, r):
+    """r nằm trong hộp bao của đoạn pq (chỉ dùng khi đã biết 3 điểm thẳng hàng)."""
+    return (min(p[0], q[0]) <= r[0] <= max(p[0], q[0])
+            and min(p[1], q[1]) <= r[1] <= max(p[1], q[1]))
+
+
+def _segments_intersect(p1, p2, p3, p4):
+    d1, d2 = _orient(p3, p4, p1), _orient(p3, p4, p2)
+    d3, d4 = _orient(p1, p2, p3), _orient(p1, p2, p4)
+    if ((d1 > 0 and d2 < 0) or (d1 < 0 and d2 > 0)) and ((d3 > 0 and d4 < 0) or (d3 < 0 and d4 > 0)):
+        return True
+    return ((d1 == 0 and _on_segment(p3, p4, p1)) or (d2 == 0 and _on_segment(p3, p4, p2))
+            or (d3 == 0 and _on_segment(p1, p2, p3)) or (d4 == 0 and _on_segment(p1, p2, p4)))
+
+
+def _point_in_polygon(x, z, pts):
+    inside = False
+    j = len(pts) - 1
+    for i in range(len(pts)):
+        xi, zi = pts[i]
+        xj, zj = pts[j]
+        if (zi > z) != (zj > z) and x < (xj - xi) * (z - zi) / (zj - zi) + xi:
+            inside = not inside
+        j = i
+    return inside
+
+
+def _parse_floor_shape(raw):
+    """Kiểm tra danh sách đỉnh sàn client gửi lên. Trả về (points, error).
+    Yêu cầu: 3-60 đỉnh, toạ độ 0..200 m, không có 2 đỉnh liền kề trùng nhau,
+    các cạnh không tự cắt nhau, diện tích tối thiểu 1 m2."""
+    if not isinstance(raw, list):
+        return None, 'Hình dạng sàn không hợp lệ.'
+    pts = []
+    for p in raw:
+        try:
+            x, z = float(p[0]), float(p[1])
+        except (TypeError, ValueError, IndexError, KeyError):
+            return None, 'Toạ độ đỉnh sàn không hợp lệ.'
+        if not (math.isfinite(x) and math.isfinite(z)) or not (0 <= x <= _MAX_FLOOR_SIZE and 0 <= z <= _MAX_FLOOR_SIZE):
+            return None, f'Toạ độ đỉnh sàn phải từ 0 đến {_MAX_FLOOR_SIZE} mét.'
+        pts.append([round(x, 2), round(z, 2)])
+    if len(pts) > 1 and pts[0] == pts[-1]:
+        pts.pop()  # người dùng lặp lại đỉnh đầu để "đóng" đa giác
+    if len(pts) < 3 or len(pts) > _MAX_FLOOR_POINTS:
+        return None, f'Sàn kho cần từ 3 đến {_MAX_FLOOR_POINTS} đỉnh.'
+    n = len(pts)
+    for i in range(n):
+        if pts[i] == pts[(i + 1) % n]:
+            return None, 'Có 2 đỉnh liền kề trùng nhau.'
+    for i in range(n):
+        for j in range(i + 1, n):
+            if j == i + 1 or (i == 0 and j == n - 1):
+                continue  # 2 cạnh kề nhau luôn chung 1 đỉnh
+            if _segments_intersect(pts[i], pts[(i + 1) % n], pts[j], pts[(j + 1) % n]):
+                return None, 'Các cạnh của sàn đang cắt nhau - kiểm tra lại thứ tự các đỉnh.'
+    area = abs(sum(pts[i][0] * pts[(i + 1) % n][1] - pts[(i + 1) % n][0] * pts[i][1] for i in range(n))) / 2
+    if area < 1:
+        return None, 'Diện tích sàn quá nhỏ (tối thiểu 1 m²).'
+    return pts, None
+
+
+def _read_floor_geometry(data, current=None):
+    """Đọc kích thước / hình dạng sàn từ payload. Trả về (width, depth, shape, error).
+    shape = list đỉnh hoặc None (hình chữ nhật). Quy tắc:
+      - 'shape' là list  -> sàn đa giác; rộng/sâu = hộp bao ngoài (từ gốc 0,0)
+      - 'shape' = null, hoặc chỉ gửi width/depth -> sàn chữ nhật (thay thế đa giác cũ)
+      - không gửi gì về kích thước (vd chỉ đổi tên lầu) -> giữ nguyên hiện tại.
+    current: dòng warehouse_floors hiện có khi SỬA."""
+    if data.get('shape') is not None:
+        shape, err = _parse_floor_shape(data['shape'])
+        if err:
+            return None, None, None, err
+        width = max(p[0] for p in shape)
+        depth = max(p[1] for p in shape)
+    else:
+        if current is not None and not any(k in data for k in ('shape', 'width', 'depth')):
+            return float(current['floor_width']), float(current['floor_depth']), _load_shape(current['floor_shape']), None
+        try:
+            width = float(data.get('width', current['floor_width'] if current is not None else 20))
+            depth = float(data.get('depth', current['floor_depth'] if current is not None else 15))
+        except (TypeError, ValueError):
+            return None, None, None, 'Kích thước sàn kho không hợp lệ.'
+        shape = None
+    if not (2 <= width <= _MAX_FLOOR_SIZE and 2 <= depth <= _MAX_FLOOR_SIZE):
+        return None, None, None, f'Kích thước sàn kho phải từ 2 đến {_MAX_FLOOR_SIZE} mét.'
+    return width, depth, shape, None
+
+
 def _floor_to_dict(row):
     return {
         'id': row['id'],
@@ -272,6 +393,7 @@ def _floor_to_dict(row):
         'floor_order': row['floor_order'],
         'width': float(row['floor_width']),
         'depth': float(row['floor_depth']),
+        'shape': _load_shape(row['floor_shape']),
     }
 
 
@@ -492,7 +614,8 @@ def _prune_orphans(cursor, store_code, shelf_id, old_code, old_type,
     removed = 0
     for it in cursor.fetchall():
         allowed = _slots_for(new_type, default_slots, overrides, it['level_index'], it['cell_index'])
-        if it['level_index'] > levels or it['cell_index'] > cells or it['slot_index'] > allowed:
+        if (new_type in _NON_STORAGE_TYPES or it['level_index'] > levels
+                or it['cell_index'] > cells or it['slot_index'] > allowed):
             _clear_legacy_location(
                 cursor, store_code, it['part_code'], old_code, it['level_index'],
                 _location_3_label(old_type, it['cell_index'], it['slot_index'])
@@ -570,25 +693,20 @@ def wh3d_create_floor(store_code):
     if len(name) > 100:
         cursor.close()
         return jsonify({'error': 'Tên lầu quá dài (tối đa 100 ký tự).'}), 400
-    try:
-        width = float(data.get('width', 20))
-        depth = float(data.get('depth', 15))
-    except (TypeError, ValueError):
+    width, depth, shape, geo_err = _read_floor_geometry(data)
+    if geo_err:
         cursor.close()
-        return jsonify({'error': 'Kích thước sàn kho không hợp lệ.'}), 400
-    if width < 2 or width > 200 or depth < 2 or depth > 200:
-        cursor.close()
-        return jsonify({'error': 'Kích thước sàn kho phải từ 2 đến 200 mét.'}), 400
+        return jsonify({'error': geo_err}), 400
 
     existing = _ensure_floors(cursor, store_code)
     next_order = max((r['floor_order'] for r in existing), default=0) + 1
     now = vn_now()
     actor = _current_actor_name()
     cursor.execute('''
-        INSERT INTO warehouse_floors (store_code, name, floor_order, floor_width, floor_depth, updated_by, updated_at)
-        VALUES (%s, %s, %s, %s, %s, %s, %s)
+        INSERT INTO warehouse_floors (store_code, name, floor_order, floor_width, floor_depth, floor_shape, updated_by, updated_at)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
         RETURNING *
-    ''', (store_code, name, next_order, width, depth, actor, now))
+    ''', (store_code, name, next_order, width, depth, json.dumps(shape) if shape else None, actor, now))
     row = cursor.fetchone()
     db.commit()
     cursor.close()
@@ -615,28 +733,33 @@ def wh3d_update_floor(store_code, floor_id):
     if len(name) > 100:
         cursor.close()
         return jsonify({'error': 'Tên lầu quá dài (tối đa 100 ký tự).'}), 400
-    try:
-        width = float(data.get('width', floor['floor_width']))
-        depth = float(data.get('depth', floor['floor_depth']))
-    except (TypeError, ValueError):
+    width, depth, shape, geo_err = _read_floor_geometry(data, floor)
+    if geo_err:
         cursor.close()
-        return jsonify({'error': 'Kích thước sàn kho không hợp lệ.'}), 400
-    if width < 2 or width > 200 or depth < 2 or depth > 200:
-        cursor.close()
-        return jsonify({'error': 'Kích thước sàn kho phải từ 2 đến 200 mét.'}), 400
+        return jsonify({'error': geo_err}), 400
 
     now = vn_now()
     actor = _current_actor_name()
     cursor.execute('''
         UPDATE warehouse_floors SET name = %s, floor_width = %s, floor_depth = %s,
-            updated_by = %s, updated_at = %s
+            floor_shape = %s, updated_by = %s, updated_at = %s
         WHERE id = %s
         RETURNING *
-    ''', (name, width, depth, actor, now, floor_id))
+    ''', (name, width, depth, json.dumps(shape) if shape else None, actor, now, floor_id))
     row = cursor.fetchone()
+
+    # Kệ nào có tâm nằm NGOÀI hình dạng sàn mới thì báo cho client cảnh báo
+    # (không tự dời/xoá kệ - người dùng tự kéo lại vào trong sàn).
+    outside_shelves = []
+    if shape:
+        cursor.execute('SELECT code, pos_x, pos_z FROM warehouse_shelves WHERE floor_id = %s ORDER BY code', (floor_id,))
+        outside_shelves = [
+            r['code'] for r in cursor.fetchall()
+            if not _point_in_polygon(float(r['pos_x']), float(r['pos_z']), shape)
+        ]
     db.commit()
     cursor.close()
-    return jsonify({'success': True, 'floor': _floor_to_dict(row)})
+    return jsonify({'success': True, 'floor': _floor_to_dict(row), 'outside_shelves': outside_shelves})
 
 
 @warehouse3d_bp.route('/api/warehouse3d/<store_code>/floors/<int:floor_id>', methods=['DELETE'])
@@ -1050,9 +1173,9 @@ def wh3d_assign_item(store_code, shelf_id):
     if not shelf:
         cursor.close()
         return jsonify({'error': 'Không tìm thấy kệ.'}), 404
-    if shelf['shelf_type'] == 'wall':
+    if shelf['shelf_type'] in _NON_STORAGE_TYPES:
         cursor.close()
-        return jsonify({'error': 'Không thể gán mã hàng vào vách ngăn.'}), 400
+        return jsonify({'error': f"Không thể gán mã hàng vào {_NON_STORAGE_LABELS[shelf['shelf_type']]}."}), 400
 
     data = request.json or {}
     part_code = (data.get('part_code') or '').strip()

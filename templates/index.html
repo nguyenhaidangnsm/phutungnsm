@@ -2297,6 +2297,35 @@
 </div>
 {% endif %}
 
+<!-- Modal xem/thêm/xoá ẢNH cho 1 lần báo "Hàng Cần Xử Lý". Ảnh chỉ được
+     tải khi modal này mở (gọi /api/damaged/<id>/images) - danh sách chính
+     không kèm ảnh để tiết kiệm băng thông. -->
+<div class="modal fade" id="damagedImagesModal" tabindex="-1">
+    <div class="modal-dialog modal-dialog-scrollable" style="max-width:640px;">
+        <div class="modal-content border-0 shadow">
+            <div class="modal-header bg-primary text-white">
+                <h5 class="modal-title fw-bold fs-6">Ảnh Đính Kèm - <span id="damagedImagesPartCode"></span></h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body p-3">
+                <div id="damagedImagesGrid" class="row g-2 mb-3"></div>
+                <div id="damagedImagesEmpty" class="text-muted small text-center py-3" style="display:none;">Chưa có ảnh nào.</div>
+                <label class="btn btn-outline-primary btn-sm w-100" id="damagedImageUploadLabel">
+                    <i class="bi bi-camera me-1"></i> Thêm ảnh
+                    <input type="file" accept="image/*" capture="environment" id="damagedImageUploadInput" style="display:none;">
+                </label>
+                <div class="small text-muted mt-2 text-center">Tối đa <span id="damagedImagesMax">4</span> ảnh/lần báo. Ảnh sẽ tự động được nén để tiết kiệm dung lượng.</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Popup phóng to ảnh khi rê chuột vào nút "Ảnh" trên bảng, không cần bấm
+     mở modal mới xem được nhanh. -->
+<div id="damagedImageHoverPreview" style="display:none; position:fixed; z-index:2000; pointer-events:none; border:2px solid #fff; border-radius:.5rem; box-shadow:0 .5rem 1.5rem rgba(0,0,0,.35); background:#fff; overflow:hidden;">
+    <img id="damagedImageHoverPreviewImg" src="" style="display:block; width:280px; height:280px; object-fit:contain; background:#f8f9fa;">
+</div>
+
         <!-- ĐỀ XUẤT TĂNG GIÁ PANE - dùng chung cho cả admin lẫn store (mọi
              tài khoản đều đề xuất được, không giới hạn quyền). Gồm 1 form
              đề xuất tăng giá cho 1 mã hàng bất kỳ, và 2 danh sách "Đã Điều
@@ -2326,6 +2355,10 @@
                         <input type="number" id="price-adj-gia-hvn" class="form-control form-control-sm" min="0" step="any" placeholder="0" required oninput="recalcPriceAdjGiaBan()">
                     </div>
                     <div class="col-6 col-md-2">
+                        <label class="form-label small mb-1">Mức tăng (%)</label>
+                        <input type="number" id="price-adj-muc-tang" class="form-control form-control-sm" min="0" max="1000" step="any" value="5" required oninput="recalcPriceAdjGiaBan()">
+                    </div>
+                    <div class="col-6 col-md-2">
                         <label class="form-label small mb-1">Giá bán (làm tròn)</label>
                         <input type="text" id="price-adj-gia-ban" class="form-control form-control-sm fw-bold text-success" readonly value="-">
                     </div>
@@ -2337,7 +2370,7 @@
                         <button type="submit" class="btn btn-primary btn-sm w-100 fw-semibold"><i class="bi bi-save me-1"></i>Lưu Đề Xuất</button>
                     </div>
                 </form>
-                <p class="text-muted small mt-2 mb-0"><i class="bi bi-info-circle me-1"></i><strong>Mã đã có trong danh mục (đã có giá bán):</strong> chỉ cần nhập Mã hàng - hệ thống lấy Giá bán cũ và tự cộng 5% ra Giá bán mới (làm tròn đến hàng nghìn), không cần nhập Thuế và Giá đề xuất HVN. <strong>Mã chưa có trong danh mục:</strong> nhập đủ thông tin - Giá cũ = (Giá đề xuất HVN × Thuế) + Giá đề xuất HVN; Giá bán = Giá cũ + 5% Giá cũ, làm tròn đến hàng nghìn, và mã sẽ được tự động lưu vào danh mục để lần sau tự hiện lại Tên/Thuế.</p>
+                <p class="text-muted small mt-2 mb-0"><i class="bi bi-info-circle me-1"></i><strong>Mã đã có trong danh mục (đã có giá bán):</strong> chỉ cần nhập Mã hàng - hệ thống lấy Giá bán cũ và tự cộng "Mức tăng (%)" (mặc định 5%, có thể sửa) ra Giá bán mới (làm tròn đến hàng nghìn), không cần nhập Thuế và Giá đề xuất HVN. <strong>Mã chưa có trong danh mục:</strong> nhập đủ thông tin - Giá cũ = (Giá đề xuất HVN × Thuế) + Giá đề xuất HVN; Giá bán = Giá cũ + Mức tăng (%) Giá cũ, làm tròn đến hàng nghìn, và mã sẽ được tự động lưu vào danh mục để lần sau tự hiện lại Tên/Thuế.</p>
             </div>
 
             {% if role == 'admin' %}
@@ -2397,7 +2430,7 @@
                                 <th>Mã Hàng</th>
                                 <th>Tên Hàng</th>
                                 <th>Trạng Thái</th>
-                                <th class="text-end">Giá Bán Lần Trước</th>
+                                <th class="text-end">Giá Bán Hiện Tại</th>
                                 <th>Người Đề Xuất</th>
                                 <th>Ngày Điều Chỉnh</th>
                             </tr>
@@ -5623,8 +5656,12 @@ async function saveLocationRow(btn, partCode) {
                 </tr>`;
             }
 
+            const imgCount = item.image_count || 0;
+            const imgBtnClass = imgCount > 0 ? 'btn-primary' : 'btn-outline-secondary';
             return `
-                <tr>
+                <tr class="damaged-row" style="cursor:pointer;" title="Bấm để xem ảnh đính kèm" onclick="handleDamagedRowClick(event, ${item.id}, '${escapeHtmlAttr(item.part_code)}')"
+                    ${imgCount > 0 ? `onmouseenter="showDamagedImageHoverPreview(event, ${item.id})" onmousemove="positionDamagedImageHoverPreview(event)" onmouseleave="hideDamagedImageHoverPreview()"` : ''}
+                >
                     ${storeCol}
                     <td><span class="part-code">${escapeHtmlAttr(item.part_code)}</span></td>
                     <td>${escapeHtmlAttr(item.part_name || '')}</td>
@@ -5633,6 +5670,7 @@ async function saveLocationRow(btn, partCode) {
                     <td class="text-muted small">${escapeHtmlAttr(item.created_by || '')}</td>
                     <td class="text-muted small">${escapeHtmlAttr(item.created_at || '')}</td>
                     <td class="text-center text-nowrap">
+                        <button class="btn ${imgBtnClass} btn-sm" title="Ảnh đính kèm" onclick="openDamagedImages(${item.id}, '${escapeHtmlAttr(item.part_code)}')"><i class="bi bi-camera"></i>${imgCount > 0 ? ' ' + imgCount : ''}</button>
                         <button class="btn btn-outline-primary btn-sm" title="Sửa" onclick="startEditDamaged(${item.id})"><i class="bi bi-pencil"></i></button>
                         <button class="btn btn-outline-danger btn-sm" title="Xoá" onclick="deleteDamagedRow(${item.id})"><i class="bi bi-trash"></i></button>
                     </td>
@@ -5687,6 +5725,165 @@ async function saveLocationRow(btn, partCode) {
                 refreshDamagedHighlights();
             } else {
                 alert('Lỗi: ' + (result.error || 'Không thể xoá báo cáo.'));
+            }
+        } catch (e) { alert('Lỗi kết nối server.'); }
+    }
+
+    // ---- Ảnh đính kèm cho "Hàng Cần Xử Lý" ----
+    // Ảnh CHỈ được tải khi mở modal này (không tải kèm trong danh sách
+    // chính) để tiết kiệm băng thông; số lượng ảnh hiển thị trên nút
+    // "Ảnh" ở bảng đã có sẵn từ /api/damaged (image_count), không cần gọi
+    // API riêng chỉ để đếm.
+    let currentDamagedImagesItemId = null;
+    // Cache danh sách URL ảnh theo item id, dùng cho cả modal lẫn popup rê
+    // chuột - tránh gọi lại API mỗi lần rê chuột qua cùng 1 dòng.
+    const damagedImagesCache = {};
+
+    async function showDamagedImageHoverPreview(ev, itemId) {
+        const wrap = document.getElementById('damagedImageHoverPreview');
+        const img = document.getElementById('damagedImageHoverPreviewImg');
+        positionDamagedImageHoverPreview(ev);
+
+        let images = damagedImagesCache[itemId];
+        if (!images) {
+            try {
+                const res = await fetch(`/api/damaged/${itemId}/images`);
+                const result = await res.json();
+                if (!res.ok || !result.success) return;
+                images = result.data;
+                damagedImagesCache[itemId] = images;
+            } catch (e) { return; }
+        }
+        if (!images.length) return;
+
+        // Nếu chuột đã rời nút trước khi ảnh tải xong thì thôi, không hiện.
+        if (wrap.dataset.hoverItemId !== undefined && wrap.dataset.hoverItemId != itemId && wrap.style.display === 'none') return;
+
+        img.src = images[0].url;
+        wrap.dataset.hoverItemId = itemId;
+        wrap.style.display = 'block';
+    }
+
+    function positionDamagedImageHoverPreview(ev) {
+        const wrap = document.getElementById('damagedImageHoverPreview');
+        const margin = 14;
+        const size = 280 + 4; // ảnh + viền
+        let left = ev.clientX + margin;
+        let top = ev.clientY + margin;
+        if (left + size > window.innerWidth) left = ev.clientX - size - margin;
+        if (top + size > window.innerHeight) top = window.innerHeight - size - margin;
+        if (top < 0) top = margin;
+        wrap.style.left = left + 'px';
+        wrap.style.top = top + 'px';
+    }
+
+    function hideDamagedImageHoverPreview() {
+        const wrap = document.getElementById('damagedImageHoverPreview');
+        wrap.style.display = 'none';
+        delete wrap.dataset.hoverItemId;
+    }
+
+    // Nhấp vào BẤT KỲ đâu trên hàng ngang (trừ nút/ô nhập bên trong) đều mở
+    // modal xem ảnh - tiện hơn phải nhắm đúng nút camera nhỏ.
+    function handleDamagedRowClick(ev, itemId, partCode) {
+        if (ev.target.closest('button, input, a, select, textarea')) return;
+        openDamagedImages(itemId, partCode);
+    }
+
+    async function openDamagedImages(itemId, partCode) {
+        currentDamagedImagesItemId = itemId;
+        document.getElementById('damagedImagesPartCode').innerText = partCode || '';
+        new bootstrap.Modal(document.getElementById('damagedImagesModal')).show();
+        await loadDamagedImages(itemId);
+    }
+
+    async function loadDamagedImages(itemId) {
+        const grid = document.getElementById('damagedImagesGrid');
+        const emptyEl = document.getElementById('damagedImagesEmpty');
+        grid.innerHTML = '<div class="col-12 text-center text-muted small py-3">Đang tải ảnh...</div>';
+        try {
+            const res = await fetch(`/api/damaged/${itemId}/images`);
+            const result = await res.json();
+            if (!res.ok || !result.success) {
+                grid.innerHTML = '';
+                alert('Lỗi: ' + (result.error || 'Không tải được ảnh.'));
+                return;
+            }
+            renderDamagedImagesGrid(result.data);
+        } catch (e) {
+            grid.innerHTML = '';
+            alert('Lỗi kết nối server.');
+        }
+    }
+
+    function renderDamagedImagesGrid(images) {
+        const grid = document.getElementById('damagedImagesGrid');
+        const emptyEl = document.getElementById('damagedImagesEmpty');
+        if (!images || images.length === 0) {
+            grid.innerHTML = '';
+            emptyEl.style.display = '';
+            return;
+        }
+        emptyEl.style.display = 'none';
+        grid.innerHTML = images.map(img => `
+            <div class="col-4 col-sm-3">
+                <div style="position:relative;">
+                    <img src="${img.url}" class="img-zoomable rounded border" style="width:100%; aspect-ratio:1/1; object-fit:cover; cursor:zoom-in;" onclick="openImageLightbox(this.src, event)">
+                    <button class="btn btn-danger btn-sm" title="Xoá ảnh" onclick="deleteDamagedImage(${img.id})"
+                        style="position:absolute; top:2px; right:2px; padding:0 5px; line-height:1.6;">
+                        <i class="bi bi-x"></i>
+                    </button>
+                </div>
+            </div>
+        `).join('');
+    }
+
+    const damagedImageUploadInput = document.getElementById('damagedImageUploadInput');
+    if (damagedImageUploadInput) {
+        damagedImageUploadInput.addEventListener('change', async () => {
+            const file = damagedImageUploadInput.files[0];
+            damagedImageUploadInput.value = '';
+            if (!file || !currentDamagedImagesItemId) return;
+
+            const formData = new FormData();
+            formData.append('image', file);
+            document.getElementById('loading-overlay').style.display = 'flex';
+            try {
+                const res = await fetch(`/api/damaged/${currentDamagedImagesItemId}/images/upload`, {
+                    method: 'POST',
+                    body: formData
+                });
+                const result = await res.json();
+                if (res.ok && result.success) {
+                    delete damagedImagesCache[currentDamagedImagesItemId];
+                    await loadDamagedImages(currentDamagedImagesItemId);
+                    await loadDamaged(); // cập nhật số ảnh hiển thị trên bảng
+                } else {
+                    alert('Lỗi: ' + (result.error || 'Không thể tải ảnh lên.'));
+                }
+            } catch (e) {
+                alert('Lỗi kết nối server.');
+            } finally {
+                document.getElementById('loading-overlay').style.display = 'none';
+            }
+        });
+    }
+
+    async function deleteDamagedImage(imageId) {
+        if (!confirm('Xoá ảnh này?')) return;
+        try {
+            const res = await fetch('/api/damaged/image/delete', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ id: imageId })
+            });
+            const result = await res.json();
+            if (res.ok && result.success) {
+                delete damagedImagesCache[currentDamagedImagesItemId];
+                await loadDamagedImages(currentDamagedImagesItemId);
+                await loadDamaged();
+            } else {
+                alert('Lỗi: ' + (result.error || 'Không thể xoá ảnh.'));
             }
         } catch (e) { alert('Lỗi kết nối server.'); }
     }
@@ -5905,7 +6102,8 @@ async function saveLocationRow(btn, partCode) {
     }
 
     // Bật/tắt chế độ "mã đã có giá trong danh mục": khoá ô Thuế + Giá đề
-    // xuất HVN (không cần nhập), còn lại tự tính Giá bán = Giá bán cũ + 5%.
+    // xuất HVN (không cần nhập), còn lại tự tính Giá bán = Giá bán cũ +
+    // Mức tăng (%) (ô Mức tăng vẫn luôn bật, áp dụng cho cả 2 chế độ).
     function updatePriceAdjMode() {
         const partCode = document.getElementById('price-adj-part-code').value;
         const catalogPrice = getPriceAdjCatalogPrice(partCode);
@@ -5989,11 +6187,15 @@ async function saveLocationRow(btn, partCode) {
 
     // Tính Giá bán mới. 2 chế độ:
     //  - Mã đã có giá bán trong danh mục: Giá cũ = giá bán hiện có (làm
-    //    tròn hàng nghìn), Giá bán = Giá cũ + 5%. Không cần Thuế/HVN.
-    //  - Mã mới / chưa có giá: Giá cũ = (HVN * Thuế) + HVN, rồi + 5%.
+    //    tròn hàng nghìn), Giá bán = Giá cũ + Mức tăng (%). Không cần Thuế/HVN.
+    //  - Mã mới / chưa có giá: Giá cũ = (HVN * Thuế) + HVN, rồi + Mức tăng (%).
+    // Mức tăng (%) do người dùng tự nhập ở ô "price-adj-muc-tang" (mặc định
+    // 5%, có thể sửa thành số khác) - KHÔNG còn cố định 5% như trước.
     function calcPriceAdjValues() {
         const partCode = document.getElementById('price-adj-part-code').value;
         const catalogPrice = getPriceAdjCatalogPrice(partCode);
+        const mucTang = parseFloat(document.getElementById('price-adj-muc-tang').value);
+        if (isNaN(mucTang) || mucTang < 0) return null;
         let giaCu;
         if (catalogPrice !== null) {
             giaCu = Math.round(catalogPrice / 1000) * 1000;
@@ -6004,9 +6206,9 @@ async function saveLocationRow(btn, partCode) {
             // Bước 1: Giá cũ = (Giá đề xuất HVN * Thuế) + Giá đề xuất HVN
             giaCu = Math.round(((giaHvn * (thue / 100)) + giaHvn) / 1000) * 1000;
         }
-        // Bước 2: Giá bán = Giá cũ + 5% Giá cũ (5% cố định, không dùng Thuế)
-        const giaBan = Math.round(((giaCu * 0.05) + giaCu) / 1000) * 1000;
-        return { giaCu, giaBan, fromCatalog: catalogPrice !== null };
+        // Bước 2: Giá bán = Giá cũ + Mức tăng (%) Giá cũ (không dùng Thuế)
+        const giaBan = Math.round(((giaCu * (mucTang / 100)) + giaCu) / 1000) * 1000;
+        return { giaCu, giaBan, mucTang, fromCatalog: catalogPrice !== null };
     }
 
     function recalcPriceAdjGiaBan() {
@@ -6021,7 +6223,8 @@ async function saveLocationRow(btn, partCode) {
         out.value = r.giaBan.toLocaleString() + 'đ';
         if (calcHintEl) {
             const label = r.fromCatalog ? 'Giá bán cũ' : 'Giá cũ';
-            calcHintEl.innerHTML = `<span class="text-muted">${label}: <strong>${r.giaCu.toLocaleString()}đ</strong> &rarr; Giá bán mới (+5%): <strong class="text-success">${r.giaBan.toLocaleString()}đ</strong></span>`;
+            const mucTangLabel = Number.isInteger(r.mucTang) ? r.mucTang : r.mucTang.toString();
+            calcHintEl.innerHTML = `<span class="text-muted">${label}: <strong>${r.giaCu.toLocaleString()}đ</strong> &rarr; Giá bán mới (+${mucTangLabel}%): <strong class="text-success">${r.giaBan.toLocaleString()}đ</strong></span>`;
         }
     }
 
@@ -6031,8 +6234,10 @@ async function saveLocationRow(btn, partCode) {
         const partName = document.getElementById('price-adj-part-name').value.trim();
         let thue = document.getElementById('price-adj-thue').value;
         let giaHvn = document.getElementById('price-adj-gia-hvn').value;
+        const mucTang = document.getElementById('price-adj-muc-tang').value;
 
         if (!partCode) { alert('Vui lòng nhập mã hàng.'); return false; }
+        if (mucTang === '' || isNaN(Number(mucTang)) || Number(mucTang) < 0) { alert('Vui lòng nhập Mức tăng (%) hợp lệ.'); return false; }
 
         // Mã đã có giá bán trong danh mục: không cần Thuế/HVN. Cờ
         // from_catalog_price báo server tự lấy Giá bán hiện có (part_prices)
@@ -6058,6 +6263,7 @@ async function saveLocationRow(btn, partCode) {
                     thue: Number(thue),
                     gia_de_xuat_hvn: Number(giaHvn),
                     from_catalog_price: fromCatalog,
+                    muc_tang_percent: Number(mucTang),
                 })
             });
             const result = await res.json();
@@ -6175,6 +6381,7 @@ async function saveLocationRow(btn, partCode) {
                             in_catalog: !!result.in_catalog,
                             already_adjusted: !!result.already_adjusted,
                             last_proposal: result.last_proposal || null,
+                            catalog_price: result.catalog_price != null ? Number(result.catalog_price) : null,
                         };
                     }
                 } catch (e) {
@@ -6197,6 +6404,17 @@ async function saveLocationRow(btn, partCode) {
         exportBtn.disabled = false;
     }
 
+    // Giá hiển thị/cộng tổng cho 1 dòng kết quả kiểm tra: ưu tiên giá bán ở
+    // lần đề xuất gần nhất (mã "Đã tăng giá"); nếu mã chưa từng được đề
+    // xuất ("Chưa tăng giá") thì dùng giá bán hiện có trong danh mục giá
+    // (catalog_price) - mã hoàn toàn chưa có giá ở đâu thì trả về null.
+    function priceAdjBulkEffectivePrice(item) {
+        if (!item) return null;
+        if (item.last_proposal && item.last_proposal.gia_ban != null) return Number(item.last_proposal.gia_ban);
+        if (item.catalog_price != null) return Number(item.catalog_price);
+        return null;
+    }
+
     function priceAdjBulkStatusBadge(item) {
         if (item.error) return `<span class="badge bg-danger">${escapeHtmlAttr(item.error)}</span>`;
         if (!item.in_catalog && !item.already_adjusted) return `<span class="badge bg-dark-subtle text-dark-emphasis">Không có trong hệ thống</span>`;
@@ -6208,12 +6426,13 @@ async function saveLocationRow(btn, partCode) {
         const row = document.getElementById(`price-adj-bulk-row-${i}`);
         if (!row) return;
         const lp = item.last_proposal;
+        const price = priceAdjBulkEffectivePrice(item);
         row.innerHTML = `
             <td class="text-muted">${i + 1}</td>
             <td class="fw-semibold">${escapeHtmlAttr(item.part_code)}</td>
             <td>${escapeHtmlAttr(item.part_name || '-')}</td>
             <td>${priceAdjBulkStatusBadge(item)}</td>
-            <td class="text-end">${lp ? fmtPriceAdjMoney(lp.gia_ban) : '-'}</td>
+            <td class="text-end">${price != null ? fmtPriceAdjMoney(price) : '-'}</td>
             <td>${lp ? escapeHtmlAttr(lp.created_by || '-') : '-'}</td>
             <td>${lp ? escapeHtmlAttr(lp.created_at || '-') : '-'}</td>
         `;
@@ -6226,6 +6445,15 @@ async function saveLocationRow(btn, partCode) {
         const notAdjusted = priceAdjBulkResult.filter(r => r && !r.error && !r.already_adjusted && r.in_catalog).length;
         const notFound = priceAdjBulkResult.filter(r => r && !r.error && !r.already_adjusted && !r.in_catalog).length;
         const errored = priceAdjBulkResult.filter(r => r && r.error).length;
+        // Tổng tiền = cộng dồn giá hiển thị (Đã tăng giá: giá bán lần đề
+        // xuất gần nhất; Chưa tăng giá: giá bán hiện có trong danh mục giá)
+        // của MỌI mã tra được giá - mã lỗi hoặc hoàn toàn chưa có giá ở đâu
+        // (chưa từng đề xuất VÀ chưa có trong danh mục giá) không tính vào
+        // tổng. Đếm riêng số mã có giá (priced) để hiển thị rõ tổng này
+        // tính trên bao nhiêu mã, tránh hiểu nhầm là tổng của toàn bộ danh
+        // sách đã dán vào.
+        const priced = priceAdjBulkResult.filter(r => priceAdjBulkEffectivePrice(r) != null);
+        const totalMoney = priced.reduce((sum, r) => sum + priceAdjBulkEffectivePrice(r), 0);
         summaryEl.style.display = 'flex';
         summaryEl.innerHTML = `
             <span class="badge bg-primary-subtle text-primary-emphasis fs-6 fw-normal">Tổng: ${total}</span>
@@ -6233,6 +6461,7 @@ async function saveLocationRow(btn, partCode) {
             <span class="badge bg-secondary-subtle text-secondary-emphasis fs-6 fw-normal">Chưa tăng giá: ${notAdjusted}</span>
             <span class="badge bg-dark-subtle text-dark-emphasis fs-6 fw-normal">Không có trong hệ thống: ${notFound}</span>
             ${errored ? `<span class="badge bg-danger-subtle text-danger-emphasis fs-6 fw-normal">Lỗi: ${errored}</span>` : ''}
+            <span class="badge bg-warning-subtle text-warning-emphasis fs-6 fw-normal">Tổng tiền (${priced.length} mã có giá): ${fmtPriceAdjMoney(totalMoney)}</span>
         `;
     }
 
@@ -6242,6 +6471,7 @@ async function saveLocationRow(btn, partCode) {
         if (!priceAdjBulkResult.length || typeof XLSX === 'undefined') return;
         const rows = priceAdjBulkResult.map((item, i) => {
             const lp = item && item.last_proposal;
+            const price = priceAdjBulkEffectivePrice(item);
             let statusText = '-';
             if (item && item.error) statusText = 'Lỗi: ' + item.error;
             else if (item && !item.in_catalog && !item.already_adjusted) statusText = 'Không có trong hệ thống';
@@ -6252,7 +6482,7 @@ async function saveLocationRow(btn, partCode) {
                 'Mã Hàng': item ? item.part_code : '',
                 'Tên Hàng': item ? (item.part_name || '') : '',
                 'Trạng Thái': statusText,
-                'Giá Bán Lần Trước': lp ? lp.gia_ban : '',
+                'Giá Bán Hiện Tại': price != null ? price : '',
                 'Người Đề Xuất': lp ? (lp.created_by || '') : '',
                 'Ngày Điều Chỉnh': lp ? (lp.created_at || '') : '',
             };
