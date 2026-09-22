@@ -2938,7 +2938,9 @@ def verify_and_upgrade_password(cursor, db, user, password):
         return True
 
     return False
-
+@app.route('/health')
+def health():
+    return 'OK', 200
 
 @app.route('/login', methods=['GET', 'POST'])
 @limiter.limit("10 per minute")
