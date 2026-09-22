@@ -15,44 +15,48 @@
         }
         /* Font thương hiệu (rộng, đậm) chỉ dùng cho tiêu đề; bảng dữ liệu và form
            dùng font hệ thống để 19 cột gọn, đều và dễ đọc. */
-        body { background: #f4f6f9; font-family: system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; }
-        .brand-title { font-family: 'SVN-MonaSans', system-ui, sans-serif; }
+        body { background: #eef1f7; font-family: system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; }
+        .brand-title { font-family: 'SVN-MonaSans', system-ui, sans-serif; letter-spacing: .2px; }
         .topbar {
-            background: #fff; border-bottom: 3px solid #0d6efd;
-            padding: .75rem 1.25rem; display: flex; align-items: center;
+            background: #fff; border-bottom: 1px solid #e3e8f2;
+            box-shadow: 0 1px 0 rgba(13,110,253,.35);
+            padding: .85rem 1.5rem; display: flex; align-items: center;
             justify-content: space-between; flex-wrap: wrap; gap: .5rem;
         }
-        .brand-logo { max-height: 40px; object-fit: contain; }
-        .card { border: none; border-radius: 14px; box-shadow: 0 6px 20px rgba(13,110,253,0.06); }
+        .brand-logo { max-height: 38px; object-fit: contain; }
+        .card { border: 1px solid #e6eaf2; border-radius: 12px; box-shadow: 0 2px 10px rgba(20,30,60,0.04); }
         .btn-nam-suong { background-color: #0d6efd; border-color: #0d6efd; color: #fff; }
         .btn-nam-suong:hover { background-color: #0b5ed7; border-color: #0a58ca; color: #fff; }
-        .container-main { max-width: none; margin: 1rem auto; padding: 0 1rem; }
+        .container-main { max-width: none; margin: 1.25rem auto; padding: 0 1.5rem; }
+        .filter-card { padding: 1.1rem 1.25rem; }
+        .filter-card .form-label { letter-spacing: .1px; }
 
         /* ===== BẢNG ===== */
         .bo-wrap {
-            overflow: auto; max-height: calc(100vh - 250px); min-height: 260px;
-            background: #fff; border: 1px solid #dfe5ef; border-radius: 12px 12px 0 0;
+            overflow: auto; max-height: calc(100vh - 260px); min-height: 260px;
+            background: #fff; border: 1px solid #e3e8f2; border-radius: 12px 12px 0 0;
         }
         table.bo {
             border-collapse: separate; border-spacing: 0; width: 100%;
-            font-size: .8rem; color: #1f2937;
+            font-size: .82rem; color: #29344a;
         }
         table.bo thead th {
             position: sticky; top: 0; z-index: 5;
-            background: #eaf0fd; color: #2b3a55; font-weight: 600; font-size: .76rem;
-            padding: .55rem .6rem; border-bottom: 2px solid #c6d4f3;
-            text-align: left; vertical-align: bottom; line-height: 1.25;
+            background: #f4f7fd; color: #46567a; font-weight: 700; font-size: .72rem;
+            letter-spacing: .015em;
+            padding: .7rem .65rem; border-bottom: 1px solid #dbe2f0;
+            text-align: left; vertical-align: bottom; line-height: 1.3;
         }
         table.bo td {
-            padding: .42rem .6rem; border-bottom: 1px solid #e8ecf3;
-            background: var(--row-bg, #fff); vertical-align: middle; line-height: 1.3;
+            padding: .55rem .65rem; border-bottom: 1px solid #eef1f7;
+            background: var(--row-bg, #fff); vertical-align: middle; line-height: 1.35;
         }
         /* Mỗi yêu cầu đặt = 1 <tbody>: nền xen kẽ theo YÊU CẦU (không theo dòng),
            kẻ đậm giữa các yêu cầu, tô sáng cả yêu cầu khi rê chuột. */
         tbody.req { --row-bg: #fff; }
-        tbody.req:nth-of-type(even) { --row-bg: #f6f8fc; }
-        tbody.req:hover { --row-bg: #ebf2ff; }
-        tbody.req > tr:first-child > td { border-top: 2px solid #c9d1de; }
+        tbody.req:nth-of-type(even) { --row-bg: #f8fafd; }
+        tbody.req:hover { --row-bg: #eef4ff; }
+        tbody.req > tr:first-child > td { border-top: 1px solid #d7deec; }
         tbody.req > tr:last-child > td,
         tbody.req > tr > td[rowspan] { border-bottom: 0; }
 
@@ -69,16 +73,21 @@
         table.bo thead th.t-center, .t-center { text-align: center; }
         table.bo thead th.num { text-align: right; }
         .num { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+        .num:empty::before { content: '—'; color: #c3cadb; }
         .t-wrap { white-space: pre-line; overflow-wrap: anywhere; }
         td.c4 { font-weight: 600; overflow-wrap: anywhere; }
         td { white-space: pre-line; }
         .stt { font-weight: 700; color: #0d6efd; }
-        .stt-store { font-size: .65rem; color: #6b7280; }
-        .badge.status { font-weight: 600; font-size: .72rem; }
-        .note-ico { color: #b45309; cursor: help; margin-left: .25rem; }
-        .col-act .btn, td.c-act .btn { --bs-btn-padding-y: .1rem; --bs-btn-padding-x: .35rem; }
-        td.c-act { position: sticky; right: 0; z-index: 2; box-shadow: -2px 0 0 #e3e8f2; text-align: center; white-space: nowrap; }
-        th.col-act { position: sticky; right: 0; z-index: 6; box-shadow: -2px 0 0 #e3e8f2; }
+        .stt-store { font-size: .65rem; color: #8892a6; font-weight: 600; }
+        .badge.status { font-weight: 600; font-size: .71rem; padding: .38em .7em; }
+        .note-ico { color: #b45309; cursor: help; margin-left: .3rem; }
+        .col-act .btn, td.c-act .btn {
+            --bs-btn-padding-y: .3rem; --bs-btn-padding-x: .5rem; border-radius: 8px;
+            opacity: .55; transition: opacity .15s;
+        }
+        td.c-act:hover .btn, .col-act .btn:hover { opacity: 1; }
+        td.c-act { position: sticky; right: 0; z-index: 2; box-shadow: -1px 0 0 #e3e8f2; text-align: center; white-space: nowrap; background: var(--row-bg, #fff); }
+        th.col-act { position: sticky; right: 0; z-index: 6; box-shadow: -1px 0 0 #e3e8f2; background: #f4f7fd; }
 
         /* Cố định 4 cột đầu (STT, Trạng thái, Ngày yêu cầu, Tên KH) khi cuộn ngang - chỉ trên màn hình rộng */
         @media (min-width: 992px) {
@@ -91,29 +100,44 @@
         }
 
         /* ===== SỬA TRỰC TIẾP TRÊN Ô (kiểu Google Sheets) ===== */
-        td.editable { cursor: text; }
-        td.editable:hover { outline: 1px solid #93c5fd; outline-offset: -1px; }
+        td.editable { cursor: pointer; position: relative; border-radius: 6px; transition: background-color .12s; }
+        td.editable:hover { background-color: #eaf2ff !important; box-shadow: inset 0 0 0 1px #bcd6ff; }
         td.editable.saving { opacity: .5; }
-        td.editing { padding: .2rem !important; }
+        td.editing { padding: .3rem !important; background: #fff !important; box-shadow: inset 0 0 0 2px #0d6efd; }
         .cell-input {
-            width: 100%; box-sizing: border-box; border: 1px solid #0d6efd; border-radius: 4px;
-            padding: .25rem .4rem; font: inherit; color: inherit; background: #fff;
+            width: 100%; box-sizing: border-box; border: none; border-radius: 5px;
+            padding: .3rem .45rem; font: inherit; color: inherit; background: #fff;
+            outline: none; box-shadow: 0 0 0 2px #bcd6ff;
         }
-        select.cell-input { padding: .2rem .3rem; }
-        .col-xs { width: 40px; min-width: 40px !important; max-width: 40px; text-align: center; }
+        select.cell-input { padding: .25rem .35rem; }
+        .col-xs { width: 44px; min-width: 44px !important; max-width: 44px; text-align: center; }
         .row-mini-btn {
-            border: none; background: none; color: #adb5bd; padding: 0 .15rem; font-size: .85rem;
-            line-height: 1; cursor: pointer;
+            border: none; background: #eef2fa; color: #7987a3; width: 22px; height: 22px;
+            border-radius: 6px; font-size: .75rem; line-height: 1; cursor: pointer;
+            display: inline-flex; align-items: center; justify-content: center; margin: 0 1px;
+            transition: background-color .12s, color .12s;
         }
-        .row-mini-btn:hover { color: #0d6efd; }
-        .row-mini-btn.danger:hover { color: #dc3545; }
-        .draft-store-select { font-size: .7rem; padding: .1rem .25rem; width: 100%; }
+        .row-mini-btn:hover { background: #dbe8ff; color: #0d6efd; }
+        .row-mini-btn.danger:hover { background: #fbdfe0; color: #dc3545; }
+        .draft-store-select {
+            font-size: .72rem; padding: .15rem .3rem; width: 100%; border-radius: 6px;
+            border: 1px solid #f0c14b;
+        }
 
-        /* Dòng "Thêm đơn mới" ghim đầu bảng: viền đứt để phân biệt với dữ liệu đã lưu */
-        tbody.draft-tbody { --row-bg: #fffdf3; }
-        tbody.draft-tbody > tr > td { border-top: 1px dashed #eab308 !important; border-bottom: 1px dashed #eab308 !important; }
-        .draft-badge { font-weight: 600; font-size: .68rem; color: #b45309; }
-        .hint-bar { font-size: .78rem; color: #6b7280; }
+        /* Dòng "Thêm đơn mới" ghim đầu bảng: nền vàng nhạt để phân biệt với dữ liệu đã lưu */
+        tbody.draft-tbody { --row-bg: #fffbeb; }
+        tbody.draft-tbody > tr > td { border-top: 1px dashed #f0c14b !important; border-bottom: 1px dashed #f0c14b !important; }
+        tbody.draft-tbody > tr > td.editable:hover { background-color: #fef3c7 !important; box-shadow: inset 0 0 0 1px #f0c14b; }
+        .draft-badge {
+            display: inline-block; font-weight: 700; font-size: .66rem; color: #92660a;
+            background: #fef3c7; border: 1px solid #f0c14b; border-radius: 999px;
+            padding: .12rem .55rem; letter-spacing: .02em;
+        }
+        .hint-bar {
+            font-size: .79rem; color: #5a6684; background: #f4f7fd; border: 1px solid #e3e8f2;
+            border-radius: 8px; padding: .55rem .8rem; display: flex; align-items: center; gap: .4rem;
+        }
+        .hint-bar i { color: #0d6efd; }
     </style>
 </head>
 <body>
@@ -132,8 +156,8 @@
     </div>
 
     <div class="container-main">
-        <div class="card p-3 mb-3">
-            <div class="row g-2 align-items-end">
+        <div class="card filter-card mb-3">
+            <div class="row g-3 align-items-end">
                 <div class="col-md-3">
                     <label class="form-label small fw-semibold text-secondary mb-1">Tìm kiếm</label>
                     <input type="text" id="fSearch" class="form-control form-control-sm" placeholder="Tên khách, SĐT, số khung, mã hàng, tên hàng...">
@@ -166,7 +190,7 @@
                 </div>
                 {% endif %}
             </div>
-            <div class="hint-bar mt-2"><i class="bi bi-info-circle"></i> Bấm vào bất kỳ ô nào để sửa trực tiếp (Enter để lưu, Esc để huỷ). Điền tên khách vào dòng vàng đầu bảng để thêm đơn mới.</div>
+            <div class="hint-bar mt-3"><i class="bi bi-info-circle"></i> Bấm vào bất kỳ ô nào để sửa trực tiếp (Enter để lưu, Esc để huỷ). Điền tên khách vào dòng vàng đầu bảng để thêm đơn mới.</div>
         </div>
 
         <div class="card">
@@ -201,7 +225,7 @@
                     <tbody id="loadingTbody"><tr><td colspan="21" class="text-center text-muted py-4">Đang tải...</td></tr></tbody>
                 </table>
             </div>
-            <div class="d-flex align-items-center justify-content-between flex-wrap gap-2 px-3 py-2 border-top">
+            <div class="d-flex align-items-center justify-content-between flex-wrap gap-2 px-3 py-2 border-top bg-white" style="border-radius: 0 0 12px 12px;">
                 <div id="pagerInfo" class="small text-muted"></div>
                 <div class="btn-group btn-group-sm" role="group">
                     <button type="button" class="btn btn-outline-secondary" id="pagerPrev" onclick="goToPage(currentPage - 1)"><i class="bi bi-chevron-left"></i> Trước</button>
@@ -467,7 +491,7 @@
 
             const stt = `<div class="stt">${escapeHtml(rq.seq_no)}</div>` +
                 (ROLE === 'admin' ? `<div class="stt-store">${escapeHtml(rq.store_code)}</div>` : '');
-            const actions = `<button class="btn btn-sm btn-outline-danger" title="Xoá cả đơn" onclick="deleteRequest('${rid}')"><i class="bi bi-trash"></i></button>`;
+            const actions = `<button class="row-mini-btn danger" style="width:26px;height:26px;font-size:.85rem;" title="Xoá cả đơn" onclick="deleteRequest('${rid}')"><i class="bi bi-trash3"></i></button>`;
 
             // Ô header, luôn gộp dọc cho cả đơn, bấm để sửa
             const headerTd = (field, cls) =>
@@ -623,8 +647,19 @@
             }
 
             if (rq === draftRequest) {
-                // Dòng "thêm mới": chỉ thực sự lưu lên máy chủ khi đã có tên khách hàng.
-                if (!rq.customer_name || !rq.customer_name.trim()) {
+                // Dòng "thêm mới": chỉ thực sự lưu lên máy chủ khi đã có tên
+                // khách hàng VÀ ít nhất 1 mặt hàng có dữ liệu (khớp điều kiện
+                // _item_is_blank() ở orders.py) - nếu không, mọi lần gõ tên/SĐT/
+                // xe... trước khi kịp điền mã hàng sẽ cứ bị server từ chối và
+                // bật alert liên tục mỗi lần chuyển ô.
+                const hasItem = rq.items.some(it =>
+                    (it.part_code && String(it.part_code).trim()) ||
+                    (it.part_name && String(it.part_name).trim()) ||
+                    (it.quantity && String(it.quantity).trim()) ||
+                    (it.order_type && String(it.order_type).trim()) ||
+                    it.order_date || it.expected_delivery_date || it.customer_call_date || it.actual_delivery_date
+                );
+                if (!rq.customer_name || !rq.customer_name.trim() || !hasItem) {
                     renderDraft();
                     return;
                 }

@@ -570,6 +570,7 @@ def get_body_kit_group(group_id):
     part_codes = list({p['part_code'] for p in part_rows if p['part_code']})
     current_price_by_code = {}
     current_stock_by_code = {}
+    fallback_name_by_code = {}
     if part_codes:
         main_db = get_db()
         main_cursor = main_db.cursor()
@@ -586,6 +587,17 @@ def get_body_kit_group(group_id):
             (part_codes,)
         )
         current_stock_by_code = {r['part_code']: float(r['qty'] or 0) for r in main_cursor.fetchall()}
+        # Bộ áo thủ công: nếu người nhập bỏ trống "Tên hàng" lúc thêm, tra
+        # tạm tên theo mã hàng trong inventory_items (CSDL chính) - phòng
+        # trường hợp mã đó đã có tên sẵn trong hệ thống (đã từng nhập tồn/
+        # bán hàng) mà người nhập không biết/không gõ lại.
+        main_cursor.execute(
+            '''SELECT DISTINCT ON (part_code) part_code, part_name
+               FROM inventory_items WHERE part_code = ANY(%s) AND part_name IS NOT NULL AND part_name <> ''
+               ORDER BY part_code, id DESC''',
+            (part_codes,)
+        )
+        fallback_name_by_code = {r['part_code']: r['part_name'] for r in main_cursor.fetchall()}
         main_cursor.close()
 
     parts = []
@@ -617,18 +629,17 @@ def get_body_kit_group(group_id):
             expected_5pct = round(honda_price * 1.05 / 1000) * 1000
             is_adjusted_5pct = current_price >= expected_5pct - 0.5
 
-        # Bộ áo thủ công không có "giá Honda gốc" đáng tin để so sánh (người nhập
-        # tự điền hoặc bỏ trống) -> không hiện huy hiệu đã/chưa điều chỉnh +5%.
-        if g['is_manual']:
-            price_status = None
-            price_diff = None
-            is_adjusted_5pct = None
+        # Trước đây badge đã/chưa điều chỉnh +5% bị ẩn cho MỌI bộ áo thủ công
+        # (kể cả khi dòng đó có đủ honda_price để so sánh), vì lo honda_price
+        # người nhập tay không đáng tin. Giờ chỉ ẩn khi honda_price THỰC SỰ
+        # thiếu (đã tự động = None ở 2 khối if phía trên) - còn dòng nào có
+        # honda_price thì vẫn tính bình thường như bộ áo nhập Excel.
 
         parts.append({
             'seq': p['seq'],
             'part_code': p['part_code'],
             'replacement_code': p['replacement_code'],
-            'part_name': p['part_name'],
+            'part_name': p['part_name'] or fallback_name_by_code.get(p['part_code']),
             'honda_price': honda_price,
             'crm_price': float(p['crm_price']) if p['crm_price'] is not None else None,
             'stock_qty': float(p['stock_qty']) if p['stock_qty'] is not None else None,

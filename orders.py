@@ -319,7 +319,7 @@ def _collect_header(data):
 
 
 def _collect_item(data):
-    values = _text_values(data, ITEM_TEXT_FIELDS + ['part_name'])
+    values = _text_values(data, ITEM_TEXT_FIELDS)
     if not values.get('status'):
         values['status'] = STATUS_OPTIONS[0]
     for f in ITEM_DATE_FIELDS:
@@ -596,7 +596,7 @@ def save_order():
             if item_id is not None:
                 row['id'] = item_id
                 cols = HEADER_TEXT_FIELDS + HEADER_DATE_FIELDS + HEADER_NUMBER_FIELDS \
-                    + ITEM_TEXT_FIELDS + ['part_name'] + ITEM_DATE_FIELDS + ITEM_NUMBER_FIELDS
+                    + ITEM_TEXT_FIELDS + ITEM_DATE_FIELDS + ITEM_NUMBER_FIELDS
                 set_clause = ', '.join(f'{c} = %({c})s' for c in cols)
                 cursor.execute(
                     f'UPDATE bo_orders SET {set_clause}, updated_at = %(updated_at)s '
@@ -605,7 +605,7 @@ def save_order():
                 row['created_by'] = actor
                 row['created_at'] = now
                 cols = ['request_id', 'store_code', 'seq_no'] + HEADER_TEXT_FIELDS + HEADER_DATE_FIELDS \
-                    + HEADER_NUMBER_FIELDS + ITEM_TEXT_FIELDS + ['part_name'] + ITEM_DATE_FIELDS + ITEM_NUMBER_FIELDS \
+                    + HEADER_NUMBER_FIELDS + ITEM_TEXT_FIELDS + ITEM_DATE_FIELDS + ITEM_NUMBER_FIELDS \
                     + ['created_by', 'created_at', 'updated_at']
                 cursor.execute(
                     f'INSERT INTO bo_orders ({", ".join(cols)}) VALUES ({", ".join(f"%({c})s" for c in cols)})', row)

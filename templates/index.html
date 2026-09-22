@@ -6589,7 +6589,9 @@ async function saveLocationRow(btn, partCode) {
         clearTimeout(priceAdjLookupTimer);
         priceAdjLookupTimer = setTimeout(async () => {
             try {
-                const res = await fetch('/api/price-adjustment/lookup?part_code=' + encodeURIComponent(partCode));
+                // Chuẩn hoá về CHỮ HOA trước khi tra cứu - cùng lý do như ở phần
+                // Kiểm Tra Hàng Loạt (xem checkPriceAdjBulk).
+                const res = await fetch('/api/price-adjustment/lookup?part_code=' + encodeURIComponent(partCode.toUpperCase()));
                 const result = await res.json();
                 if (!res.ok || !result.success) return;
                 // Người dùng đã gõ sang mã khác trong lúc chờ mạng - bỏ kết quả cũ
@@ -6801,9 +6803,14 @@ async function saveLocationRow(btn, partCode) {
                 if (i >= codes.length) return;
                 if (runToken !== priceAdjBulkRunToken) return; // đã bị hủy vì bấm Kiểm Tra 1 lần khác
                 const code = codes[i];
+                // Chuẩn hoá về CHỮ HOA trước khi tra cứu - mã hàng trong hệ thống
+                // luôn lưu dạng chữ hoa, dán mã chữ thường (copy từ Excel) mà gửi
+                // nguyên văn sẽ bị server coi là "không có trong hệ thống" dù mã
+                // đó đã tồn tại và đã tăng giá.
+                const lookupCode = code.toUpperCase();
                 let item;
                 try {
-                    const res = await fetch('/api/price-adjustment/lookup?part_code=' + encodeURIComponent(code));
+                    const res = await fetch('/api/price-adjustment/lookup?part_code=' + encodeURIComponent(lookupCode));
                     const result = await res.json();
                     if (!res.ok || !result.success) {
                         item = { part_code: code, error: result.error || 'Lỗi tra cứu' };

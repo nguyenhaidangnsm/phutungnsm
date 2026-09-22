@@ -261,7 +261,7 @@ def _parse_price_adjustment_import(file_storage):
     for row in sheet.iter_rows(min_row=header_row_idx + 1):
         vals = {i: c.value for i, c in enumerate(row, start=1)}
 
-        part_code = str(vals.get(col_part_code) or '').strip()
+        part_code = str(vals.get(col_part_code) or '').strip().upper()
         if not part_code:
             continue
 
@@ -438,7 +438,7 @@ def price_adjustment_lookup():
     if 'user' not in session:
         return jsonify({'error': 'Unauthorized'}), 401
 
-    part_code = (request.args.get('part_code') or '').strip()
+    part_code = (request.args.get('part_code') or '').strip().upper()
     if not part_code:
         return jsonify({'error': 'Thiếu mã hàng.'}), 400
 
@@ -646,7 +646,7 @@ def price_adjustment_propose():
         return jsonify({'error': 'Unauthorized'}), 401
 
     data = request.json or {}
-    part_code = str(data.get('part_code', '') or '').strip()
+    part_code = str(data.get('part_code', '') or '').strip().upper()
     if not part_code:
         return jsonify({'error': 'Vui lòng nhập mã hàng.'}), 400
 
