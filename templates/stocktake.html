@@ -121,7 +121,7 @@
             <div class="small text-muted mb-2">Ghi lại đầy đủ từng lần quét/nhập số đếm - dùng bộ lọc bên dưới (mã hàng, vị trí) để tra cứu. Log này tự động xoá 5 ngày sau khi phiên được CHỐT, nên nhớ xuất Excel (sheet "Nhat Ky Dem") sớm nếu cần lưu lại lâu dài.</div>
             <div class="table-responsive" style="max-height: 320px;">
                 <table class="table table-sm">
-                    <thead class="table-light"><tr><th>Thời Gian</th><th>Mã Hàng</th><th>Tên Hàng</th><th class="text-end">Số Lượng</th><th>Vị Trí</th><th>Vị Trí Trước Đó</th><th class="text-end">Tổng Đã Quét</th><th>Thừa/Thiếu/Đủ</th><th>Người Đếm</th></tr></thead>
+                    <thead class="table-light"><tr><th>Thời Gian</th><th>Mã Hàng</th><th>Tên Hàng</th><th class="text-end">Số Lượng</th><th>Vị Trí</th><th>Vị Trí Trước Đó</th><th class="text-end">Tổng Đã Quét</th><th>Thừa/Thiếu/Đủ</th><th>Người Đếm</th><th></th></tr></thead>
                     <tbody id="st-log-body"></tbody>
                 </table>
             </div>
@@ -135,6 +135,7 @@
             <div class="d-flex flex-wrap justify-content-between align-items-center mb-2 gap-2">
                 <h6 class="fw-semibold mb-0">Bảng Đối Chiếu</h6>
                 <div class="d-flex gap-2">
+                    <button type="button" class="btn btn-outline-secondary btn-sm" onclick="loadSummary()"><i class="bi bi-arrow-clockwise"></i> Làm mới</button>
                     <input type="file" id="st-import-sales-file" accept=".xlsx,.xls" style="display:none" onchange="importSalesFile(this)">
                     <button type="button" class="btn btn-outline-primary btn-sm" onclick="document.getElementById('st-import-sales-file').click()"><i class="bi bi-upload"></i> Import Xuất Kho (Bán Ra)</button>
                     <a class="btn btn-outline-success btn-sm" id="st-export-link" href="#"><i class="bi bi-file-earmark-excel"></i> Xuất Excel</a>
@@ -142,6 +143,7 @@
                 </div>
             </div>
             <div class="small text-muted mb-2" id="st-summary-stats"></div>
+            <div class="small text-muted mb-2">Bảng này không tự cập nhật sau mỗi lượt quét (để giữ tốc độ nhập liệu) - bấm "Làm mới" khi cần xem số liệu mới nhất. Nhật Ký Đếm phía trên vẫn cập nhật ngay sau mỗi lượt.</div>
 
             <!-- Bộ lọc: Mã hàng, Vị trí, Chênh lệch, Trạng thái -->
             <div class="row g-2 align-items-end mb-3">
@@ -209,7 +211,10 @@
         <div class="card-body">
             <div class="d-flex justify-content-between align-items-center mb-2">
                 <h6 class="fw-semibold mb-0">Lịch Sử Kiểm Kê</h6>
-                <button type="button" class="btn btn-outline-danger btn-sm" onclick="purgeStoreData()"><i class="bi bi-trash3"></i> Xoá Dữ Liệu Kiểm Kê Cửa Hàng</button>
+                <div>
+                    <button type="button" class="btn btn-outline-success btn-sm me-1" onclick="exportHistory()" title="Xuất file Excel gồm danh sách phiên + sheet riêng Nhật Ký Đếm gộp của các phiên đang hiển thị"><i class="bi bi-file-earmark-excel"></i> Xuất Lịch Sử (Excel)</button>
+                    <button type="button" class="btn btn-outline-danger btn-sm" onclick="purgeStoreData()"><i class="bi bi-trash3"></i> Xoá Dữ Liệu Kiểm Kê Cửa Hàng</button>
+                </div>
             </div>
             <div class="table-responsive">
                 <table class="table table-sm">
@@ -283,6 +288,11 @@
             document.getElementById('st-log-card').style.display = '';
             loadSummary();
             loadLog();
+            // NOTE: loadCurrent() chỉ gọi lúc mở phiên/đổi cửa hàng, KHÔNG
+            // gọi lại sau mỗi lượt quét (xem refreshSessionCounts() bên
+            // dưới) - vì loadSummary() phải quét lại TOÀN BỘ tồn kho cửa
+            // hàng (có thể vài nghìn mã), chạy lại sau MỖI lượt quét là
+            // nguyên nhân chính khiến "lưu xong vẫn chậm".
             // Vị trí đếm: tự điền lại giá trị lần gần nhất đã dùng cho CỬA
             // HÀNG này (nhớ theo localStorage, riêng từng cửa hàng) - chỉ
             // điền khi ô đang trống, để không ghi đè vị trí người dùng vừa
@@ -297,6 +307,21 @@
             document.getElementById('st-count-part').focus();
         } else {
             document.getElementById('st-session-info').innerHTML = '<div class="text-muted small">Cửa hàng này chưa có phiên kiểm kê đang mở.</div>';
+        }
+    }
+
+    // Cập nhật NHẸ dòng "Phiên #.. - Đã đếm x/y mã" sau mỗi lượt quét/sửa/
+    // xoá - chỉ 2 câu COUNT rẻ (xem /api/stocktake/current phía BE), KHÔNG
+    // kéo theo loadSummary() (quét lại toàn bộ tồn kho cửa hàng - nặng)
+    // như loadCurrent() vẫn làm. Bảng Đối Chiếu có nút "Làm mới" riêng để
+    // admin tự xem số liệu mới nhất khi cần, khỏi phải tính lại sau MỖI
+    // lượt quét.
+    async function refreshSessionCounts(store) {
+        const res = await fetch(`/api/stocktake/current?store_code=${store}`);
+        const result = await res.json();
+        if (result.session) {
+            currentSession = result.session;
+            renderSessionInfo();
         }
     }
 
@@ -352,7 +377,8 @@
     let lastCountInfo = null;
 
     async function submitCount() {
-        const part_code = document.getElementById('st-count-part').value.trim();
+        const partEl = document.getElementById('st-count-part');
+        const part_code = partEl.value.trim();
         // Không bắt buộc gõ số lượng nữa - để trống mặc định là 1, đúng yêu
         // cầu "scan xong ghi nhận ngay, không cần Enter lần 2 để xác nhận
         // số lượng". Ai cần số khác 1 thì gõ trước khi scan, hoặc sửa lại
@@ -362,6 +388,18 @@
         const area_note = document.getElementById('st-count-area').value.trim();
         const msgEl = document.getElementById('st-count-msg');
         if (!currentSession || !part_code) { msgEl.innerHTML = '<span class="text-danger">Vui lòng nhập mã hàng.</span>'; return; }
+
+        // Xoá ô Mã hàng NGAY, TRƯỚC KHI gọi API (không đợi fetch xong mới
+        // xoá như trước) - hàm này là async nên khi đang "await fetch" mà
+        // máy scan bắn lượt tiếp theo quá nhanh (scan liên tục cùng 1 mã),
+        // ký tự mới vẫn gõ được vào ô trong lúc chờ. Nếu ô còn sót mã cũ
+        // thì ký tự mới bị NỐI ĐUÔI vào sau, ra kiểu lỗi
+        // "22011K0JN0022011K0JN00" khiến mã không khớp và mất lượt đếm.
+        // Xoá ngay từ đầu (đồng bộ, trước await) để mọi lượt scan tiếp
+        // theo luôn gõ vào ô TRỐNG.
+        partEl.value = '';
+        document.getElementById('st-count-qty').value = '';
+
         const res = await fetch('/api/stocktake/count', {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ session_id: currentSession.id, part_code, quantity, area_note })
@@ -370,9 +408,10 @@
         if (!result.success) {
             msgEl.innerHTML = `<span class="text-danger">${result.error}</span>`;
             speakError();
-            // Mã hàng scan sai/không tồn tại - giữ nguyên focus ở ô Mã hàng,
-            // bôi đen sẵn để scan/gõ lại đè lên ngay, không cần xoá tay.
-            const partEl = document.getElementById('st-count-part');
+            // Mã hàng scan sai/không tồn tại - khôi phục lại đúng mã VỪA
+            // scan vào ô (đã xoá ở trên trước khi gọi API) để người dùng
+            // vẫn thấy mã bị lỗi, bôi đen sẵn để scan/gõ lại đè lên ngay.
+            partEl.value = part_code;
             partEl.focus();
             partEl.select();
             return;
@@ -387,10 +426,14 @@
         if (area_note) localStorage.setItem(`st_last_area_${store}`, area_note);
         lastCountInfo = result.count;
         renderLastCountBox();
-        document.getElementById('st-count-part').value = '';
-        document.getElementById('st-count-qty').value = '';
-        document.getElementById('st-count-part').focus();
-        loadCurrent(store);
+        partEl.focus();
+        // Trước đây gọi loadCurrent(store) ở đây, kéo theo loadSummary()
+        // quét lại TOÀN BỘ tồn kho cửa hàng sau MỖI lượt quét - đây là
+        // nguyên nhân chính khiến "lưu xong vẫn chậm". Giờ chỉ cập nhật
+        // nhẹ số đã đếm + Nhật Ký (loadLog() giờ đã kèm Thừa/Thiếu/Đủ,
+        // Vị Trí Trước Đó, Tổng Đã Quét).
+        refreshSessionCounts(store);
+        loadLog();
     }
 
     function renderLastCountBox() {
@@ -417,7 +460,9 @@
         if (!result.success) { msgEl.innerHTML = `<span class="text-danger">${result.error}</span>`; return; }
         lastCountInfo.quantity = Number(newQty);
         msgEl.innerHTML = '<span class="text-success">Đã cập nhật số lượng.</span>';
-        loadCurrent(document.getElementById('st-store').value);
+        const store = document.getElementById('st-store').value;
+        refreshSessionCounts(store);
+        loadLog();
         document.getElementById('st-count-part').focus();
     }
 
@@ -429,7 +474,9 @@
         if (!result.success) { document.getElementById('st-last-count-msg').innerHTML = `<span class="text-danger">${result.error}</span>`; return; }
         document.getElementById('st-last-count-box').style.display = 'none';
         lastCountInfo = null;
-        loadCurrent(document.getElementById('st-store').value);
+        const store = document.getElementById('st-store').value;
+        refreshSessionCounts(store);
+        loadLog();
         document.getElementById('st-count-part').focus();
     }
 
@@ -732,55 +779,117 @@
 
     // ===== Nhật Ký Đếm (lịch sử từng lần đếm - không mất khi xuất Excel) =====
     let logRowsRaw = [];
+    let logTotalMatching = 0;
 
-    // Chỉ hiển thị tối đa 10 dòng gần nhất trên giao diện (log gốc đã được
-    // BE trả về sắp xếp mới nhất trước) - toàn bộ lịch sử vẫn nằm nguyên
-    // trong DB và trong sheet "Nhat Ky Dem" của file Excel xuất ra, chỉ
-    // giới hạn số dòng hiển thị trực tiếp trên trang cho gọn.
+    // Chỉ XIN VỀ (và hiển thị) tối đa LOG_DISPLAY_LIMIT dòng gần nhất KHỚP
+    // BỘ LỌC - lọc thẳng ở phía server (xem route /log trong stocktake.py)
+    // thay vì tải cả Nhật Ký về trình duyệt rồi lọc như trước. Trước đây
+    // hàm này gọi API trả về TOÀN BỘ lịch sử của phiên và được gọi lại sau
+    // MỖI LƯỢT QUÉT (xem submitCount() bên dưới) - quét vài nghìn mã/ngày
+    // thì dữ liệu càng lúc càng phình to mà lần quét NÀO cũng tải lại từ
+    // đầu, đây là nguyên nhân chính ngốn băng thông trên gói Supabase
+    // Free. Toàn bộ lịch sử đầy đủ vẫn xem được trong file Excel xuất ra
+    // (sheet "Nhat Ky Dem").
     const LOG_DISPLAY_LIMIT = 10;
+    let logDebounceTimer = null;
 
-    function applyLogFilters() {
-        const partQuery = document.getElementById('st-filter-part').value.trim().toLowerCase();
-        const areaQuery = document.getElementById('st-filter-area').value;
-        const filtered = logRowsRaw.filter(r => {
-            if (partQuery && !r.part_code.toLowerCase().includes(partQuery)) return false;
-            if (areaQuery && (r.area_note || '').trim() !== areaQuery) return false;
-            return true;
-        });
-        const shown = filtered.slice(0, LOG_DISPLAY_LIMIT);
-        document.getElementById('st-log-body').innerHTML = shown.map(r => `
+    async function loadLog() {
+        if (!currentSession) return;
+        const q = document.getElementById('st-filter-part').value.trim();
+        const area = document.getElementById('st-filter-area').value;
+        const params = new URLSearchParams({ limit: LOG_DISPLAY_LIMIT });
+        if (q) params.set('q', q);
+        if (area) params.set('area', area);
+        const res = await fetch(`/api/stocktake/${currentSession.id}/log?${params}`);
+        const result = await res.json();
+        if (!result.success) return;
+        logRowsRaw = result.log;
+        logTotalMatching = result.total_matching || 0;
+        renderLogRows();
+    }
+
+    // Gõ vào ô lọc Mã hàng gọi lại loadLog() sau 1 khoảng debounce ngắn
+    // (thay vì bắn request ngay từng phím gõ, vừa tốn băng thông vừa dễ
+    // request cũ trả về sau request mới làm sai kết quả hiển thị).
+    function loadLogDebounced() {
+        clearTimeout(logDebounceTimer);
+        logDebounceTimer = setTimeout(loadLog, 350);
+    }
+
+    function renderLogRows() {
+        document.getElementById('st-log-body').innerHTML = logRowsRaw.map(r => `
             <tr>
                 <td class="small">${r.counted_at}</td>
                 <td><span class="part-code">${r.part_code}</span></td>
                 <td class="small">${r.part_name || ''}</td>
                 <td class="text-end fw-semibold">${fmt(r.counted_quantity)}</td>
                 <td class="small">${r.area_note ? `<span class="area-chip">${r.area_note}</span>` : '-'}</td>
-                <td class="small">${r.prev_area_note ? `<span class="area-chip">${r.prev_area_note}</span>` : '<span class="text-muted">-</span>'}</td>
+                <td class="small">${r.prev_area_note ? areaChips(r.prev_area_note) : '<span class="text-muted">-</span>'}</td>
                 <td class="text-end">${fmt(r.running_total)}</td>
                 <td>${r.vs_expected_status ? statusBadge(r.vs_expected_status) : '<span class="text-muted small">-</span>'}</td>
                 <td class="small">${r.counted_by || ''}</td>
+                <td class="text-nowrap">
+                    <button type="button" class="btn btn-outline-secondary btn-sm py-0 px-1" title="Sửa số lượng lượt này" onclick="editLogEntry(${r.id}, ${r.counted_quantity})"><i class="bi bi-pencil"></i></button>
+                    <button type="button" class="btn btn-outline-danger btn-sm py-0 px-1" title="Xoá lượt đếm này" onclick="deleteLogEntry(${r.id}, '${r.part_code}')"><i class="bi bi-trash3"></i></button>
+                </td>
             </tr>
-        `).join('') || '<tr><td colspan="9" class="text-center text-muted py-3">Không có lượt đếm nào khớp bộ lọc.</td></tr>';
+        `).join('') || '<tr><td colspan="10" class="text-center text-muted py-3">Không có lượt đếm nào khớp bộ lọc.</td></tr>';
 
         const noteEl = document.getElementById('st-log-note');
-        noteEl.textContent = filtered.length > LOG_DISPLAY_LIMIT
-            ? `Đang hiển thị ${LOG_DISPLAY_LIMIT}/${filtered.length} lượt đếm gần nhất - xem đầy đủ trong file Excel xuất ra (sheet "Nhat Ky Dem").`
+        noteEl.textContent = logTotalMatching > logRowsRaw.length
+            ? `Đang hiển thị ${logRowsRaw.length}/${logTotalMatching} lượt đếm gần nhất khớp bộ lọc - xem đầy đủ trong file Excel xuất ra (sheet "Nhat Ky Dem").`
             : '';
     }
 
-    async function loadLog() {
-        if (!currentSession) return;
-        const res = await fetch(`/api/stocktake/${currentSession.id}/log`);
+    // Sửa/xoá NGAY TẠI DÒNG bất kỳ trong Nhật Ký Đếm - trước đây chỉ sửa/
+    // xoá được lượt đếm GẦN NHẤT (khung "Mã Vừa Kiểm"), nên nếu đã quét
+    // qua vài mã khác rồi mới phát hiện quét dư/thiếu 1 lượt CŨ hơn thì
+    // không còn cách nào sửa lại - phải nhờ admin vào thẳng DB. Dùng lại
+    // đúng 2 route PUT/DELETE /api/stocktake/count/<id> mà khung "Mã Vừa
+    // Kiểm" đang dùng, chỉ khác là cho áp dụng lên BẤT KỲ dòng log nào.
+    async function editLogEntry(countId, currentQty) {
+        const newQty = prompt('Sửa số lượng đếm cho lượt này:', currentQty);
+        if (newQty === null) return; // bấm Huỷ
+        if (newQty.trim() === '' || isNaN(Number(newQty)) || Number(newQty) < 0) {
+            alert('Số lượng không hợp lệ.');
+            return;
+        }
+        const res = await fetch(`/api/stocktake/count/${countId}`, {
+            method: 'PUT', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ quantity: newQty })
+        });
         const result = await res.json();
-        if (!result.success) return;
-        logRowsRaw = result.log;
-        applyLogFilters();
+        if (!result.success) { alert('Lỗi: ' + (result.error || `HTTP ${res.status}`)); return; }
+        // Nếu đúng lượt đang hiện trong khung "Mã Vừa Kiểm" thì đồng bộ
+        // luôn, tránh khung đó hiện số cũ trong khi log đã đổi.
+        if (lastCountInfo && lastCountInfo.id === countId) {
+            lastCountInfo.quantity = Number(newQty);
+            renderLastCountBox();
+        }
+        const store = document.getElementById('st-store').value;
+        refreshSessionCounts(store);
+        loadLog();
+    }
+
+    async function deleteLogEntry(countId, partCode) {
+        if (!confirm(`Xoá lượt đếm mã "${partCode}" này khỏi Nhật Ký?`)) return;
+        const res = await fetch(`/api/stocktake/count/${countId}`, { method: 'DELETE' });
+        const result = await res.json();
+        if (!result.success) { alert('Lỗi: ' + (result.error || `HTTP ${res.status}`)); return; }
+        if (lastCountInfo && lastCountInfo.id === countId) {
+            lastCountInfo = null;
+            document.getElementById('st-last-count-box').style.display = 'none';
+        }
+        const store = document.getElementById('st-store').value;
+        refreshSessionCounts(store);
+        loadLog();
     }
 
     // Bộ lọc mã hàng/vị trí dùng chung cho cả bảng đối chiếu lẫn nhật ký
-    // đếm - áp lại nhật ký mỗi khi người dùng đổi lọc mã/vị trí.
-    document.getElementById('st-filter-part').addEventListener('input', applyLogFilters);
-    document.getElementById('st-filter-area').addEventListener('change', applyLogFilters);
+    // đếm - áp lại nhật ký mỗi khi người dùng đổi lọc mã/vị trí (gọi lại
+    // server vì giờ lọc đã chuyển sang phía BE, xem loadLog() ở trên).
+    document.getElementById('st-filter-part').addEventListener('input', loadLogDebounced);
+    document.getElementById('st-filter-area').addEventListener('change', loadLog);
 
     async function importSalesFile(input) {
         const file = input.files[0];
@@ -909,6 +1018,17 @@
                 </td>
             </tr>
         `).join('') || '<tr><td colspan="7" class="text-center text-muted py-3">Chưa có phiên kiểm kê nào.</td></tr>';
+    }
+
+    // Xuất TOÀN BỘ Lịch Sử Kiểm Kê ra 1 file Excel (danh sách phiên + sheet
+    // riêng "Nhat Ky Dem" gộp log chi tiết của các phiên đó) - khác với nút
+    // "Xuất Excel" trên từng dòng (chỉ xuất 1 phiên), nút này xuất CẢ danh
+    // sách đang hiển thị: theo đúng cửa hàng đang chọn ở ô lọc phía trên,
+    // hoặc TẤT CẢ cửa hàng nếu chưa chọn cửa hàng nào.
+    function exportHistory() {
+        const store = document.getElementById('st-store').value;
+        const url = store ? `/api/stocktake/history/export?store_code=${store}` : '/api/stocktake/history/export';
+        window.open(url, '_blank');
     }
 
     // ===== Báo Phát Sinh (bán/nhập thêm sau khi đã đếm) =====

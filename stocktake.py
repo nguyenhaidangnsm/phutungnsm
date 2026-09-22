@@ -23,6 +23,7 @@ dưới mỗi đoạn):
 templates/ với index.html.
 """
 import io
+import re
 from datetime import timedelta
 
 import pandas as pd
@@ -36,6 +37,7 @@ from psycopg2.extras import execute_values
 from app import (
     get_db, vn_now, format_vi_datetime, _valid_store_codes, STORE_REGIONS,
     _INVENTORY_ALLOWED_PREFIXES, _INVENTORY_ALLOWED_STORES, _SUFFIX_ALIAS_TO_STORE,
+    _current_actor_name,
 )
 
 stocktake_bp = Blueprint('stocktake', __name__)
@@ -52,10 +54,24 @@ REOPEN_WINDOW_HOURS = 48
 # thô của stocktake_counts.
 LOG_RETENTION_DAYS = 5
 
+# Route /log (Nhật Ký Đếm) mặc định chỉ trả về bấy nhiêu dòng GẦN NHẤT thay
+# vì toàn bộ lịch sử phiên - xem giải thích chi tiết tại route stocktake_log.
+LOG_DEFAULT_LIMIT = 50
+LOG_MAX_LIMIT = 500
+
 
 def init_stocktake_tables(cursor):
     """Gọi 1 lần trong init_db() của app.py - tạo toàn bộ bảng cho tính
-    năng kiểm kê. Dùng IF NOT EXISTS nên gọi lại nhiều lần vẫn an toàn."""
+    năng kiểm kê. Dùng IF NOT EXISTS nên gọi lại nhiều lần vẫn an toàn.
+
+    LƯU Ý VỀ MÚI GIỜ: các cột TIMESTAMP dưới đây có "DEFAULT NOW()" chỉ để
+    làm lưới an toàn (phòng khi 1 câu INSERT nào đó quên truyền giá trị),
+    KHÔNG được dùng làm nguồn giờ chính - vì NOW() của Postgres lấy theo
+    múi giờ của SERVER DB (Supabase mặc định UTC), lệch 7 tiếng so với giờ
+    Việt Nam. Mọi câu INSERT trong file này đều PHẢI truyền tường minh giờ
+    Việt Nam bằng vn_now() (import từ app.py) cho các cột created_at/
+    counted_at/reopened_at - giống hệt cách cutoff_time/closed_at đã làm
+    từ trước. Nếu thêm cột/bảng TIMESTAMP mới, nhớ theo đúng quy tắc này."""
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS stocktake_sessions (
             id SERIAL PRIMARY KEY,
@@ -172,15 +188,21 @@ def _cleanup_old_logs(db, cursor):
     LOG_RETENTION_DAYS ngày kể từ lúc chốt. Gọi ở đầu các route có liên
     quan tới log/lịch sử (không cần cron riêng) - rẻ vì chỉ 1 câu DELETE
     có điều kiện, và closed_at đã có index qua session nên không quét
-    toàn bộ bảng lớn."""
+    toàn bộ bảng lớn.
+
+    So sánh với vn_now() (giờ Việt Nam, TRUYỀN TỪ PYTHON) thay vì NOW() của
+    Postgres (giờ UTC của server DB) - closed_at đang lưu theo giờ Việt Nam
+    (xem stocktake_close), nên nếu so với NOW() sẽ lệch 7 tiếng, khiến
+    ngưỡng LOG_RETENTION_DAYS bị tính sai lệch giờ (không nghiêm trọng so
+    với cửa sổ 5 ngày, nhưng vẫn nên so cho đúng loại giờ với nhau)."""
     cursor.execute('''
         DELETE FROM stocktake_counts c
         USING stocktake_sessions s
         WHERE c.session_id = s.id
           AND s.status = 'closed'
           AND s.closed_at IS NOT NULL
-          AND s.closed_at < NOW() - (%s * INTERVAL '1 day')
-    ''', (LOG_RETENTION_DAYS,))
+          AND s.closed_at < %s - (%s * INTERVAL '1 day')
+    ''', (vn_now(), LOG_RETENTION_DAYS))
     db.commit()
 
 
@@ -335,10 +357,16 @@ def stocktake_start():
 
     # T0 = thời điểm hiện tại, kèm chụp CỨNG toàn bộ tồn kho hệ thống hiện có
     # của cửa hàng này - đây chính là "tồn sổ sách" dùng để đối chiếu.
+    # created_at truyền TƯỜNG MINH bằng vn_now() (giờ Việt Nam) thay vì để
+    # cột tự lấy DEFAULT NOW() của Postgres - NOW() lấy theo múi giờ của
+    # SERVER DB (Supabase mặc định UTC), lệch 7 tiếng so với giờ VN nên
+    # trước đây "Ngày Tạo" hiện sai giờ dù cutoff_time/closed_at (vốn đã
+    # dùng vn_now() từ trước) vẫn đúng.
     cutoff_time = vn_now()
     cursor.execute(
-        "INSERT INTO stocktake_sessions (store_code, cutoff_time, created_by) VALUES (%s, %s, %s) RETURNING id",
-        (store_code, cutoff_time, session['user'])
+        "INSERT INTO stocktake_sessions (store_code, cutoff_time, created_by, created_at) "
+        "VALUES (%s, %s, %s, %s) RETURNING id",
+        (store_code, cutoff_time, _current_actor_name(), cutoff_time)
     )
     new_id = cursor.fetchone()['id']
 
@@ -406,6 +434,47 @@ def stocktake_current():
     }})
 
 
+# Regex chuẩn hoá mã hàng khi quét/gõ tay: bỏ mọi khoảng trắng (kể cả
+# tab/nhiều dấu cách liên tiếp do máy scan bắn ra) và bỏ dấu gạch ngang "-"
+# (mã hàng trong hệ thống có nơi ghi có "-" có nơi không). So khớp không
+# phân biệt hoa/thường vì máy scan/bàn phím có thể trả về khác Caps Lock.
+_PART_CODE_NORMALIZE_RE = re.compile(r'[\s\-]+')
+
+
+def _resolve_part_code(cursor, session_id, raw_code):
+    """Tìm mã hàng CHUẨN (đúng như đang lưu trong stocktake_snapshot_items
+    của phiên) khớp với mã vừa quét/gõ - so khớp không phân biệt hoa/
+    thường, bỏ qua dấu "-" và khoảng trắng thừa. Trả về (part_code_chuẩn,
+    None) nếu khớp đúng 1 mã, hoặc (None, error_message) nếu không tìm
+    thấy/khớp nhiều hơn 1 mã (trường hợp hiếm: 2 mã trong cùng phiên chỉ
+    khác nhau ở dấu "-"/khoảng trắng/hoa-thường - phải chặn lại vì không
+    biết chắc người dùng định đếm mã nào).
+
+    LƯU Ý: luôn dùng part_code CHUẨN trả về từ hàm này để INSERT vào
+    stocktake_counts/stocktake_manual_adjustments - không dùng lại raw_code
+    người dùng gõ, vì các chỗ khác trong code (JOIN tính Chênh Lệch, xuất
+    Excel...) so khớp part_code CHÍNH XÁC (=) với stocktake_snapshot_items."""
+    normalized = _PART_CODE_NORMALIZE_RE.sub('', raw_code or '').upper()
+    if not normalized:
+        return None, None
+    cursor.execute(
+        "SELECT part_code FROM stocktake_snapshot_items "
+        "WHERE session_id = %s "
+        "AND UPPER(REGEXP_REPLACE(part_code, '[\\s-]+', '', 'g')) = %s",
+        (session_id, normalized)
+    )
+    rows = cursor.fetchall()
+    if not rows:
+        return None, None
+    if len(rows) > 1:
+        return None, (
+            f'Mã "{raw_code}" khớp với nhiều hơn 1 mã hàng khác nhau trong hệ '
+            'thống (chỉ khác dấu "-"/khoảng trắng/hoa-thường). Vui lòng gõ tay '
+            'chính xác mã cần đếm.'
+        )
+    return rows[0]['part_code'], None
+
+
 @stocktake_bp.route('/api/stocktake/count', methods=['POST'])
 def stocktake_count():
     err = _require_admin()
@@ -414,11 +483,11 @@ def stocktake_count():
 
     data = request.json or {}
     session_id = data.get('session_id')
-    part_code = (data.get('part_code') or '').strip()
+    raw_part_code = (data.get('part_code') or '').strip()
     quantity = data.get('quantity')
     area_note = (data.get('area_note') or '').strip() or None
 
-    if not session_id or not part_code or quantity is None:
+    if not session_id or not raw_part_code or quantity is None:
         return jsonify({'error': 'Dữ liệu không hợp lệ.'}), 400
     try:
         quantity = float(quantity)
@@ -437,19 +506,116 @@ def stocktake_count():
         cursor.close()
         return jsonify({'error': 'Phiên kiểm kê đã chốt, không thể nhập thêm số đếm.'}), 400
 
+    # So khớp mã hàng không phân biệt hoa/thường, bỏ qua dấu "-" và khoảng
+    # trắng (yêu cầu: máy scan/gõ tay có thể ra khác biệt these so với mã
+    # gốc lưu trong hệ thống) - part_code THẬT SỰ dùng để lưu là mã chuẩn
+    # trả về từ _resolve_part_code, không phải mã vừa gõ/quét.
+    part_code, resolve_err = _resolve_part_code(cursor, session_id, raw_part_code)
+    if resolve_err:
+        cursor.close()
+        return jsonify({'error': resolve_err}), 400
+    if not part_code:
+        cursor.close()
+        return jsonify({'error': f'Mã hàng "{raw_part_code}" không có trong tồn kho hệ thống của cửa hàng này.'}), 400
+
+    # counted_at truyền TƯỜNG MINH bằng vn_now() (giờ Việt Nam) thay vì để
+    # cột tự lấy DEFAULT NOW() của Postgres - đây chính là cột "Thời Gian"
+    # hiển thị ở Nhật Ký Đếm nên lệch giờ ảnh hưởng trực tiếp tới người
+    # dùng nhất (xem giải thích chi tiết ở stocktake_start()).
+    counted_at = vn_now()
     cursor.execute(
-        "SELECT 1 FROM stocktake_snapshot_items WHERE session_id = %s AND part_code = %s",
+        "INSERT INTO stocktake_counts (session_id, part_code, counted_quantity, area_note, counted_by, counted_at) "
+        "VALUES (%s, %s, %s, %s, %s, %s) RETURNING id, counted_at",
+        (session_id, part_code, quantity, area_note, _current_actor_name(), counted_at)
+    )
+    new_row = cursor.fetchone()
+    db.commit()
+
+    # FE dùng khối "count" này để hiển thị ngay khung "Mã Vừa Kiểm" (sửa
+    # số lượng/xoá mà không cần đếm lại) - trước đây route này chỉ trả
+    # {'success': True} nên khung đó không bao giờ hiện ra được.
+    cursor.execute(
+        "SELECT part_name FROM stocktake_snapshot_items WHERE session_id = %s AND part_code = %s",
         (session_id, part_code)
     )
-    if not cursor.fetchone():
-        cursor.close()
-        return jsonify({'error': f'Mã hàng "{part_code}" không có trong tồn kho hệ thống của cửa hàng này.'}), 400
+    name_row = cursor.fetchone()
+    cursor.close()
+    return jsonify({'success': True, 'count': {
+        'id': new_row['id'],
+        'part_code': part_code,
+        'part_name': name_row['part_name'] if name_row else None,
+        'quantity': quantity,
+        'area_note': area_note,
+        'counted_at': format_vi_datetime(new_row['counted_at']),
+    }})
 
+
+@stocktake_bp.route('/api/stocktake/count/<int:count_id>', methods=['PUT'])
+def stocktake_count_update(count_id):
+    """Sửa số lượng của ĐÚNG 1 lượt đếm vừa ghi nhận (khung "Mã Vừa Kiểm")
+    - route này được FE gọi (updateLastCount()) nhưng trước đây chưa từng
+    tồn tại ở BE nên luôn 404."""
+    err = _require_admin()
+    if err:
+        return err
+
+    data = request.json or {}
+    quantity = data.get('quantity')
+    if quantity is None:
+        return jsonify({'error': 'Thiếu số lượng.'}), 400
+    try:
+        quantity = float(quantity)
+    except (TypeError, ValueError):
+        return jsonify({'error': 'Số lượng không hợp lệ.'}), 400
+    if quantity < 0:
+        return jsonify({'error': 'Số lượng không được âm.'}), 400
+
+    db = get_db()
+    cursor = db.cursor()
     cursor.execute(
-        "INSERT INTO stocktake_counts (session_id, part_code, counted_quantity, area_note, counted_by) "
-        "VALUES (%s, %s, %s, %s, %s)",
-        (session_id, part_code, quantity, area_note, session['user'])
+        "SELECT sc.id, ss.status FROM stocktake_counts sc "
+        "JOIN stocktake_sessions ss ON ss.id = sc.session_id WHERE sc.id = %s",
+        (count_id,)
     )
+    row = cursor.fetchone()
+    if not row:
+        cursor.close()
+        return jsonify({'error': 'Không tìm thấy lượt đếm.'}), 404
+    if row['status'] not in ('open', 'reopened'):
+        cursor.close()
+        return jsonify({'error': 'Phiên kiểm kê đã chốt, không thể sửa.'}), 400
+
+    cursor.execute("UPDATE stocktake_counts SET counted_quantity = %s WHERE id = %s", (quantity, count_id))
+    db.commit()
+    cursor.close()
+    return jsonify({'success': True})
+
+
+@stocktake_bp.route('/api/stocktake/count/<int:count_id>', methods=['DELETE'])
+def stocktake_count_delete(count_id):
+    """Xoá ĐÚNG 1 lượt đếm vừa ghi nhận nhầm (khung "Mã Vừa Kiểm") - cùng
+    lý do như PUT ở trên, route FE gọi (deleteLastCount()) nhưng chưa
+    từng tồn tại ở BE."""
+    err = _require_admin()
+    if err:
+        return err
+
+    db = get_db()
+    cursor = db.cursor()
+    cursor.execute(
+        "SELECT sc.id, ss.status FROM stocktake_counts sc "
+        "JOIN stocktake_sessions ss ON ss.id = sc.session_id WHERE sc.id = %s",
+        (count_id,)
+    )
+    row = cursor.fetchone()
+    if not row:
+        cursor.close()
+        return jsonify({'error': 'Không tìm thấy lượt đếm.'}), 404
+    if row['status'] not in ('open', 'reopened'):
+        cursor.close()
+        return jsonify({'error': 'Phiên kiểm kê đã chốt, không thể xoá.'}), 400
+
+    cursor.execute("DELETE FROM stocktake_counts WHERE id = %s", (count_id,))
     db.commit()
     cursor.close()
     return jsonify({'success': True})
@@ -468,12 +634,12 @@ def stocktake_adjustment_create():
 
     data = request.json or {}
     session_id = data.get('session_id')
-    part_code = (data.get('part_code') or '').strip()
+    raw_part_code = (data.get('part_code') or '').strip()
     adjustment_type = (data.get('adjustment_type') or '').strip()
     quantity = data.get('quantity')
     note = (data.get('note') or '').strip() or None
 
-    if not session_id or not part_code:
+    if not session_id or not raw_part_code:
         return jsonify({'error': 'Dữ liệu không hợp lệ.'}), 400
     if adjustment_type not in ('sold', 'received_other'):
         return jsonify({'error': 'Loại phát sinh không hợp lệ.'}), 400
@@ -494,19 +660,19 @@ def stocktake_adjustment_create():
         cursor.close()
         return jsonify({'error': 'Phiên kiểm kê đã chốt, không thể báo phát sinh.'}), 400
 
-    cursor.execute(
-        "SELECT 1 FROM stocktake_snapshot_items WHERE session_id = %s AND part_code = %s",
-        (session_id, part_code)
-    )
-    if not cursor.fetchone():
+    part_code, resolve_err = _resolve_part_code(cursor, session_id, raw_part_code)
+    if resolve_err:
         cursor.close()
-        return jsonify({'error': f'Mã hàng "{part_code}" không có trong tồn kho hệ thống của cửa hàng này.'}), 400
+        return jsonify({'error': resolve_err}), 400
+    if not part_code:
+        cursor.close()
+        return jsonify({'error': f'Mã hàng "{raw_part_code}" không có trong tồn kho hệ thống của cửa hàng này.'}), 400
 
     cursor.execute(
         "INSERT INTO stocktake_manual_adjustments "
-        "(session_id, part_code, adjustment_type, quantity, note, created_by) "
-        "VALUES (%s, %s, %s, %s, %s, %s)",
-        (session_id, part_code, adjustment_type, quantity, note, session['user'])
+        "(session_id, part_code, adjustment_type, quantity, note, created_by, created_at) "
+        "VALUES (%s, %s, %s, %s, %s, %s, %s)",
+        (session_id, part_code, adjustment_type, quantity, note, _current_actor_name(), vn_now())
     )
     db.commit()
     cursor.close()
@@ -571,11 +737,12 @@ def stocktake_import_sales(session_id):
         note = 'Import từ file Tổng Hợp Tồn Kho (cột Xuất kho)'
         if period_note:
             note += f' - {period_note}'
+        import_time = vn_now()
         execute_values(
             cursor,
             "INSERT INTO stocktake_manual_adjustments "
-            "(session_id, part_code, adjustment_type, quantity, note, created_by) VALUES %s",
-            [(session_id, r['part_code'], 'sold', r['qty'], note, session['user']) for r in accepted]
+            "(session_id, part_code, adjustment_type, quantity, note, created_by, created_at) VALUES %s",
+            [(session_id, r['part_code'], 'sold', r['qty'], note, _current_actor_name(), import_time) for r in accepted]
         )
         db.commit()
     cursor.close()
@@ -641,12 +808,17 @@ def stocktake_adjustment_delete(adjustment_id):
     return jsonify({'success': True})
 
 
-def _fetch_summary_rows(cursor, session_id, store_code, cutoff_time):
+def _fetch_summary_rows(cursor, session_id, store_code, cutoff_time, part_codes=None):
     """1 câu truy vấn duy nhất tính đủ: book_quantity, phát sinh đã biết
     (nhận chuyển kho / gửi chuyển kho / báo hư) trong khoảng [cutoff_time,
     lần đếm GẦN NHẤT của từng mã], số đếm cộng dồn, và chênh lệch. Mã nào
     chưa có lần đếm nào thì received/sent/damaged/counted đều là NULL/0 -
-    frontend tự hiển thị "Chưa đếm"."""
+    frontend tự hiển thị "Chưa đếm".
+
+    part_codes: nếu truyền vào (list mã hàng), CHỈ tính cho đúng các mã đó
+    thay vì toàn bộ tồn kho snapshot của cửa hàng (có thể vài nghìn mã) -
+    dùng ở /log để suy ra Tồn Kỳ Vọng cho riêng các mã ĐÃ quét mà không
+    phải quét lại toàn bộ snapshot mỗi lần, giữ trang Nhật Ký tải nhanh."""
     cursor.execute('''
         WITH counts AS (
             SELECT part_code, SUM(counted_quantity) AS counted_quantity, MAX(counted_at) AS counted_until
@@ -709,8 +881,9 @@ def _fetch_summary_rows(cursor, session_id, store_code, cutoff_time):
         LEFT JOIN manual_received mr ON mr.part_code = s.part_code
         LEFT JOIN areas ar ON ar.part_code = s.part_code
         WHERE s.session_id = %(sid)s
+          AND (%(part_codes)s::text[] IS NULL OR s.part_code = ANY(%(part_codes)s))
         ORDER BY s.part_code
-    ''', {'sid': session_id, 'store': store_code, 'cutoff': cutoff_time})
+    ''', {'sid': session_id, 'store': store_code, 'cutoff': cutoff_time, 'part_codes': part_codes})
     return cursor.fetchall()
 
 
@@ -797,7 +970,30 @@ def stocktake_log(session_id):
     "chưa có log hiển thị lịch sử các mã đã kiểm". Đọc thẳng từ bảng
     stocktake_counts (mỗi lần đếm là 1 dòng riêng, không bị ghi đè), nên
     dữ liệu này KHÔNG mất kể cả sau khi phiên đã chốt - khác với bảng đối
-    chiếu (summary) vốn chỉ hiện số đã CỘNG DỒN theo mã."""
+    chiếu (summary) vốn chỉ hiện số đã CỘNG DỒN theo mã.
+
+    Ngoài 6 cột gốc, FE (xem renderLogRows() trong stocktake.html) còn
+    render thêm 3 cột mà route này trước đây KHÔNG trả về, nên luôn hiện
+    "-": prev_area_note (TẤT CẢ các vị trí KHÁC đã dùng để đếm CÙNG mã này
+    ở những lượt trước đó, để phát hiện 1 mã bị đếm rải rác ở nhiều nơi -
+    có thể gồm nhiều vị trí, không chỉ 1), running_total (tổng số lượng đã
+    quét DỒN của cả phiên tính tới đúng lượt này), và vs_expected_status
+    (Thừa/Thiếu/Đủ của MÃ đó tính tới đúng lượt này, so với Tồn Kỳ Vọng).
+
+    PHÂN TRANG/LỌC NGAY TỪ PHÍA SERVER (query params 'limit', 'q', 'area'):
+    trước đây route này trả về TOÀN BỘ lịch sử đếm của phiên, và FE gọi lại
+    nó sau MỖI LƯỢT QUÉT (xem submitCount() trong stocktake.html) rồi mới
+    lọc/cắt bớt ở trình duyệt. Với vài nghìn lượt quét/ngày, dữ liệu trả về
+    càng lúc càng phình to mà lần quét NÀO cũng tải lại từ đầu - tốn băng
+    thông rất nhanh trên gói Supabase Free (vốn tính phí theo dữ liệu
+    truyền qua DB). Giờ route này CHỈ trả về LOG_DEFAULT_LIMIT dòng gần
+    nhất khớp bộ lọc (FE chỉ hiển thị 10 dòng nên không có lý do gì tải
+    nhiều hơn) - lọc theo 'q' (mã/tên hàng, so khớp gần đúng) và 'area'
+    (đúng 1 vị trí) được áp Ở NGAY TRONG CÂU SQL nên vẫn tìm đúng trong
+    TOÀN BỘ lịch sử phiên chứ không chỉ trong số dòng gần nhất. Toàn bộ
+    lịch sử đầy đủ vẫn xem được trong file Excel xuất ra (sheet
+    "Nhat Ky Dem") - route này chỉ phục vụ xem nhanh trên màn hình.
+    """
     err = _require_admin()
     if err:
         return err
@@ -810,23 +1006,98 @@ def stocktake_log(session_id):
         return jsonify({'error': 'Không tìm thấy phiên kiểm kê.'}), 404
     _cleanup_old_logs(db, cursor)
 
+    try:
+        limit = int(request.args.get('limit', LOG_DEFAULT_LIMIT))
+    except (TypeError, ValueError):
+        limit = LOG_DEFAULT_LIMIT
+    limit = max(1, min(limit, LOG_MAX_LIMIT))
+
+    part_query = (request.args.get('q') or '').strip()
+    area_query = (request.args.get('area') or '').strip()
+    part_pattern = f'%{part_query}%' if part_query else None
+    area_value = area_query or None
+
+    # 3 window function tính trong đúng 1 lượt quét DB, theo thứ tự thời
+    # gian THẬT (ASC) - PARTITION BY part_code cho cả phần cộng dồn riêng
+    # từng mã (part_running_qty, dùng để so Thừa/Thiếu/Đủ) LẪN phần vị trí
+    # trước đó (prev_areas_raw, chỉ nhìn lại CÙNG mã này) - còn
+    # running_total tính chung trên toàn bộ lượt quét của cả phiên. Các
+    # window function này CẦN nhìn thấy TOÀN BỘ lịch sử phiên để cộng dồn
+    # đúng, nên được tính trong CTE "counted" TRƯỚC khi lọc/cắt bớt - việc
+    # LỌC (q/area) và LIMIT chỉ áp dụng ở câu SELECT bên ngoài, KHÔNG làm
+    # sai số cộng dồn. COUNT(*) OVER() ở ngoài cho biết tổng số dòng KHỚP
+    # bộ lọc (trước khi bị LIMIT cắt bớt) để FE hiện đúng "Đang hiển thị
+    # x/y". prev_areas_raw dùng ARRAY_AGG với khung "mọi dòng TRƯỚC dòng
+    # hiện tại" (ROWS ... 1 PRECEDING, không tính chính dòng này) rồi
+    # Python lọc trùng/rỗng bên dưới - Postgres không có "ARRAY_AGG
+    # DISTINCT" đi kèm khung window nên phải khử trùng ở tầng ứng dụng.
     cursor.execute('''
-        SELECT c.id, c.part_code, s.part_name, c.counted_quantity, c.area_note,
-               c.counted_by, c.counted_at
-        FROM stocktake_counts c
-        LEFT JOIN stocktake_snapshot_items s
-               ON s.session_id = c.session_id AND s.part_code = c.part_code
-        WHERE c.session_id = %s
-        ORDER BY c.counted_at DESC, c.id DESC
-    ''', (session_id,))
+        WITH counted AS (
+            SELECT c.id, c.part_code, s.part_name, c.counted_quantity, c.area_note,
+                   c.counted_by, c.counted_at,
+                   SUM(c.counted_quantity) OVER (
+                       ORDER BY c.counted_at ASC, c.id ASC
+                   ) AS running_total,
+                   SUM(c.counted_quantity) OVER (
+                       PARTITION BY c.part_code ORDER BY c.counted_at ASC, c.id ASC
+                   ) AS part_running_qty,
+                   ARRAY_AGG(c.area_note) OVER (
+                       PARTITION BY c.part_code ORDER BY c.counted_at ASC, c.id ASC
+                       ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING
+                   ) AS prev_areas_raw
+            FROM stocktake_counts c
+            LEFT JOIN stocktake_snapshot_items s
+                   ON s.session_id = c.session_id AND s.part_code = c.part_code
+            WHERE c.session_id = %(sid)s
+        )
+        SELECT *, COUNT(*) OVER() AS total_matching
+        FROM counted
+        WHERE (%(q)s IS NULL OR part_code ILIKE %(q)s OR part_name ILIKE %(q)s)
+          AND (%(area)s IS NULL OR TRIM(COALESCE(area_note, '')) = %(area)s)
+        ORDER BY counted_at DESC, id DESC
+        LIMIT %(limit)s
+    ''', {'sid': session_id, 'q': part_pattern, 'area': area_value, 'limit': limit})
     rows = cursor.fetchall()
+    total_matching = rows[0]['total_matching'] if rows else 0
+
+    # Tồn Kỳ Vọng để so Thừa/Thiếu/Đủ - tái dùng ĐÚNG công thức của Bảng
+    # Đối Chiếu (_fetch_summary_rows/_build_summary) để không lệch, nhưng
+    # CHỈ tính cho các mã đã xuất hiện trong trang log NÀY (part_codes=...)
+    # chứ KHÔNG quét lại toàn bộ tồn kho cửa hàng - nếu không sẽ nặng y hệt
+    # Bảng Đối Chiếu mỗi lần trang Nhật Ký được tải.
+    part_codes = sorted({r['part_code'] for r in rows})
+    expected_map = {}
+    if part_codes:
+        summary_rows = _fetch_summary_rows(cursor, session_id, sess['store_code'], sess['cutoff_time'], part_codes)
+        expected_map = {it['part_code']: it['expected_quantity'] for it in _build_summary(summary_rows)}
     cursor.close()
 
-    return jsonify({'success': True, 'log': [{
-        'id': r['id'], 'part_code': r['part_code'], 'part_name': r['part_name'],
-        'counted_quantity': float(r['counted_quantity']), 'area_note': r['area_note'] or '',
-        'counted_by': r['counted_by'], 'counted_at': format_vi_datetime(r['counted_at']),
-    } for r in rows]})
+    out = []
+    for r in rows:
+        expected = expected_map.get(r['part_code'])
+        vs_status = None
+        if expected is not None:
+            diff = float(r['part_running_qty']) - float(expected)
+            vs_status = 'matched' if diff == 0 else ('surplus' if diff > 0 else 'shortage')
+        # Khử trùng + bỏ rỗng, GIỮ NGUYÊN thứ tự xuất hiện lần đầu (dễ đọc
+        # hơn sắp xếp lại theo abc) - và bỏ luôn vị trí HIỆN TẠI nếu vị trí
+        # trước đó trùng đúng vị trí đang đếm (không cần nhắc lại info thừa).
+        seen = []
+        for a in (r['prev_areas_raw'] or []):
+            a = (a or '').strip()
+            if a and a not in seen and a != (r['area_note'] or '').strip():
+                seen.append(a)
+        prev_areas = ', '.join(seen)
+        out.append({
+            'id': r['id'], 'part_code': r['part_code'], 'part_name': r['part_name'],
+            'counted_quantity': float(r['counted_quantity']), 'area_note': r['area_note'] or '',
+            'prev_area_note': prev_areas,
+            'running_total': float(r['running_total']),
+            'vs_expected_status': vs_status,
+            'counted_by': r['counted_by'], 'counted_at': format_vi_datetime(r['counted_at']),
+        })
+
+    return jsonify({'success': True, 'log': out, 'total_matching': total_matching})
 
 
 @stocktake_bp.route('/api/stocktake/<int:session_id>/close', methods=['POST'])
@@ -896,7 +1167,7 @@ def stocktake_close(session_id):
 
     cursor.execute(
         "UPDATE stocktake_sessions SET status = 'closed', closed_by = %s, closed_at = %s, note = %s WHERE id = %s",
-        (session['user'], now, note, session_id)
+        (_current_actor_name(), now, note, session_id)
     )
     db.commit()
     cursor.close()
@@ -935,8 +1206,8 @@ def stocktake_reopen(session_id):
         "UPDATE stocktake_sessions SET status = 'reopened' WHERE id = %s", (session_id,)
     )
     cursor.execute(
-        "INSERT INTO stocktake_reopen_log (session_id, reopened_by, reason) VALUES (%s, %s, %s)",
-        (session_id, session['user'], reason)
+        "INSERT INTO stocktake_reopen_log (session_id, reopened_by, reason, reopened_at) VALUES (%s, %s, %s, %s)",
+        (session_id, _current_actor_name(), reason, vn_now())
     )
     db.commit()
     cursor.close()
@@ -1043,6 +1314,17 @@ def stocktake_history():
     } for r in rows]})
 
 
+def _write_df_autosized(writer, df, sheet_name):
+    """Ghi 1 DataFrame ra 1 sheet Excel rồi tự co giãn độ rộng cột theo nội
+    dung (dùng chung cho mọi route xuất Excel của tính năng kiểm kê, tránh
+    lặp lại cùng 1 đoạn code co giãn cột ở nhiều nơi)."""
+    df.to_excel(writer, sheet_name=sheet_name, index=False)
+    ws = writer.sheets[sheet_name]
+    for col_idx, col_name in enumerate(df.columns, start=1):
+        max_len = max([len(str(col_name))] + [len(str(v)) for v in df[col_name].tolist()] or [0])
+        ws.column_dimensions[ws.cell(row=1, column=col_idx).column_letter].width = min(max_len + 3, 45)
+
+
 @stocktake_bp.route('/api/stocktake/<int:session_id>/export', methods=['GET'])
 def stocktake_export(session_id):
     err = _require_admin()
@@ -1123,21 +1405,108 @@ def stocktake_export(session_id):
     df_log = pd.DataFrame(log_out_rows)
     buffer = io.BytesIO()
     with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
-        df.to_excel(writer, sheet_name='Kiem Ke', index=False)
-        ws = writer.sheets['Kiem Ke']
-        for col_idx, col_name in enumerate(df.columns, start=1):
-            max_len = max([len(str(col_name))] + [len(str(v)) for v in df[col_name].tolist()] or [0])
-            ws.column_dimensions[ws.cell(row=1, column=col_idx).column_letter].width = min(max_len + 3, 45)
-
+        _write_df_autosized(writer, df, 'Kiem Ke')
         # Sheet riêng cho log từng lần đếm - giữ nguyên TOÀN BỘ lịch sử,
         # không gộp theo mã, để không mất dấu vết ai đếm lúc nào ở đâu.
-        df_log.to_excel(writer, sheet_name='Nhat Ky Dem', index=False)
-        ws_log = writer.sheets['Nhat Ky Dem']
-        for col_idx, col_name in enumerate(df_log.columns, start=1):
-            max_len = max([len(str(col_name))] + [len(str(v)) for v in df_log[col_name].tolist()] or [0])
-            ws_log.column_dimensions[ws_log.cell(row=1, column=col_idx).column_letter].width = min(max_len + 3, 45)
+        _write_df_autosized(writer, df_log, 'Nhat Ky Dem')
     buffer.seek(0)
 
     filename = f"kiem_ke_{sess['store_code']}_{session_id}.xlsx"
+    return send_file(buffer, as_attachment=True, download_name=filename,
+                      mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+
+
+@stocktake_bp.route('/api/stocktake/history/export', methods=['GET'])
+def stocktake_history_export():
+    """Xuất Excel TOÀN BỘ Lịch Sử Kiểm Kê (danh sách phiên, lọc theo cửa
+    hàng nếu có ?store_code=, không giới hạn 100 dòng như JSON /history vì
+    đây là file lưu trữ) kèm 1 sheet RIÊNG gộp NHẬT KÝ ĐẾM chi tiết (từng
+    lượt quét) của TẤT CẢ các phiên trong danh sách đó - đúng yêu cầu "xuất
+    lịch sử log cùng file lịch sử kiểm kê, nằm ở sheet riêng".
+
+    Khác với route /<session_id>/export (xuất 1 phiên, sheet "Kiem Ke" là
+    bảng ĐỐI CHIẾU đã cộng dồn theo mã), file này gồm:
+      - Sheet "Danh Sach Phien": mỗi dòng là 1 phiên kiểm kê.
+      - Sheet "Nhat Ky Dem": mỗi dòng là 1 LƯỢT QUÉT/ĐẾM thô, có thêm cột
+        Mã Phiên + Cửa Hàng để biết log đó thuộc phiên nào (vì đã gộp
+        nhiều phiên vào cùng 1 sheet).
+
+    LƯU Ý QUAN TRỌNG: sheet "Nhat Ky Dem" chỉ còn dữ liệu trong vòng
+    LOG_RETENTION_DAYS ngày kể từ lúc CHỐT đối với các phiên ĐÃ CHỐT (xem
+    _cleanup_old_logs ở đầu file) - phiên càng cũ càng dễ bị trống log.
+    Muốn lưu trữ log lâu dài thì nên xuất định kỳ (vd cuối mỗi ngày/tuần
+    kiểm kê) thay vì đợi lâu mới xuất 1 lần.
+    """
+    err = _require_admin()
+    if err:
+        return err
+
+    store_code = (request.args.get('store_code') or '').strip().upper()
+    db = get_db()
+    cursor = db.cursor()
+    _cleanup_old_logs(db, cursor)
+
+    if store_code:
+        cursor.execute(
+            "SELECT * FROM stocktake_sessions WHERE store_code = %s ORDER BY id ASC", (store_code,)
+        )
+    else:
+        cursor.execute("SELECT * FROM stocktake_sessions ORDER BY id ASC")
+    sessions = cursor.fetchall()
+    if not sessions:
+        cursor.close()
+        return jsonify({'error': 'Không có phiên kiểm kê nào để xuất.'}), 400
+
+    session_ids = [s['id'] for s in sessions]
+    store_by_session = {s['id']: s['store_code'] for s in sessions}
+
+    # Log GỘP của TẤT CẢ các phiên trên trong ĐÚNG 1 câu SELECT (dùng
+    # session_id = ANY(...)) thay vì lặp lại 1 câu SELECT riêng cho từng
+    # phiên - tránh N+1 query khi lịch sử có tới hàng trăm phiên.
+    cursor.execute('''
+        SELECT c.session_id, c.part_code, s.part_name, c.counted_quantity, c.area_note,
+               c.counted_by, c.counted_at
+        FROM stocktake_counts c
+        LEFT JOIN stocktake_snapshot_items s
+               ON s.session_id = c.session_id AND s.part_code = c.part_code
+        WHERE c.session_id = ANY(%s)
+        ORDER BY c.session_id ASC, c.counted_at ASC, c.id ASC
+    ''', (session_ids,))
+    log_rows = cursor.fetchall()
+    cursor.close()
+
+    status_label = {'open': 'Đang mở', 'reopened': 'Đã mở lại', 'closed': 'Đã chốt'}
+    session_out_rows = [{
+        'Mã Phiên': s['id'], 'Cửa Hàng': s['store_code'],
+        'Chốt Sổ Lúc': format_vi_datetime(s['cutoff_time']),
+        'Trạng Thái': status_label.get(s['status'], s['status']),
+        'Người Tạo': s['created_by'] or '', 'Ngày Tạo': format_vi_datetime(s['created_at']),
+        'Người Chốt': s['closed_by'] or '',
+        'Ngày Chốt': format_vi_datetime(s['closed_at']) if s['closed_at'] else '',
+        'Ghi Chú': s['note'] or '',
+    } for s in sessions]
+
+    # Khai báo cột TƯỜNG MINH cho df_log (kể cả khi log_rows rỗng, ví dụ
+    # toàn bộ phiên trong danh sách đều đã CHỐT quá LOG_RETENTION_DAYS
+    # ngày) - để sheet vẫn có đủ tiêu đề cột thay vì xuất ra 1 sheet trắng
+    # không cột nào.
+    log_columns = ['Mã Phiên', 'Cửa Hàng', 'Thời Gian', 'Mã Hàng', 'Tên Hàng',
+                    'Số Lượng Đếm', 'Vị Trí', 'Người Đếm']
+    log_out_rows = [{
+        'Mã Phiên': lr['session_id'], 'Cửa Hàng': store_by_session.get(lr['session_id'], ''),
+        'Thời Gian': format_vi_datetime(lr['counted_at']), 'Mã Hàng': lr['part_code'],
+        'Tên Hàng': lr['part_name'], 'Số Lượng Đếm': float(lr['counted_quantity']),
+        'Vị Trí': lr['area_note'] or '', 'Người Đếm': lr['counted_by'] or '',
+    } for lr in log_rows]
+
+    df_sessions = pd.DataFrame(session_out_rows)
+    df_log = pd.DataFrame(log_out_rows, columns=log_columns)
+    buffer = io.BytesIO()
+    with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
+        _write_df_autosized(writer, df_sessions, 'Danh Sach Phien')
+        _write_df_autosized(writer, df_log, 'Nhat Ky Dem')
+    buffer.seek(0)
+
+    filename = f"lich_su_kiem_ke_{store_code or 'tat_ca'}.xlsx"
     return send_file(buffer, as_attachment=True, download_name=filename,
                       mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
