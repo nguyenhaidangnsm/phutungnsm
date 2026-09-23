@@ -977,8 +977,18 @@ def stocktake_log(session_id):
     "-": prev_area_note (TẤT CẢ các vị trí KHÁC đã dùng để đếm CÙNG mã này
     ở những lượt trước đó, để phát hiện 1 mã bị đếm rải rác ở nhiều nơi -
     có thể gồm nhiều vị trí, không chỉ 1), running_total (tổng số lượng đã
-    quét DỒN của cả phiên tính tới đúng lượt này), và vs_expected_status
+    quét DỒN của RIÊNG mã hàng đó, tính tới đúng lượt này - KHÔNG phải tổng
+    của cả phiên), và vs_expected_status
     (Thừa/Thiếu/Đủ của MÃ đó tính tới đúng lượt này, so với Tồn Kỳ Vọng).
+
+    THÊM 'imported_location': vị trí kệ hàng đã IMPORT sẵn cho mã này tại
+    cửa hàng đang kiểm kê (bảng part_locations - xem app.py::
+    import_locations_excel/save_location), để nhân viên đối chiếu ngay
+    trên dòng log giữa vị trí hệ thống ghi nhận và vị trí thực tế vừa đếm
+    (area_note). Đây là vị trí HIỆN TẠI của part_locations tại thời điểm
+    gọi API (không chụp cứng theo lúc đếm, vì part_locations không lưu
+    lịch sử) - nếu vị trí được sửa lại sau khi đếm, log sẽ hiện vị trí mới
+    nhất chứ không phải vị trí tại lúc đếm.
 
     PHÂN TRANG/LỌC NGAY TỪ PHÍA SERVER (query params 'limit', 'q', 'area'):
     trước đây route này trả về TOÀN BỘ lịch sử đếm của phiên, và FE gọi lại
@@ -1035,6 +1045,7 @@ def stocktake_log(session_id):
         WITH counted AS (
             SELECT c.id, c.part_code, s.part_name, c.counted_quantity, c.area_note,
                    c.counted_by, c.counted_at,
+                   pl.location_1, pl.location_2, pl.location_3,
                    SUM(c.counted_quantity) OVER (
                        ORDER BY c.counted_at ASC, c.id ASC
                    ) AS running_total,
@@ -1048,6 +1059,14 @@ def stocktake_log(session_id):
             FROM stocktake_counts c
             LEFT JOIN stocktake_snapshot_items s
                    ON s.session_id = c.session_id AND s.part_code = c.part_code
+            -- Vị trí kệ hàng ĐÃ IMPORT (bảng part_locations, xem
+            -- app.py::import_locations_excel) của mã này TẠI CỬA HÀNG đang
+            -- kiểm kê - để nhân viên đối chiếu ngay trong lúc đếm giữa vị
+            -- trí hệ thống ghi nhận và vị trí thực tế tìm thấy hàng
+            -- (area_note). Đây là vị trí HIỆN TẠI (không chụp cứng theo
+            -- thời điểm đếm) vì part_locations không lưu lịch sử.
+            LEFT JOIN part_locations pl
+                   ON pl.part_code = c.part_code AND pl.store_code = %(store)s
             WHERE c.session_id = %(sid)s
         )
         SELECT *, COUNT(*) OVER() AS total_matching
@@ -1056,7 +1075,7 @@ def stocktake_log(session_id):
           AND (%(area)s IS NULL OR TRIM(COALESCE(area_note, '')) = %(area)s)
         ORDER BY counted_at DESC, id DESC
         LIMIT %(limit)s
-    ''', {'sid': session_id, 'q': part_pattern, 'area': area_value, 'limit': limit})
+    ''', {'sid': session_id, 'store': sess['store_code'], 'q': part_pattern, 'area': area_value, 'limit': limit})
     rows = cursor.fetchall()
     total_matching = rows[0]['total_matching'] if rows else 0
 
@@ -1088,11 +1107,28 @@ def stocktake_log(session_id):
             if a and a not in seen and a != (r['area_note'] or '').strip():
                 seen.append(a)
         prev_areas = ', '.join(seen)
+        # Vị trí đã IMPORT (location_1/2/3 của part_locations) - gộp lại
+        # thành 1 chuỗi hiển thị, bỏ ô trống, để FE đối chiếu với area_note
+        # (vị trí nhân viên tự ghi lúc đếm) ngay trên cùng 1 dòng log.
+        imported_location = ', '.join(
+            loc for loc in (r['location_1'], r['location_2'], r['location_3']) if loc
+        )
         out.append({
             'id': r['id'], 'part_code': r['part_code'], 'part_name': r['part_name'],
             'counted_quantity': float(r['counted_quantity']), 'area_note': r['area_note'] or '',
+            'imported_location': imported_location,
             'prev_area_note': prev_areas,
-            'running_total': float(r['running_total']),
+            # ĐỔI Ý (theo yêu cầu người dùng): trước đây FE hiển thị
+            # 'running_total' (tổng CỘNG DỒN của TOÀN BỘ lượt quét trong cả
+            # phiên, không phân biệt mã hàng) ở cột "Tổng Đã Quét" - gây hiểu
+            # lầm vì số đó không nói lên gì về RIÊNG mã đang xem. Giờ trả về
+            # đúng 'part_running_qty' (tổng cộng dồn CỦA RIÊNG mã này tính
+            # tới đúng lượt này) - vốn ĐÃ được tính sẵn trong CTE phía trên
+            # (dùng để tính vs_expected_status) nhưng trước đây không được
+            # trả ra ngoài. Vẫn giữ nguyên tên field cũ 'running_total' để
+            # không phải sửa thêm chỗ khác gọi field này (nếu có), chỉ đổi
+            # GIÁ TRỊ được gán vào.
+            'running_total': float(r['part_running_qty']),
             'vs_expected_status': vs_status,
             'counted_by': r['counted_by'], 'counted_at': format_vi_datetime(r['counted_at']),
         })
@@ -1346,13 +1382,16 @@ def stocktake_export(session_id):
     # "Khu Vực Đã Đếm" cho từng mã ở sheet chính.
     cursor.execute('''
         SELECT c.id, c.part_code, s.part_name, c.counted_quantity, c.area_note,
-               c.counted_by, c.counted_at
+               c.counted_by, c.counted_at,
+               pl.location_1, pl.location_2, pl.location_3
         FROM stocktake_counts c
         LEFT JOIN stocktake_snapshot_items s
                ON s.session_id = c.session_id AND s.part_code = c.part_code
+        LEFT JOIN part_locations pl
+               ON pl.part_code = c.part_code AND pl.store_code = %s
         WHERE c.session_id = %s
         ORDER BY c.counted_at ASC, c.id ASC
-    ''', (session_id,))
+    ''', (sess['store_code'], session_id))
     log_rows = cursor.fetchall()
 
     area_map = {}
@@ -1398,7 +1437,11 @@ def stocktake_export(session_id):
     log_out_rows = [{
         'Thời Gian': format_vi_datetime(lr['counted_at']), 'Mã Hàng': lr['part_code'],
         'Tên Hàng': lr['part_name'], 'Số Lượng Đếm': float(lr['counted_quantity']),
-        'Vị Trí': lr['area_note'] or '', 'Người Đếm': lr['counted_by'] or '',
+        'Vị Trí': lr['area_note'] or '',
+        'Vị Trí Import': ', '.join(
+            loc for loc in (lr['location_1'], lr['location_2'], lr['location_3']) if loc
+        ),
+        'Người Đếm': lr['counted_by'] or '',
     } for lr in log_rows]
 
     df = pd.DataFrame(out_rows)
@@ -1463,6 +1506,25 @@ def stocktake_history_export():
     # Log GỘP của TẤT CẢ các phiên trên trong ĐÚNG 1 câu SELECT (dùng
     # session_id = ANY(...)) thay vì lặp lại 1 câu SELECT riêng cho từng
     # phiên - tránh N+1 query khi lịch sử có tới hàng trăm phiên.
+    # part_locations được lấy theo store_code của TỪNG phiên (join qua
+    # store_by_session ngay trong Python bên dưới, thay vì JOIN trong SQL)
+    # vì 1 lần export lịch sử có thể gộp NHIỀU cửa hàng khác nhau - JOIN
+    # thẳng trên store_code cố định sẽ sai cho các phiên không cùng cửa
+    # hàng. Đọc trước toàn bộ part_locations của các cửa hàng liên quan
+    # thành 1 dict tra cứu nhanh (part_code, store_code) -> vị trí.
+    store_codes_in_scope = sorted(set(store_by_session.values()))
+    cursor.execute(
+        'SELECT part_code, store_code, location_1, location_2, location_3 '
+        'FROM part_locations WHERE store_code = ANY(%s)',
+        (store_codes_in_scope,)
+    )
+    location_by_part_store = {
+        (row['part_code'], row['store_code']): ', '.join(
+            loc for loc in (row['location_1'], row['location_2'], row['location_3']) if loc
+        )
+        for row in cursor.fetchall()
+    }
+
     cursor.execute('''
         SELECT c.session_id, c.part_code, s.part_name, c.counted_quantity, c.area_note,
                c.counted_by, c.counted_at
@@ -1491,12 +1553,16 @@ def stocktake_history_export():
     # ngày) - để sheet vẫn có đủ tiêu đề cột thay vì xuất ra 1 sheet trắng
     # không cột nào.
     log_columns = ['Mã Phiên', 'Cửa Hàng', 'Thời Gian', 'Mã Hàng', 'Tên Hàng',
-                    'Số Lượng Đếm', 'Vị Trí', 'Người Đếm']
+                    'Số Lượng Đếm', 'Vị Trí', 'Vị Trí Import', 'Người Đếm']
     log_out_rows = [{
         'Mã Phiên': lr['session_id'], 'Cửa Hàng': store_by_session.get(lr['session_id'], ''),
         'Thời Gian': format_vi_datetime(lr['counted_at']), 'Mã Hàng': lr['part_code'],
         'Tên Hàng': lr['part_name'], 'Số Lượng Đếm': float(lr['counted_quantity']),
-        'Vị Trí': lr['area_note'] or '', 'Người Đếm': lr['counted_by'] or '',
+        'Vị Trí': lr['area_note'] or '',
+        'Vị Trí Import': location_by_part_store.get(
+            (lr['part_code'], store_by_session.get(lr['session_id'])), ''
+        ),
+        'Người Đếm': lr['counted_by'] or '',
     } for lr in log_rows]
 
     df_sessions = pd.DataFrame(session_out_rows)

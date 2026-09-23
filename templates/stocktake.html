@@ -38,6 +38,9 @@
     .badge-recount { background-color: #ffebe9; color: #cf222e; border: 1px solid rgba(207,34,46,0.2); }
     .badge-notcounted { background-color: #e8eaed; color: #495057; border: 1px solid rgba(73,80,87,0.2); }
     .area-chip { display: inline-block; padding: 2px 8px; border-radius: 6px; font-size: 0.74rem; font-weight: 600; background: #f1f5f9; color: #475569; border: 1px solid #e2e8f0; margin: 1px; white-space: nowrap; }
+    /* Vị trí ĐÃ IMPORT (part_locations) - tô màu khác area-chip (vị trí tự
+       ghi lúc đếm) để nhân viên phân biệt nhanh 2 nguồn khi đối chiếu. */
+    .loc-chip { display: inline-block; padding: 2px 8px; border-radius: 6px; font-size: 0.74rem; font-weight: 600; background: #eff6ff; color: #1d4ed8; border: 1px solid #bfdbfe; margin: 1px; white-space: nowrap; }
     #st-summary-pages .nav-link { border-radius: 8px; font-weight: 600; color: #475569; background: #f8fafc; border: 1px solid #e2e8f0; }
     #st-summary-pages .nav-link.active { background-color: var(--ns-blue) !important; color: #fff !important; border-color: var(--ns-blue); }
     tr.row-recount { background: #fff5f5; }
@@ -118,10 +121,10 @@
                 <h6 class="fw-semibold mb-0"><i class="bi bi-journal-text"></i> Nhật Ký Đếm (lịch sử từng lần)</h6>
                 <button type="button" class="btn btn-outline-secondary btn-sm" onclick="loadLog()"><i class="bi bi-arrow-clockwise"></i> Làm mới</button>
             </div>
-            <div class="small text-muted mb-2">Ghi lại đầy đủ từng lần quét/nhập số đếm - dùng bộ lọc bên dưới (mã hàng, vị trí) để tra cứu. Log này tự động xoá 5 ngày sau khi phiên được CHỐT, nên nhớ xuất Excel (sheet "Nhat Ky Dem") sớm nếu cần lưu lại lâu dài.</div>
+            <div class="small text-muted mb-2">Ghi lại đầy đủ từng lần quét/nhập số đếm - dùng bộ lọc bên dưới (mã hàng, vị trí) để tra cứu. Cột "Vị Trí Import" là vị trí kệ hàng đã được import sẵn trong hệ thống (mục Vị Trí Kệ Hàng) - so với cột "Vị Trí" (nơi nhân viên tự ghi lúc đếm) để phát hiện lệch vị trí. Log này tự động xoá 5 ngày sau khi phiên được CHỐT, nên nhớ xuất Excel (sheet "Nhat Ky Dem") sớm nếu cần lưu lại lâu dài.</div>
             <div class="table-responsive" style="max-height: 320px;">
                 <table class="table table-sm">
-                    <thead class="table-light"><tr><th>Thời Gian</th><th>Mã Hàng</th><th>Tên Hàng</th><th class="text-end">Số Lượng</th><th>Vị Trí</th><th>Vị Trí Trước Đó</th><th class="text-end">Tổng Đã Quét</th><th>Thừa/Thiếu/Đủ</th><th>Người Đếm</th><th></th></tr></thead>
+                    <thead class="table-light"><tr><th>Thời Gian</th><th>Mã Hàng</th><th>Tên Hàng</th><th class="text-end">Số Lượng</th><th>Vị Trí</th><th>Vị Trí Trước Đó</th><th>Vị Trí Import</th><th class="text-end">Tổng Đã Quét (Mã Này)</th><th>Thừa/Thiếu/Đủ</th><th>Người Đếm</th><th></th></tr></thead>
                     <tbody id="st-log-body"></tbody>
                 </table>
             </div>
@@ -825,6 +828,7 @@
                 <td class="text-end fw-semibold">${fmt(r.counted_quantity)}</td>
                 <td class="small">${r.area_note ? `<span class="area-chip">${r.area_note}</span>` : '-'}</td>
                 <td class="small">${r.prev_area_note ? areaChips(r.prev_area_note) : '<span class="text-muted">-</span>'}</td>
+                <td class="small">${r.imported_location ? r.imported_location.split(',').map(a => a.trim()).filter(Boolean).map(a => `<span class="loc-chip">${a}</span>`).join(' ') : '<span class="text-muted">-</span>'}</td>
                 <td class="text-end">${fmt(r.running_total)}</td>
                 <td>${r.vs_expected_status ? statusBadge(r.vs_expected_status) : '<span class="text-muted small">-</span>'}</td>
                 <td class="small">${r.counted_by || ''}</td>
@@ -833,7 +837,7 @@
                     <button type="button" class="btn btn-outline-danger btn-sm py-0 px-1" title="Xoá lượt đếm này" onclick="deleteLogEntry(${r.id}, '${r.part_code}')"><i class="bi bi-trash3"></i></button>
                 </td>
             </tr>
-        `).join('') || '<tr><td colspan="10" class="text-center text-muted py-3">Không có lượt đếm nào khớp bộ lọc.</td></tr>';
+        `).join('') || '<tr><td colspan="11" class="text-center text-muted py-3">Không có lượt đếm nào khớp bộ lọc.</td></tr>';
 
         const noteEl = document.getElementById('st-log-note');
         noteEl.textContent = logTotalMatching > logRowsRaw.length

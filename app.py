@@ -330,6 +330,7 @@ def _store_region(store_code):
 # - HTTPONLY: JavaScript phía trình duyệt không đọc được cookie (chống XSS đánh cắp session)
 # - SAMESITE=Lax: hạn chế cookie bị gửi kèm trong các request từ trang khác (chống CSRF cơ bản)
 app.config.update(
+    #SESSION_COOKIE_SECURE=True,
     SESSION_COOKIE_SECURE=os.getenv('SESSION_COOKIE_SECURE', 'True') == 'True',
     SESSION_COOKIE_HTTPONLY=True,
     SESSION_COOKIE_SAMESITE='Lax',
