@@ -24,7 +24,7 @@ templates/ với index.html.
 """
 import io
 import re
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 import pandas as pd
 from flask import Blueprint, render_template, request, jsonify, session, send_file
@@ -1256,6 +1256,25 @@ def stocktake_log(session_id):
     area_query = (request.args.get('area') or '').strip()
     part_pattern = f'%{part_query}%' if part_query else None
     area_value = area_query or None
+    # Dạng chuẩn hoá của ô tìm (bỏ "-"/khoảng trắng, IN HOA) để tìm mã hàng
+    # dù gõ/quét khác dấu "-" so với mã lưu (giống _resolve_part_code).
+    q_norm = _PART_CODE_NORMALIZE_RE.sub('', part_query).upper()
+    q_norm_pattern = f'%{q_norm}%' if q_norm else None
+
+    # Lọc theo NGÀY đếm (YYYY-MM-DD, tính cả ngày 'date_to') - để tra lại các
+    # lượt đã đếm từ vài ngày trước khi phiên vẫn chưa chốt. counted_at lưu
+    # theo giờ Việt Nam nên so sánh trực tiếp, không cần đổi múi giờ.
+    def _parse_day(key):
+        raw = (request.args.get(key) or '').strip()
+        if not raw:
+            return None
+        try:
+            return datetime.strptime(raw, '%Y-%m-%d')
+        except ValueError:
+            return None
+    date_from = _parse_day('date_from')
+    date_to = _parse_day('date_to')
+    date_to_excl = (date_to + timedelta(days=1)) if date_to else None
 
     # 2 window function tính trong đúng 1 lượt quét DB, theo thứ tự thời
     # gian THẬT (ASC) - PARTITION BY part_code cho phần cộng dồn riêng từng
@@ -1280,11 +1299,18 @@ def stocktake_log(session_id):
         )
         SELECT *, COUNT(*) OVER() AS total_matching
         FROM counted
-        WHERE (%(q)s IS NULL OR part_code ILIKE %(q)s OR part_name ILIKE %(q)s)
+        WHERE (%(q)s IS NULL
+               OR part_code ILIKE %(q)s
+               OR part_name ILIKE %(q)s
+               OR COALESCE(area_note, '') ILIKE %(q)s
+               OR UPPER(REGEXP_REPLACE(part_code, '[\\s-]+', '', 'g')) LIKE %(qn)s)
           AND (%(area)s IS NULL OR TRIM(COALESCE(area_note, '')) = %(area)s)
+          AND (%(d_from)s::timestamp IS NULL OR counted_at >= %(d_from)s::timestamp)
+          AND (%(d_to)s::timestamp IS NULL OR counted_at < %(d_to)s::timestamp)
         ORDER BY counted_at DESC, id DESC
         LIMIT %(limit)s
-    ''', {'sid': session_id, 'store': sess['store_code'], 'q': part_pattern, 'area': area_value, 'limit': limit})
+    ''', {'sid': session_id, 'store': sess['store_code'], 'q': part_pattern, 'qn': q_norm_pattern,
+          'area': area_value, 'd_from': date_from, 'd_to': date_to_excl, 'limit': limit})
     rows = cursor.fetchall()
     total_matching = rows[0]['total_matching'] if rows else 0
 
