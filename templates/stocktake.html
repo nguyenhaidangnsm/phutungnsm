@@ -115,7 +115,12 @@
                 <button type="button" class="btn btn-outline-secondary btn-sm" id="st-sound-toggle" onclick="toggleSound()"></button>
             </div>
             <div class="row g-2">
-                <div class="col-8 col-md-5"><input type="text" id="st-count-part" class="form-control" placeholder="Mã hàng (scan hoặc gõ tay)" autocomplete="off"></div>
+                <div class="col-8 col-md-5">
+                    <div class="input-group">
+                        <input type="text" id="st-count-part" class="form-control" placeholder="Mã hàng (scan hoặc gõ tay)" autocomplete="off">
+                        <button type="button" class="btn btn-outline-primary" id="st-cam-scan-btn" onclick="openCameraScanner()" title="Quét mã vạch bằng camera điện thoại"><i class="bi bi-camera-fill"></i></button>
+                    </div>
+                </div>
                 <div class="col-4 col-md-3"><input type="number" id="st-count-qty" class="form-control" placeholder="Mặc định: 1" min="0" step="any"></div>
                 <div class="col-12 col-md-4"><button type="button" class="btn btn-success w-100" onclick="submitCount()"><i class="bi bi-check-lg"></i> Ghi Nhận</button></div>
             </div>
@@ -140,6 +145,31 @@
                     </div>
                 </div>
                 <div id="st-last-count-msg" class="small mt-2"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal quét mã vạch bằng camera điện thoại - dùng thư viện ZXing
+         (tải lười lúc bấm nút, không load sẵn để không nặng trang cho ai
+         chỉ dùng máy scan tay/laptop). Quét liên tục, không tự đóng sau
+         mỗi lượt để đếm nhiều mã liên tiếp không cần mở lại camera. -->
+    <div class="modal fade" id="camScanModal" tabindex="-1" data-bs-backdrop="static" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content bg-dark">
+                <div class="modal-header border-0 py-2">
+                    <h6 class="modal-title text-white mb-0"><i class="bi bi-camera-fill"></i> Quét mã vạch bằng camera</h6>
+                    <button type="button" class="btn-close btn-close-white" onclick="closeCameraScanner()"></button>
+                </div>
+                <div class="modal-body p-0 position-relative" style="background:#000;">
+                    <video id="camScanVideo" autoplay playsinline muted style="width:100%;max-height:65vh;display:block;object-fit:cover;"></video>
+                    <div style="position:absolute;inset:0;pointer-events:none;display:flex;align-items:center;justify-content:center;">
+                        <div style="width:75%;height:35%;border:3px solid #22c55e;border-radius:10px;box-shadow:0 0 0 2000px rgba(0,0,0,0.35);"></div>
+                    </div>
+                </div>
+                <div class="modal-footer border-0 py-2 justify-content-between">
+                    <div id="camScanStatus" class="small text-white-50">Đang khởi động camera...</div>
+                    <button type="button" class="btn btn-outline-light btn-sm" onclick="closeCameraScanner()">Đóng</button>
+                </div>
             </div>
         </div>
     </div>
@@ -763,6 +793,78 @@
         inputEl.classList.add('st-scan-error');
         setTimeout(() => inputEl.classList.remove('st-scan-error'), 1300);
     }
+
+    // ------------------------------------------------------------------
+    // QUÉT BẰNG CAMERA ĐIỆN THOẠI - dùng thư viện ZXing (tải lười, chỉ tải
+    // khi bấm nút camera lần đầu). Sau khi đọc được mã, đổ thẳng vào ô Mã
+    // hàng rồi gọi submitCount() y hệt luồng máy scan tay - đi qua đúng
+    // API/logic chuẩn hoá mã cũ (bỏ dấu "-"/khoảng trắng ở server), không
+    // cần thêm code chuẩn hoá riêng. Camera KHÔNG tự tắt sau mỗi lượt đọc
+    // để quét liên tiếp nhiều mã, có cơ chế chống đọc trùng mã vừa quét.
+    // LƯU Ý: getUserMedia (mở camera) chỉ chạy được trên trang HTTPS (hoặc
+    // localhost) - trình duyệt sẽ chặn nếu trang chạy qua HTTP thường.
+    // ------------------------------------------------------------------
+    let camScanReader = null, camScanModalEl = null, camScanLast = { code: '', t: 0 };
+
+    function ensureZXingLoaded() {
+        if (window.ZXing) return Promise.resolve();
+        return new Promise((resolve, reject) => {
+            const s = document.createElement('script');
+            s.src = 'https://cdn.jsdelivr.net/npm/@zxing/library@0.20.0/umd/index.min.js';
+            s.onload = () => resolve();
+            s.onerror = () => reject(new Error('Không tải được thư viện quét mã vạch (kiểm tra kết nối mạng).'));
+            document.head.appendChild(s);
+        });
+    }
+
+    async function openCameraScanner() {
+        if (!currentSession) { alert('Vui lòng bắt đầu/mở phiên kiểm kê trước.'); return; }
+        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+            alert('Trình duyệt/kết nối này không dùng được camera (cần mở trang qua HTTPS). Hãy dùng máy scan tay hoặc gõ mã trực tiếp.');
+            return;
+        }
+        if (!camScanModalEl) camScanModalEl = new bootstrap.Modal(document.getElementById('camScanModal'));
+        const statusEl = document.getElementById('camScanStatus');
+        statusEl.textContent = 'Đang khởi động camera...';
+        camScanModalEl.show();
+        try {
+            await ensureZXingLoaded();
+            if (!camScanReader) camScanReader = new ZXing.BrowserMultiFormatReader();
+            statusEl.textContent = 'Đưa mã vạch vào khung hình...';
+            await camScanReader.decodeFromConstraints(
+                { video: { facingMode: { ideal: 'environment' } } },
+                'camScanVideo',
+                (result) => { if (result) handleCameraScanResult(result.getText()); }
+            );
+        } catch (e) {
+            statusEl.textContent = '';
+            alert('Không mở được camera: ' + (e && e.message ? e.message : e));
+            closeCameraScanner();
+        }
+    }
+
+    function handleCameraScanResult(text) {
+        const now = Date.now();
+        // Chống đọc trùng: cùng 1 mã còn nằm trong khung hình sẽ bị đọc lại
+        // liên tục nhiều lần/giây - chỉ ghi nhận lại sau 1.5s nếu vẫn mã cũ.
+        if (text === camScanLast.code && (now - camScanLast.t) < 1500) return;
+        camScanLast = { code: text, t: now };
+        const statusEl = document.getElementById('camScanStatus');
+        if (statusEl) statusEl.innerHTML = `<span class="text-success fw-semibold">Đã quét: ${text}</span>`;
+        if (navigator.vibrate) navigator.vibrate(80);
+        const partEl = document.getElementById('st-count-part');
+        partEl.value = text;
+        submitCount();
+    }
+
+    function closeCameraScanner() {
+        try { if (camScanReader) camScanReader.reset(); } catch (e) {}
+        if (camScanModalEl) camScanModalEl.hide();
+        document.getElementById('st-count-part').focus();
+    }
+    document.getElementById('camScanModal').addEventListener('hidden.bs.modal', () => {
+        try { if (camScanReader) camScanReader.reset(); } catch (e) {}
+    });
 
     // ------------------------------------------------------------------
     // HỖ TRỢ MÁY SCAN TAY (USB/Bluetooth, giả lập bàn phím: gõ thẳng mã
