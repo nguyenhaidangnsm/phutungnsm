@@ -55,6 +55,14 @@ def init_price_adjustment_tables(cursor):
             created_at TIMESTAMP NOT NULL DEFAULT NOW()
         )
     ''')
+    # last_known_price = Giá bán GẦN NHẤT được biết đến của mã này (độc lập
+    # với lịch sử price_adjustment_proposals) - dùng làm "giá cũ" gợi ý cho
+    # lần đề xuất tăng giá TIẾP THEO mà không cần gõ lại Thuế + Giá đề xuất
+    # HVN từ đầu, kể cả sau khi lịch sử đề xuất của mã đã bị xoá sạch qua
+    # price_adjustment_reset_code() ("Về chưa tăng"). Luôn được đồng bộ mỗi
+    # khi có 1 lần đề xuất mới/sửa/import cho mã KHÔNG có trong tồn kho hệ
+    # thống (inventory_items) - xem _upsert_new_code().
+    cursor.execute('ALTER TABLE price_adjustment_new_codes ADD COLUMN IF NOT EXISTS last_known_price NUMERIC')
 
     # Bảng LỊCH SỬ mọi lần đề xuất tăng giá - mỗi dòng là 1 LẦN đề xuất
     # (không ghi đè), vì 1 mã hàng có thể được đề xuất điều chỉnh nhiều lần
@@ -131,6 +139,24 @@ def _compute_gia_ban_tu_gia_cu(gia_cu, muc_tang_rate=_GIA_TANG_RATE):
     (%) mà người dùng nhập ở Bước 1, Thuế chỉ dùng để tính ra Giá cũ."""
     raw = (gia_cu * muc_tang_rate) + gia_cu
     return _round_to_thousand(raw)
+
+
+def _upsert_new_code(cursor, part_code, part_name, thue_frac, last_known_price, actor, now):
+    """UPSERT 1 dòng vào "danh mục mã mới" (price_adjustment_new_codes) -
+    dùng CHUNG cho mọi nơi cần ghi nhận/cập nhật 1 mã KHÔNG có trong tồn kho
+    hệ thống (propose(), update_proposal(), import(), reset()) để logic
+    luôn nhất quán 1 chỗ. part_name/thue_frac/last_known_price có thể là
+    None (VD: sửa chỉ đổi giá, không đổi tên) - khi đó GIỮ NGUYÊN giá trị cũ
+    đã lưu (COALESCE) thay vì xoá mất, còn created_by/created_at chỉ dùng
+    cho lần INSERT đầu tiên (dòng đã tồn tại thì không đổi)."""
+    cursor.execute('''
+        INSERT INTO price_adjustment_new_codes (part_code, part_name, thue, last_known_price, created_by, created_at)
+        VALUES (%s, %s, %s, %s, %s, %s)
+        ON CONFLICT (part_code) DO UPDATE SET
+            part_name = COALESCE(EXCLUDED.part_name, price_adjustment_new_codes.part_name),
+            thue = COALESCE(EXCLUDED.thue, price_adjustment_new_codes.thue),
+            last_known_price = COALESCE(EXCLUDED.last_known_price, price_adjustment_new_codes.last_known_price)
+    ''', (part_code, part_name, thue_frac, last_known_price, actor, now))
 
 
 def _cleanup_new_codes_dedup(cursor):
@@ -396,17 +422,18 @@ def price_adjustment_import():
         cursor.execute('SELECT DISTINCT part_code FROM inventory_items')
         catalog_codes = {r['part_code'] for r in cursor.fetchall()}
         new_code_rows = [
-            (r['part_code'], r['part_name'], r['thue'], created_by, r['created_at'])
+            (r['part_code'], r['part_name'], r['thue'], r['gia_ban'], created_by, r['created_at'])
             for r in rows if r['part_code'] not in catalog_codes
         ]
         if new_code_rows:
             execute_values(
                 cursor,
-                '''INSERT INTO price_adjustment_new_codes (part_code, part_name, thue, created_by, created_at)
+                '''INSERT INTO price_adjustment_new_codes (part_code, part_name, thue, last_known_price, created_by, created_at)
                    VALUES %s
                    ON CONFLICT (part_code) DO UPDATE SET
                        part_name = EXCLUDED.part_name,
-                       thue = EXCLUDED.thue''',
+                       thue = EXCLUDED.thue,
+                       last_known_price = EXCLUDED.last_known_price''',
                 new_code_rows,
                 page_size=1000
             )
@@ -463,6 +490,19 @@ def price_adjustment_lookup():
     cursor.execute('SELECT sale_price FROM part_prices WHERE part_code = %s', (part_code,))
     price_row = cursor.fetchone()
     catalog_price = float(price_row['sale_price']) if price_row and price_row['sale_price'] is not None else None
+
+    # Mã KHÔNG có trong danh mục giá chính thức (part_prices) - thường là mã
+    # tự thêm qua chính tính năng Đề Xuất Tăng Giá, không đi qua phần Cập
+    # Nhật Giá thông thường. Với mã dạng này, fallback lấy last_known_price
+    # đã lưu ở "danh mục mã mới" làm "giá cũ" gợi ý - giá trị này ĐỘC LẬP với
+    # lịch sử price_adjustment_proposals nên vẫn còn ngay cả khi lịch sử đã
+    # bị xoá sạch qua "Về chưa tăng" (price_adjustment_reset_code), giúp lần
+    # đề xuất tiếp theo không phải gõ lại Thuế + Giá đề xuất HVN từ đầu.
+    if catalog_price is None:
+        cursor.execute('SELECT last_known_price FROM price_adjustment_new_codes WHERE part_code = %s', (part_code,))
+        new_code_price_row = cursor.fetchone()
+        if new_code_price_row and new_code_price_row['last_known_price'] is not None:
+            catalog_price = float(new_code_price_row['last_known_price'])
 
     part_name = _find_existing_part_name(cursor, part_code)
 
@@ -710,6 +750,16 @@ def price_adjustment_propose():
             price_row = cursor.fetchone()
             catalog_price = float(price_row['sale_price']) if price_row and price_row['sale_price'] is not None else 0
             if catalog_price <= 0:
+                # Mã không có trong danh mục giá chính thức (part_prices) -
+                # fallback lấy Giá bán GẦN NHẤT mà chính tính năng Đề Xuất
+                # Tăng Giá đã tự nhớ lại cho mã này (last_known_price), đặc
+                # biệt cần thiết sau khi mã đã bị "Về chưa tăng" xoá sạch
+                # lịch sử price_adjustment_proposals nhưng vẫn muốn tiếp tục
+                # đề xuất tăng tiếp mà không cần gõ lại Thuế + Giá đề xuất HVN.
+                cursor.execute('SELECT last_known_price FROM price_adjustment_new_codes WHERE part_code = %s', (part_code,))
+                new_code_price_row = cursor.fetchone()
+                catalog_price = float(new_code_price_row['last_known_price']) if new_code_price_row and new_code_price_row['last_known_price'] is not None else 0
+            if catalog_price <= 0:
                 return jsonify({'error': 'Mã hàng này chưa có Giá bán trong danh mục - vui lòng nhập Thuế và Giá đề xuất HVN.'}), 400
             gia_cu = _round_to_thousand(catalog_price)
             gia_de_xuat_hvn = gia_cu
@@ -743,20 +793,16 @@ def price_adjustment_propose():
         ''', (part_code, part_name, muc_tang_rate, gia_cu, gia_ban, store_code, actor, now))
         new_id = cursor.fetchone()['id']
 
-        # Mã mới (chưa có trong tồn kho hệ thống) -> tự động lưu vào danh mục
-        # mã mới để lần đề xuất sau tự điền lại Tên/Thuế. Mã đã có sẵn trong
-        # tồn kho hệ thống thì không cần lưu thêm (đã có danh mục chính thức).
-        # (Chế độ lấy giá từ danh mục: mã đã có giá bán nên đã thuộc danh mục,
-        # không có Thuế để lưu -> bỏ qua bước này.)
+        # Mã mới (chưa có trong tồn kho hệ thống) -> tự động lưu/đồng bộ vào
+        # "danh mục mã mới" (Tên hàng, Thuế đã dùng, và Giá bán VỪA đề xuất
+        # làm last_known_price) để lần đề xuất sau tự điền lại - kể cả khi
+        # đang ở chế độ from_catalog_price (lấy giá cũ từ last_known_price
+        # thay vì part_prices), vẫn cần cập nhật lại last_known_price = gia_ban
+        # mới nhất sau lần đề xuất này. Mã đã có sẵn trong tồn kho hệ thống
+        # thì không cần lưu thêm (đã có danh mục chính thức).
         cursor.execute('SELECT 1 FROM inventory_items WHERE part_code = %s LIMIT 1', (part_code,))
-        if not from_catalog_price and cursor.fetchone() is None:
-            cursor.execute('''
-                INSERT INTO price_adjustment_new_codes (part_code, part_name, thue, created_by, created_at)
-                VALUES (%s, %s, %s, %s, %s)
-                ON CONFLICT (part_code) DO UPDATE SET
-                    part_name = EXCLUDED.part_name,
-                    thue = EXCLUDED.thue
-            ''', (part_code, part_name, thue_frac, actor, now))
+        if cursor.fetchone() is None:
+            _upsert_new_code(cursor, part_code, part_name, thue_frac, gia_ban, actor, now)
 
         db.commit()
         return jsonify({
@@ -836,12 +882,14 @@ def price_adjustment_update_proposal(proposal_id):
             WHERE id = %s
         ''', (part_name, thue_percent / 100.0, gia_cu, gia_ban, proposal_id))
 
-        # Đồng bộ lại Tên hàng trong "danh mục mã mới" (nếu mã này có ở đó)
-        # để lần đề xuất sau vẫn tự hiện đúng tên vừa sửa.
-        if part_name:
-            cursor.execute('''
-                UPDATE price_adjustment_new_codes SET part_name = %s WHERE part_code = %s
-            ''', (part_name, part_code))
+        # Đồng bộ lại "danh mục mã mới" (nếu mã này không có trong tồn kho hệ
+        # thống): Tên hàng vừa sửa, và last_known_price = Giá bán vừa sửa -
+        # để lần đề xuất tiếp theo (kể cả sau khi "Về chưa tăng" xoá sạch
+        # lịch sử) vẫn lấy đúng Giá bán MỚI NHẤT (đã sửa) làm giá cũ gợi ý,
+        # không bị lệch với con số vừa chỉnh ở đây.
+        cursor.execute('SELECT 1 FROM inventory_items WHERE part_code = %s LIMIT 1', (part_code,))
+        if cursor.fetchone() is None:
+            _upsert_new_code(cursor, part_code, part_name, None, gia_ban, _current_actor_name(), vn_now())
 
         db.commit()
         return jsonify({
@@ -857,6 +905,61 @@ def price_adjustment_update_proposal(proposal_id):
         return jsonify({'error': f'Lỗi khi sửa đề xuất: {e}'}), 500
     finally:
         cursor.close()
+
+
+@price_adjustment_bp.route('/api/price-adjustment/reset/<part_code>', methods=['DELETE'])
+def price_adjustment_reset_code(part_code):
+    """Xoá TOÀN BỘ lịch sử đề xuất tăng giá (mọi lần, không chỉ lần gần
+    nhất) của 1 mã hàng, đưa mã đó quay lại trạng thái "CHƯA ĐIỀU CHỈNH"
+    trên danh sách - khác với price_adjustment_delete_proposal() bên dưới
+    (chỉ xoá đúng 1 lần đề xuất, mã có thể vẫn còn "đã điều chỉnh" nếu còn
+    lần đề xuất khác trước đó). Dùng chung cho MỌI vai trò (admin lẫn
+    store), giống hệt quyền của propose()/update() ở trên - không giới hạn
+    chỉ admin như price_adjustment_delete_proposal(), vì đây cũng chỉ là
+    một cách "sửa sai sót" (lỡ đề xuất nhầm mã / muốn làm lại từ đầu).
+    Mã hàng vẫn giữ nguyên trong danh mục (nếu có trong inventory_items
+    hoặc price_adjustment_new_codes) - chỉ xoá lịch sử đề xuất, không xoá
+    mã khỏi hệ thống. TRƯỚC KHI xoá, Giá bán gần nhất vẫn được lưu lại vào
+    last_known_price ở "danh mục mã mới" (nếu mã không thuộc tồn kho hệ
+    thống), để lần đề xuất tiếp theo tự có sẵn "giá cũ" ngay khi gõ mã vào,
+    không cần nhập lại Thuế + Giá đề xuất HVN từ đầu."""
+    if 'user' not in session:
+        return jsonify({'error': 'Unauthorized'}), 401
+
+    part_code = (part_code or '').strip().upper()
+    if not part_code:
+        return jsonify({'error': 'Thiếu mã hàng.'}), 400
+
+    db = get_db()
+    cursor = db.cursor()
+
+    cursor.execute('''
+        SELECT part_name, gia_ban FROM price_adjustment_proposals
+        WHERE part_code = %s ORDER BY created_at DESC LIMIT 1
+    ''', (part_code,))
+    last = cursor.fetchone()
+    if last:
+        cursor.execute('SELECT 1 FROM inventory_items WHERE part_code = %s LIMIT 1', (part_code,))
+        if cursor.fetchone() is None:
+            # CHÚ Ý: proposals.thue lưu muc_tang_rate (mức % tăng ở Bước 2),
+            # KHÔNG phải Thuế (%) gốc ở Bước 1 - 2 ý nghĩa khác nhau (xem chú
+            # thích ở price_adjustment_propose()) nên KHÔNG truyền vào đây,
+            # để COALESCE trong _upsert_new_code tự giữ nguyên đúng giá trị
+            # Thuế gốc đã lưu từ lần đề xuất đầu tiên của mã này.
+            _upsert_new_code(
+                cursor, part_code, last['part_name'], None,
+                float(last['gia_ban']) if last['gia_ban'] is not None else None,
+                _current_actor_name(), vn_now()
+            )
+
+    cursor.execute('DELETE FROM price_adjustment_proposals WHERE part_code = %s RETURNING id', (part_code,))
+    deleted_rows = cursor.fetchall()
+    db.commit()
+    cursor.close()
+
+    if not deleted_rows:
+        return jsonify({'error': 'Mã hàng này chưa từng được đề xuất tăng giá.'}), 404
+    return jsonify({'success': True, 'part_code': part_code, 'deleted_count': len(deleted_rows)})
 
 
 @price_adjustment_bp.route('/api/price-adjustment/proposals/<int:proposal_id>', methods=['DELETE'])

@@ -6564,7 +6564,8 @@ async function saveLocationRow(btn, partCode) {
                     : '<span class="badge bg-secondary">Chưa điều chỉnh</span>'}
                 </td>
                 <td class="text-center">${r.proposal_id
-                    ? `<button type="button" class="btn btn-outline-primary btn-sm" onclick="openPriceAdjEditModal(${r.proposal_id})"><i class="bi bi-pencil-square me-1"></i>Sửa</button>`
+                    ? `<button type="button" class="btn btn-outline-primary btn-sm me-1" onclick="openPriceAdjEditModal(${r.proposal_id})"><i class="bi bi-pencil-square me-1"></i>Sửa</button>
+                       <button type="button" class="btn btn-outline-danger btn-sm" onclick="resetPriceAdjCode('${escapeHtmlAttr(r.part_code)}')"><i class="bi bi-arrow-counterclockwise me-1"></i>Về chưa tăng</button>`
                     : '-'}
                 </td>
             </tr>
@@ -6596,6 +6597,28 @@ async function saveLocationRow(btn, partCode) {
         if (isNaN(thue) || isNaN(giaCu)) return;
         const raw = giaCu + (giaCu * thue / 100);
         document.getElementById('price-adj-edit-gia-ban').value = Math.round(raw / 1000) * 1000;
+    }
+
+    // Xoá TOÀN BỘ lịch sử đề xuất tăng giá của 1 mã hàng, đưa mã đó về lại
+    // trạng thái "Chưa điều chỉnh" trên bảng (khác nút Sửa - chỉ sửa số
+    // liệu của lần đề xuất gần nhất, không xoá trạng thái). Dùng chung cho
+    // mọi vai trò, có xác nhận trước vì đây là thao tác xoá dữ liệu.
+    async function resetPriceAdjCode(partCode) {
+        if (!confirm(`Xác nhận đưa mã "${partCode}" về trạng thái CHƯA TĂNG GIÁ?\n\nToàn bộ lịch sử đề xuất tăng giá trước đó của mã này sẽ bị xoá và KHÔNG thể khôi phục lại.`)) {
+            return;
+        }
+        try {
+            const res = await fetch('/api/price-adjustment/reset/' + encodeURIComponent(partCode), { method: 'DELETE' });
+            const result = await res.json();
+            if (!res.ok || !result.success) {
+                showToast('Lỗi', result.error || 'Không thể xoá lịch sử điều chỉnh.', 'danger');
+                return;
+            }
+            showToast('Đã xoá', `Mã ${result.part_code} đã quay về trạng thái Chưa Điều Chỉnh.`, 'success');
+            loadPriceAdjustmentList();
+        } catch (e) {
+            showToast('Lỗi', 'Lỗi kết nối server.', 'danger');
+        }
     }
 
     async function submitPriceAdjEdit(event) {
@@ -6636,13 +6659,24 @@ async function saveLocationRow(btn, partCode) {
     // Giá bán hiện có (giá bán cũ) của mã hàng trong danh mục/tồn kho hệ
     // thống - trả về null nếu mã chưa có trong danh mục HOẶC chưa có giá
     // bán (khi đó form quay về chế độ nhập đủ Thuế + Giá đề xuất HVN).
+    // Ưu tiên tra nhanh cục bộ trong globalInventory (tồn kho hệ thống);
+    // nếu không có, fallback sang priceAdjServerCatalogPriceCache - giá bán
+    // gần nhất mà server đã cho biết qua /api/price-adjustment/lookup, áp
+    // dụng cho những mã KHÔNG có trong tồn kho hệ thống (mã tự thêm qua
+    // chính tính năng Đề Xuất Tăng Giá) - đặc biệt cần thiết để mã vẫn hiện
+    // được "giá cũ" ngay cả sau khi bị "Về chưa tăng" xoá sạch lịch sử đề
+    // xuất (xem resetPriceAdjCode / last_known_price ở price_adjustment.py).
+    let priceAdjServerCatalogPriceCache = {};
     function getPriceAdjCatalogPrice(partCode) {
         const code = (partCode || '').trim().toLowerCase();
         if (!code) return null;
         const found = globalInventory.find(it => (it.part_code || '').toLowerCase() === code);
-        if (!found || found.sale_price === null || found.sale_price === undefined || found.sale_price === '') return null;
-        const price = Number(found.sale_price);
-        return (isFinite(price) && price > 0) ? price : null;
+        if (found && found.sale_price !== null && found.sale_price !== undefined && found.sale_price !== '') {
+            const price = Number(found.sale_price);
+            if (isFinite(price) && price > 0) return price;
+        }
+        const serverPrice = priceAdjServerCatalogPriceCache[(partCode || '').trim().toUpperCase()];
+        return (typeof serverPrice === 'number' && isFinite(serverPrice) && serverPrice > 0) ? serverPrice : null;
     }
 
     // Bật/tắt chế độ "mã đã có giá trong danh mục": khoá ô Thuế + Giá đề
@@ -6708,6 +6742,20 @@ async function saveLocationRow(btn, partCode) {
                 // Người dùng đã gõ sang mã khác trong lúc chờ mạng - bỏ kết quả cũ
                 if ((document.getElementById('price-adj-part-code').value || '').trim() !== partCode) return;
 
+                // Cập nhật cache giá từ server rồi áp dụng lại chế độ form -
+                // giúp các mã KHÔNG có trong tồn kho hệ thống (nên client-side
+                // getPriceAdjCatalogPrice ban đầu không tìm thấy gì) vẫn
+                // chuyển được sang chế độ "đã có giá trong danh mục" ngay khi
+                // server cho biết mã này đã có last_known_price (VD: vừa bị
+                // "Về chưa tăng" xong, gõ lại mã là có sẵn giá cũ luôn).
+                const upperCode = partCode.toUpperCase();
+                if (typeof result.catalog_price === 'number' && result.catalog_price > 0) {
+                    priceAdjServerCatalogPriceCache[upperCode] = result.catalog_price;
+                } else {
+                    delete priceAdjServerCatalogPriceCache[upperCode];
+                }
+                updatePriceAdjMode();
+
                 const fromCatalog = getPriceAdjCatalogPrice(partCode) !== null;
 
                 if (result.part_name && !nameInput.value) nameInput.value = result.part_name;
@@ -6722,6 +6770,8 @@ async function saveLocationRow(btn, partCode) {
                 if (result.already_adjusted && result.last_proposal) {
                     const lp = result.last_proposal;
                     hintEl.innerHTML = `<span class="text-warning-emphasis"><i class="bi bi-exclamation-circle-fill me-1"></i>Mã này đã được đề xuất tăng giá lúc ${escapeHtmlAttr(lp.created_at || '')} bởi ${escapeHtmlAttr(lp.created_by || '')} - Giá bán lần trước: ${fmtPriceAdjMoney(lp.gia_ban)}. Lưu tiếp sẽ ghi thêm 1 lần đề xuất mới.</span>`;
+                } else if (fromCatalog && !result.in_catalog) {
+                    hintEl.innerHTML = `<span class="text-success"><i class="bi bi-check-circle me-1"></i>Đã tìm thấy Giá bán gần nhất của mã này: ${fmtPriceAdjMoney(getPriceAdjCatalogPrice(partCode))} - chỉ cần bấm Lưu Đề Xuất để cộng thêm Mức tăng (%).</span>`;
                 } else if (!result.in_catalog && !fromCatalog) {
                     hintEl.innerHTML = `<span class="text-muted"><i class="bi bi-info-circle me-1"></i>Mã hàng chưa có trong tồn kho hệ thống - vui lòng nhập đủ Tên hàng, Thuế và Giá đề xuất HVN, hệ thống sẽ tự lưu vào danh mục.</span>`;
                 } else {
