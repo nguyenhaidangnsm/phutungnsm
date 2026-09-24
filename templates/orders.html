@@ -1,867 +1,538 @@
 <!DOCTYPE html>
 <html lang="vi">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Danh Sách Đặt Hàng - Nam Sương Motor</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
-    <style>
-        @font-face {
-            font-family: 'SVN-MonaSans';
-            src: url("{{ url_for('static', filename='fonts/SVN-MonaSans-SemiBoldWide.otf') }}") format('opentype');
-            font-weight: normal;
-            font-style: normal;
-        }
-        /* Font thương hiệu (rộng, đậm) chỉ dùng cho tiêu đề; bảng dữ liệu và form
-           dùng font hệ thống để 19 cột gọn, đều và dễ đọc. */
-        body { background: #eef1f7; font-family: system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; }
-        .brand-title { font-family: 'SVN-MonaSans', system-ui, sans-serif; letter-spacing: .2px; }
-        .topbar {
-            background: #fff; border-bottom: 1px solid #e3e8f2;
-            box-shadow: 0 1px 0 rgba(13,110,253,.35);
-            padding: .85rem 1.5rem; display: flex; align-items: center;
-            justify-content: space-between; flex-wrap: wrap; gap: .5rem;
-        }
-        .brand-logo { max-height: 38px; object-fit: contain; }
-        .card { border: 1px solid #e6eaf2; border-radius: 12px; box-shadow: 0 2px 10px rgba(20,30,60,0.04); }
-        .btn-nam-suong { background-color: #0d6efd; border-color: #0d6efd; color: #fff; }
-        .btn-nam-suong:hover { background-color: #0b5ed7; border-color: #0a58ca; color: #fff; }
-        .container-main { max-width: none; margin: 1.25rem auto; padding: 0 1.5rem; }
-        .filter-card { padding: 1.1rem 1.25rem; }
-        .filter-card .form-label { letter-spacing: .1px; }
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Danh Sách Đặt Hàng - Nam Sương Motor</title>
+<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+<link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
+<style>
+@font-face { font-family:'SVN-MonaSans'; src:url("{{ url_for('static', filename='fonts/SVN-MonaSans-SemiBoldWide.otf') }}") format('opentype'); }
+:root { --ink:#0f172a; --mut:#475569; --faint:#64748b; --line:#d5dde9; --bg:#eef2f7; --brand:#1d4ed8; }
+body { background:var(--bg); color:var(--ink); font-family:system-ui,-apple-system,'Segoe UI',Roboto,Arial,sans-serif; }
+.brand-title { font-family:'SVN-MonaSans',system-ui,sans-serif; }
+.topbar { background:#fff; border-bottom:1px solid var(--line); padding:.75rem 1.5rem; display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:.5rem; }
+.brand-logo { max-height:38px; }
+.container-main { max-width:none; margin:1rem auto; padding:0 1.5rem; }
+.card { border:1px solid var(--line); border-radius:10px; box-shadow:0 1px 3px rgba(15,23,42,.06); }
+.btn-nam-suong { background:var(--brand); border-color:var(--brand); color:#fff; font-weight:600; } .btn-nam-suong:hover { background:#1e40af; color:#fff; }
+.chip { border:1px solid #b6c2d6; background:#fff; color:var(--ink); border-radius:999px; padding:.28rem .8rem; font-size:.82rem; font-weight:600; }
+.chip:hover { background:#e8f0ff; } .chip.on { background:var(--ink); color:#fff; border-color:var(--ink); }
 
-        /* ===== BẢNG ===== */
-        .bo-wrap {
-            overflow: auto; max-height: calc(100vh - 260px); min-height: 260px;
-            background: #fff; border: 1px solid #e3e8f2; border-radius: 12px 12px 0 0;
-        }
-        table.bo {
-            border-collapse: separate; border-spacing: 0; width: 100%;
-            font-size: .82rem; color: #29344a;
-        }
-        table.bo thead th {
-            position: sticky; top: 0; z-index: 5;
-            background: #f4f7fd; color: #46567a; font-weight: 700; font-size: .72rem;
-            letter-spacing: .015em;
-            padding: .7rem .65rem; border-bottom: 1px solid #dbe2f0;
-            text-align: left; vertical-align: bottom; line-height: 1.3;
-        }
-        table.bo td {
-            padding: .55rem .65rem; border-bottom: 1px solid #eef1f7;
-            background: var(--row-bg, #fff); vertical-align: middle; line-height: 1.35;
-        }
-        /* Mỗi yêu cầu đặt = 1 <tbody>: nền xen kẽ theo YÊU CẦU (không theo dòng),
-           kẻ đậm giữa các yêu cầu, tô sáng cả yêu cầu khi rê chuột. */
-        tbody.req { --row-bg: #fff; }
-        tbody.req:nth-of-type(even) { --row-bg: #f8fafd; }
-        tbody.req:hover { --row-bg: #eef4ff; }
-        tbody.req > tr:first-child > td { border-top: 1px solid #d7deec; }
-        tbody.req > tr:last-child > td,
-        tbody.req > tr > td[rowspan] { border-bottom: 0; }
+/* ===== Danh sách (chỉ xem, thao tác nhanh) ===== */
+.bo-wrap { overflow:auto; max-height:calc(100vh - 250px); min-height:260px; background:#fff; border-radius:10px 10px 0 0; }
+table.bo { border-collapse:separate; border-spacing:0; width:100%; font-size:.86rem; }
+table.bo thead th { position:sticky; top:0; z-index:5; background:#1e293b; color:#fff; font-size:.76rem; font-weight:700; padding:.6rem .8rem; white-space:nowrap; vertical-align:bottom; }
+table.bo td { padding:.65rem .8rem; vertical-align:top; border-top:2px solid #b9c5d8; background:#fff; }
+tbody.req:nth-of-type(even) td { background:#f7f9fc; }
+tbody.req tr { cursor:pointer; } tbody.req tr:hover td { background:#e8f0ff; }
+.k-stt { width:58px; text-align:center; } .k-cust { min-width:190px; } .k-veh { min-width:190px; } .k-money { min-width:130px; text-align:right; } .k-act { width:84px; text-align:center; }
+.ig { display:grid; grid-template-columns:minmax(230px,1fr) 42px 132px 100px repeat(4,98px) minmax(180px,240px); column-gap:.5rem; align-items:center; min-width:1230px; }
+.ig > div { padding:.32rem 0; border-top:1px solid #e1e8f2; } .ig > div.h { border:0; padding:0; font-size:.7rem; font-weight:600; color:#b8c4d9; }
+.ig > div.first { border-top:0; }
+.stt { font-weight:800; color:var(--brand); font-size:1rem; } .stt-store { font-size:.68rem; color:var(--faint); font-weight:700; }
+.f-name { font-weight:700; font-size:.95rem; } .f-sub { color:var(--mut); font-size:.82rem; } .mono { font-family:ui-monospace,Menlo,Consolas,monospace; font-size:.78rem; }
+.code { font-weight:800; color:#1e3a8a; background:#e3ebff; border:1px solid #b9ccff; border-radius:6px; padding:0 .4rem; font-size:.84rem; white-space:nowrap; }
+.pname { color:var(--mut); font-size:.82rem; margin-top:2px; } .qty { font-weight:800; text-align:center; }
+.dv { font-size:.82rem; font-weight:600; font-variant-numeric:tabular-nums; } .dv.none { color:#94a3b8; font-weight:400; } .dv.late { color:#b91c1c; font-weight:800; }
+select.pillsel { appearance:none; -webkit-appearance:none; border:1px solid; border-radius:999px; font-weight:700; font-size:.76rem; padding:.2rem .6rem; width:100%; cursor:pointer; background-image:none; }
+.s0 { color:#92400e; background:#fef3c7; border-color:#f5c451; } .s1 { color:#1e40af; background:#dbeafe; border-color:#93b4f5; } .s2 { color:#6d28d9; background:#ede9fe; border-color:#c0aaf5; }
+.s3 { color:#0f766e; background:#ccfbf1; border-color:#6fd3c4; } .s4 { color:#166534; background:#dcfce7; border-color:#86d69f; } .s5 { color:#b91c1c; background:#fee2e2; border-color:#f3a0a0; }
+.money-big { font-weight:800; font-size:1rem; font-variant-numeric:tabular-nums; } .money-sub { color:var(--mut); font-size:.8rem; font-variant-numeric:tabular-nums; }
+.ico { border:1px solid #c5d0e2; background:#fff; color:var(--mut); width:30px; height:30px; border-radius:7px; } .ico:hover { background:#dbe8ff; color:var(--brand); } .ico.danger:hover { background:#fee2e2; color:#dc2626; }
 
-        /* Độ rộng cột */
-        table.bo th, table.bo td { min-width: 84px; }
-        .c1 { width: 52px;  min-width: 52px !important;  max-width: 52px; }
-        .c2 { width: 108px; min-width: 108px !important; max-width: 108px; }
-        .c3 { width: 112px; min-width: 112px !important; max-width: 112px; }
-        .c4 { width: 176px; min-width: 176px !important; max-width: 176px; }
-        .col-sm { min-width: 56px !important; }
-        .col-wide { min-width: 220px !important; }
-        .col-act { min-width: 82px !important; width: 82px; }
+input.qe { width:100%; border:1px solid transparent; border-bottom:1px dashed #a3b1c8; background:transparent; border-radius:5px; padding:.2rem .3rem; font:inherit; font-size:.82rem; font-weight:600; color:var(--ink); font-variant-numeric:tabular-nums; }
+input.qe::placeholder { color:#94a3b8; font-weight:400; } input.qe:hover { background:#e3ecff; border-color:#8fb4f5; }
+input.qe:focus { outline:0; background:#fff; border:1px solid var(--brand); box-shadow:0 0 0 3px rgba(29,78,216,.25); }
+input.qe.late { color:#b91c1c; font-weight:800; } input.qe.bad { border-color:#dc2626; } input.qe.note { font-weight:500; }
+.src { display:inline-block; font-size:.66rem; font-weight:800; color:#6d28d9; background:#ede9fe; border:1px solid #c0aaf5; border-radius:4px; padding:0 .35rem; margin-left:.3rem; white-space:nowrap; }
+.stk { display:flex; flex-wrap:wrap; gap:.3rem; padding-top:.3rem; font-size:.8rem; }
+.stk button { border:1px solid #b6c2d6; background:#fff; border-radius:999px; padding:.05rem .6rem; font-weight:700; } .stk button:hover, .stk button.on { background:#6d28d9; color:#fff; border-color:#6d28d9; }
+.stk .none { color:var(--faint); font-style:italic; }
 
-        table.bo thead th.t-center, .t-center { text-align: center; }
-        table.bo thead th.num { text-align: right; }
-        .num { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
-        .num:empty::before { content: '—'; color: #c3cadb; }
-        .t-wrap { white-space: pre-line; overflow-wrap: anywhere; }
-        td.c4 { font-weight: 600; overflow-wrap: anywhere; }
-        td { white-space: pre-line; }
-        .stt { font-weight: 700; color: #0d6efd; }
-        .stt-store { font-size: .65rem; color: #8892a6; font-weight: 600; }
-        .badge.status { font-weight: 600; font-size: .71rem; padding: .38em .7em; }
-        .note-ico { color: #b45309; cursor: help; margin-left: .3rem; }
-        .col-act .btn, td.c-act .btn {
-            --bs-btn-padding-y: .3rem; --bs-btn-padding-x: .5rem; border-radius: 8px;
-            opacity: .55; transition: opacity .15s;
-        }
-        td.c-act:hover .btn, .col-act .btn:hover { opacity: 1; }
-        td.c-act { position: sticky; right: 0; z-index: 2; box-shadow: -1px 0 0 #e3e8f2; text-align: center; white-space: nowrap; background: var(--row-bg, #fff); }
-        th.col-act { position: sticky; right: 0; z-index: 6; box-shadow: -1px 0 0 #e3e8f2; background: #f4f7fd; }
-
-        /* Cố định 4 cột đầu (STT, Trạng thái, Ngày yêu cầu, Tên KH) khi cuộn ngang - chỉ trên màn hình rộng */
-        @media (min-width: 992px) {
-            table.bo .c1, table.bo .c2, table.bo .c3, table.bo .c4 { position: sticky; z-index: 2; }
-            table.bo th.c1, table.bo th.c2, table.bo th.c3, table.bo th.c4 { z-index: 6; }
-            table.bo .c1 { left: 0; }
-            table.bo .c2 { left: 52px; }
-            table.bo .c3 { left: 160px; }
-            table.bo .c4 { left: 272px; box-shadow: 2px 0 0 #dbe3f3; }
-        }
-
-        /* ===== SỬA TRỰC TIẾP TRÊN Ô (kiểu Google Sheets) ===== */
-        td.editable { cursor: pointer; position: relative; border-radius: 6px; transition: background-color .12s; }
-        td.editable:hover { background-color: #eaf2ff !important; box-shadow: inset 0 0 0 1px #bcd6ff; }
-        td.editable.saving { opacity: .5; }
-        td.editing { padding: .3rem !important; background: #fff !important; box-shadow: inset 0 0 0 2px #0d6efd; }
-        .cell-input {
-            width: 100%; box-sizing: border-box; border: none; border-radius: 5px;
-            padding: .3rem .45rem; font: inherit; color: inherit; background: #fff;
-            outline: none; box-shadow: 0 0 0 2px #bcd6ff;
-        }
-        select.cell-input { padding: .25rem .35rem; }
-        .col-xs { width: 44px; min-width: 44px !important; max-width: 44px; text-align: center; }
-        .row-mini-btn {
-            border: none; background: #eef2fa; color: #7987a3; width: 22px; height: 22px;
-            border-radius: 6px; font-size: .75rem; line-height: 1; cursor: pointer;
-            display: inline-flex; align-items: center; justify-content: center; margin: 0 1px;
-            transition: background-color .12s, color .12s;
-        }
-        .row-mini-btn:hover { background: #dbe8ff; color: #0d6efd; }
-        .row-mini-btn.danger:hover { background: #fbdfe0; color: #dc3545; }
-        .draft-store-select {
-            font-size: .72rem; padding: .15rem .3rem; width: 100%; border-radius: 6px;
-            border: 1px solid #f0c14b;
-        }
-
-        /* Dòng "Thêm đơn mới" ghim đầu bảng: nền vàng nhạt để phân biệt với dữ liệu đã lưu */
-        tbody.draft-tbody { --row-bg: #fffbeb; }
-        tbody.draft-tbody > tr > td { border-top: 1px dashed #f0c14b !important; border-bottom: 1px dashed #f0c14b !important; }
-        tbody.draft-tbody > tr > td.editable:hover { background-color: #fef3c7 !important; box-shadow: inset 0 0 0 1px #f0c14b; }
-        .draft-badge {
-            display: inline-block; font-weight: 700; font-size: .66rem; color: #92660a;
-            background: #fef3c7; border: 1px solid #f0c14b; border-radius: 999px;
-            padding: .12rem .55rem; letter-spacing: .02em;
-        }
-        .hint-bar {
-            font-size: .79rem; color: #5a6684; background: #f4f7fd; border: 1px solid #e3e8f2;
-            border-radius: 8px; padding: .55rem .8rem; display: flex; align-items: center; gap: .4rem;
-        }
-        .hint-bar i { color: #0d6efd; }
-    </style>
+/* ===== Phiếu nhập / sửa đơn ===== */
+.modal-header { background:#1e293b; color:#fff; } .modal-header .btn-close { filter:invert(1); }
+.sec { font-weight:800; font-size:.9rem; border-left:4px solid var(--brand); padding-left:.6rem; margin:1.1rem 0 .6rem; }
+.sec:first-child { margin-top:0; }
+.lb { font-size:.78rem; font-weight:700; color:var(--mut); margin-bottom:2px; }
+#edBody .form-control, #edBody .form-select { font-size:.92rem; border-color:#aab8cf; }
+#edBody .form-control:focus, #edBody .form-select:focus { border-color:var(--brand); box-shadow:0 0 0 3px rgba(29,78,216,.25); background:#fff; }
+#edBody .is-bad { border-color:#dc2626 !important; box-shadow:0 0 0 3px rgba(220,38,38,.2) !important; }
+.item-card { border:1px solid #b6c2d6; border-left:4px solid var(--brand); border-radius:8px; padding:.7rem .8rem .8rem; margin-bottom:.7rem; background:#f8faff; }
+.item-card:focus-within { background:#eef4ff; border-color:var(--brand); }
+.ic-head { display:flex; justify-content:space-between; align-items:center; margin-bottom:.4rem; font-weight:700; font-size:.82rem; color:var(--mut); }
+.line-total { font-weight:800; text-align:right; padding:.4rem .2rem; font-variant-numeric:tabular-nums; }
+.tot-bar { background:#f1f5f9; border-top:2px solid var(--line); }
+.tag { font-size:.66rem; font-weight:700; background:#e2e8f0; border-radius:4px; padding:0 .35rem; margin-left:.3rem; }
+.lnk { border:0; background:none; color:var(--brand); font-size:.76rem; font-weight:600; text-decoration:underline; padding:0; }
+.ac { position:fixed; z-index:2000; display:none; background:#fff; border:1px solid #8fb4f5; border-radius:8px; box-shadow:0 10px 30px rgba(15,23,42,.3); max-height:300px; overflow:auto; font-size:.86rem; }
+.ac-i { display:grid; grid-template-columns:130px 1fr auto; gap:.7rem; padding:.45rem .7rem; cursor:pointer; align-items:center; border-bottom:1px solid #eef2f7; }
+.ac-i b { color:#1e3a8a; } .ac-i em { font-style:normal; font-weight:700; color:#166534; } .ac-i.on { background:#dbe8ff; box-shadow:inset 3px 0 0 var(--brand); }
+#toast { position:fixed; bottom:1.2rem; left:50%; transform:translateX(-50%); z-index:3000; background:#0f172a; color:#fff; padding:.6rem 1.1rem; border-radius:8px; font-size:.86rem; font-weight:600; display:none; }
+#toast.err { background:#b91c1c; }
+</style>
 </head>
 <body>
-    <div class="topbar">
-        <div class="d-flex align-items-center gap-2">
-            <img src="{{ url_for('static', filename='logo.png') }}" alt="Logo" class="brand-logo">
-            <div>
-                <div class="fw-bold text-dark brand-title">DANH SÁCH ĐẶT HÀNG</div>
-                <div class="text-muted small">Theo dõi đặt hàng cho khách (BO khách hàng)</div>
-            </div>
-        </div>
-        <div class="d-flex align-items-center gap-2">
-            <a href="/" class="btn btn-outline-secondary btn-sm"><i class="bi bi-house"></i> Trang chủ</a>
-            <a href="/logout" class="btn btn-outline-danger btn-sm"><i class="bi bi-box-arrow-right"></i> Đăng xuất</a>
-        </div>
+<div class="topbar">
+  <div class="d-flex align-items-center gap-2">
+    <img src="{{ url_for('static', filename='logo.png') }}" alt="Logo" class="brand-logo">
+    <div><div class="fw-bold brand-title">DANH SÁCH ĐẶT HÀNG</div><div class="small text-secondary">Theo dõi đặt hàng cho khách (BO khách hàng)</div></div>
+  </div>
+  <div class="d-flex align-items-center gap-2">
+    <a href="/" class="btn btn-outline-secondary btn-sm"><i class="bi bi-house"></i> Trang chủ</a>
+    <a href="/logout" class="btn btn-outline-danger btn-sm"><i class="bi bi-box-arrow-right"></i> Đăng xuất</a>
+  </div>
+</div>
+
+<div class="container-main">
+  <div class="card p-3 mb-3">
+    <div class="d-flex flex-wrap align-items-end gap-3">
+      <button class="btn btn-nam-suong" onclick="openEditor(null)"><i class="bi bi-plus-lg"></i> Thêm đơn mới</button>
+      <div style="min-width:280px;flex:1;max-width:420px"><input type="text" id="fSearch" class="form-control" placeholder="Tìm tên khách, SĐT, số khung, mã hàng... (Enter)"></div>
+      {% if role == 'admin' %}
+      <select id="fStore" class="form-select" style="width:auto"><option value="">Tất cả chi nhánh</option>{% for s in store_list %}<option value="{{ s }}">{{ s }}</option>{% endfor %}</select>
+      <button class="btn btn-outline-primary ms-auto" data-bs-toggle="modal" data-bs-target="#importModal"><i class="bi bi-file-earmark-excel"></i> Nhập từ Excel</button>
+      {% endif %}
     </div>
+    <div class="d-flex flex-wrap gap-2 mt-3" id="chips"></div>
+  </div>
 
-    <div class="container-main">
-        <div class="card filter-card mb-3">
-            <div class="row g-3 align-items-end">
-                <div class="col-md-3">
-                    <label class="form-label small fw-semibold text-secondary mb-1">Tìm kiếm</label>
-                    <input type="text" id="fSearch" class="form-control form-control-sm" placeholder="Tên khách, SĐT, số khung, mã hàng, tên hàng...">
-                </div>
-                <div class="col-md-2">
-                    <label class="form-label small fw-semibold text-secondary mb-1">Trạng thái</label>
-                    <select id="fStatus" class="form-select form-select-sm">
-                        <option value="">Tất cả</option>
-                        {% for s in status_options %}
-                        <option value="{{ s }}">{{ s }}</option>
-                        {% endfor %}
-                    </select>
-                </div>
-                {% if role == 'admin' %}
-                <div class="col-md-2">
-                    <label class="form-label small fw-semibold text-secondary mb-1">Chi nhánh</label>
-                    <select id="fStore" class="form-select form-select-sm">
-                        <option value="">Tất cả</option>
-                        {% for s in store_list %}
-                        <option value="{{ s }}">{{ s }}</option>
-                        {% endfor %}
-                    </select>
-                </div>
-                {% endif %}
-                {% if role == 'admin' %}
-                <div class="col-md-auto ms-auto d-flex gap-2">
-                    <button class="btn btn-outline-primary btn-sm" data-bs-toggle="modal" data-bs-target="#importModal">
-                        <i class="bi bi-file-earmark-excel"></i> Nhập từ Excel
-                    </button>
-                </div>
-                {% endif %}
-            </div>
-            <div class="hint-bar mt-3"><i class="bi bi-info-circle"></i> Bấm vào bất kỳ ô nào để sửa trực tiếp (Enter để lưu, Esc để huỷ). Điền tên khách vào dòng vàng đầu bảng để thêm đơn mới.</div>
-        </div>
-
-        <div class="card">
-            <div class="bo-wrap">
-                <table class="bo" id="ordersTable">
-                    <thead>
-                        <tr>
-                            <th class="c1 t-center">STT</th>
-                            <th class="c2">Trạng thái</th>
-                            <th class="c3">Ngày yêu cầu</th>
-                            <th class="c4">Tên khách hàng</th>
-                            <th>SĐT</th>
-                            <th>Loại xe</th>
-                            <th>Số khung</th>
-                            <th class="col-sm">Màu</th>
-                            <th class="col-sm">Đời xe</th>
-                            <th>Mã hàng</th>
-                            <th class="col-wide">Tên hàng</th>
-                            <th class="col-sm t-center">SL</th>
-                            <th class="col-xs"></th>
-                            <th class="num">Giá trị đơn</th>
-                            <th class="num">Đặt cọc</th>
-                            <th class="t-center">Ngày đặt / xin nội bộ / soạn</th>
-                            <th>Loại đơn</th>
-                            <th class="t-center">Ngày PT về</th>
-                            <th class="t-center">Ngày gọi K/H</th>
-                            <th class="t-center">Ngày giao PT</th>
-                            <th class="col-act"></th>
-                        </tr>
-                    </thead>
-                    <tbody class="draft-tbody" id="draftTbody"></tbody>
-                    <tbody id="loadingTbody"><tr><td colspan="21" class="text-center text-muted py-4">Đang tải...</td></tr></tbody>
-                </table>
-            </div>
-            <div class="d-flex align-items-center justify-content-between flex-wrap gap-2 px-3 py-2 border-top bg-white" style="border-radius: 0 0 12px 12px;">
-                <div id="pagerInfo" class="small text-muted"></div>
-                <div class="btn-group btn-group-sm" role="group">
-                    <button type="button" class="btn btn-outline-secondary" id="pagerPrev" onclick="goToPage(currentPage - 1)"><i class="bi bi-chevron-left"></i> Trước</button>
-                    <button type="button" class="btn btn-outline-secondary" id="pagerNext" onclick="goToPage(currentPage + 1)">Sau <i class="bi bi-chevron-right"></i></button>
-                </div>
-            </div>
-        </div>
+  <div class="card">
+    <div class="bo-wrap">
+      <table class="bo" id="ordersTable">
+        <thead><tr>
+          <th class="k-stt">STT</th>
+          <th class="k-cust">Khách hàng</th>
+          <th class="k-veh">Xe</th>
+          <th><div class="ig"><div class="h" style="font-size:.76rem;color:#fff;font-weight:700">Mặt hàng</div><div class="h" style="text-align:center">SL</div><div class="h">Trạng thái</div><div class="h">Loại đơn</div><div class="h">Đặt / xin NB</div><div class="h">PT về</div><div class="h">Gọi K/H</div><div class="h">Giao PT</div><div class="h">Ghi chú</div></div></th>
+          <th class="k-money">Giá trị đơn</th><th class="k-act"></th>
+        </tr></thead>
+        <tbody id="loadingTbody"><tr><td colspan="6" class="text-center text-muted py-4">Đang tải...</td></tr></tbody>
+      </table>
     </div>
-
-    {% if role == 'admin' %}
-    <!-- Modal Nhập từ Excel (chỉ admin) -->
-    <div class="modal fade" id="importModal" tabindex="-1">
-        <div class="modal-dialog">
-            <div class="modal-content">
-                <div class="modal-header">
-                    <h5 class="modal-title">Nhập danh sách đặt hàng từ Excel</h5>
-                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-                </div>
-                <div class="modal-body">
-                    <div class="mb-2">
-                        <label class="form-label small fw-semibold">Chi nhánh nhận dữ liệu <span class="text-danger">*</span></label>
-                        <select id="imp_store_code" class="form-select form-select-sm">
-                            <option value="">-- Chọn chi nhánh --</option>
-                            {% for s in store_list %}
-                            <option value="{{ s }}">{{ s }}</option>
-                            {% endfor %}
-                        </select>
-                    </div>
-                    <div class="mb-2">
-                        <label class="form-label small fw-semibold">File Excel (.xlsx) <span class="text-danger">*</span></label>
-                        <input type="file" id="imp_file" class="form-control form-control-sm" accept=".xlsx">
-                        <div class="form-text">Đọc từ sheet "THEO DÕI B0 KHÁCH HÀNG-2026" (đúng tên sheet trong file báo cáo gốc).</div>
-                    </div>
-                    <div class="form-check mb-2">
-                        <input class="form-check-input" type="checkbox" id="imp_replace">
-                        <label class="form-check-label small" for="imp_replace">
-                            Xoá <b>toàn bộ</b> đơn hiện có của chi nhánh này trước khi nhập (dùng khi nhập lại từ Excel để khỏi bị trùng)
-                        </label>
-                    </div>
-                    <div class="alert alert-warning small py-2 mb-0">
-                        Các dòng cùng 1 khách (ô tên khách được gộp trong Excel) sẽ thành 1 đơn nhiều mặt hàng.
-                        Dòng không có Tên khách hàng sẽ bị bỏ qua và liệt kê lại.
-                        Nếu có lỗi giữa chừng, toàn bộ sẽ được huỷ - không tạo ra dữ liệu dở dang.
-                    </div>
-                    <div id="importResult" class="small mt-2"></div>
-                </div>
-                <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Đóng</button>
-                    <button type="button" class="btn btn-nam-suong btn-sm" id="importSubmitBtn" onclick="submitImport()">
-                        <i class="bi bi-upload"></i> Nhập dữ liệu
-                    </button>
-                </div>
-            </div>
-        </div>
+    <div class="d-flex align-items-center justify-content-between flex-wrap gap-2 px-3 py-2 border-top bg-white" style="border-radius:0 0 10px 10px;">
+      <div id="pagerInfo" class="small text-muted"></div>
+      <div class="btn-group btn-group-sm">
+        <button type="button" class="btn btn-outline-secondary" id="pagerPrev" onclick="goToPage(currentPage-1)"><i class="bi bi-chevron-left"></i> Trước</button>
+        <button type="button" class="btn btn-outline-secondary" id="pagerNext" onclick="goToPage(currentPage+1)">Sau <i class="bi bi-chevron-right"></i></button>
+      </div>
     </div>
-    {% endif %}
+  </div>
+</div>
 
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
-    <script>
-        const ROLE = "{{ role }}";
-        const STATUS_OPTIONS = {{ status_options|tojson }};
-        const STORE_LIST = {{ store_list|tojson }};
-        const AUTO_REFRESH_SECONDS = 15; // tự động tải lại danh sách mỗi 15 giây
-        const PAGE_SIZE = 50;            // số YÊU CẦU (khách) mỗi trang
-        const COLS = 21;
+<!-- Phiếu nhập / sửa đơn -->
+<div class="modal fade" id="edModal" data-bs-backdrop="static" tabindex="-1"><div class="modal-dialog modal-xl modal-dialog-scrollable"><div class="modal-content">
+  <div class="modal-header"><h5 class="modal-title" id="edTitle">Thêm đơn mới</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+  <div class="modal-body" id="edBody"></div>
+  <div class="tot-bar p-3">
+    <div class="row g-3 align-items-end">
+      <div class="col-auto"><div class="lb">Giá trị đơn <span id="totTag"></span> <button class="lnk d-none" id="totReset" type="button">Tính lại</button></div>
+        <input class="form-control fw-bold text-end" style="width:170px" id="totVal" data-f="order_value" data-t="money" placeholder="0"></div>
+      <div class="col-auto"><div class="lb">Đặt cọc</div><input class="form-control text-end" style="width:150px" data-f="deposit_amount" data-t="money" placeholder="0"></div>
+      <div class="col-auto"><div class="lb">Còn lại</div><div class="fw-bold pt-1" id="remain">—</div></div>
+      <div class="col ms-auto text-end d-flex justify-content-end gap-2 flex-wrap">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Huỷ</button>
+        <button type="button" class="btn btn-outline-primary d-none" id="btnSaveNew" onclick="saveEditor(true)">Lưu &amp; thêm đơn mới</button>
+        <button type="button" class="btn btn-nam-suong px-4" id="btnSave" onclick="saveEditor(false)"><i class="bi bi-check2-circle"></i> Lưu đơn</button>
+      </div>
+    </div>
+    <div class="small text-secondary mt-2"><b>Tab</b>/<b>Enter</b>: ô kế · <b>Shift+Tab</b>: ô trước · <b>Ctrl+Enter</b>: thêm mặt hàng · <b>Ctrl+S</b>: lưu · Ngày: <b>25092026</b>, <b>25/9</b>, <b>t</b> (hôm nay) · Tiền: <b>141k</b> = 141.000</div>
+  </div>
+</div></div></div>
+<div id="toast"></div>
+<datalist id="ot-list"><option value="KHẨN"><option value="ĐỊNH KỲ"><option value="TỒN"></datalist>
 
-        // Field -> {type, scope}. scope 'header' = áp dụng cho cả yêu cầu (mọi mặt
-        // hàng), scope 'item' = riêng từng mặt hàng. Khớp với HEADER_*/ITEM_* ở orders.py.
-        const FIELD_META = {
-            customer_request_date: { type: 'date', scope: 'header' },
-            customer_name:         { type: 'text', scope: 'header' },
-            customer_phone:        { type: 'text', scope: 'header' },
-            vehicle_type:          { type: 'text', scope: 'header' },
-            frame_number:          { type: 'text', scope: 'header' },
-            vehicle_color:         { type: 'text', scope: 'header' },
-            vehicle_year:          { type: 'text', scope: 'header' },
-            order_value:           { type: 'money', scope: 'header' },
-            deposit_amount:        { type: 'money', scope: 'header' },
-            status:                 { type: 'select', scope: 'item' },
-            part_code:              { type: 'text', scope: 'item' },
-            part_name:               { type: 'text', scope: 'item' },
-            quantity:                { type: 'text', scope: 'item' },
-            order_type:              { type: 'text', scope: 'item' },
-            order_date:              { type: 'date', scope: 'item' },
-            expected_delivery_date:  { type: 'date', scope: 'item' },
-            customer_call_date:      { type: 'date', scope: 'item' },
-            actual_delivery_date:    { type: 'date', scope: 'item' },
-        };
-        const HEADER_FIELDS = Object.keys(FIELD_META).filter(f => FIELD_META[f].scope === 'header');
-        const ITEM_FIELDS = Object.keys(FIELD_META).filter(f => FIELD_META[f].scope === 'item');
+{% if role == 'admin' %}
+<div class="modal fade" id="importModal" tabindex="-1"><div class="modal-dialog"><div class="modal-content">
+  <div class="modal-header"><h5 class="modal-title">Nhập danh sách đặt hàng từ Excel</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+  <div class="modal-body">
+    <div class="mb-2"><label class="form-label small fw-semibold">Chi nhánh nhận dữ liệu <span class="text-danger">*</span></label>
+      <select id="imp_store_code" class="form-select form-select-sm"><option value="">-- Chọn chi nhánh --</option>{% for s in store_list %}<option value="{{ s }}">{{ s }}</option>{% endfor %}</select></div>
+    <div class="mb-2"><label class="form-label small fw-semibold">File Excel (.xlsx) <span class="text-danger">*</span></label>
+      <input type="file" id="imp_file" class="form-control form-control-sm" accept=".xlsx"><div class="form-text">Đọc từ sheet "THEO DÕI B0 KHÁCH HÀNG-2026".</div></div>
+    <div class="form-check mb-2"><input class="form-check-input" type="checkbox" id="imp_replace"><label class="form-check-label small" for="imp_replace">Xoá <b>toàn bộ</b> đơn hiện có của chi nhánh này trước khi nhập</label></div>
+    <div class="alert alert-warning small py-2 mb-0">Các dòng cùng 1 khách sẽ thành 1 đơn nhiều mặt hàng. Dòng thiếu Tên khách hàng bị bỏ qua. Có lỗi giữa chừng thì huỷ toàn bộ.</div>
+    <div id="importResult" class="small mt-2"></div>
+  </div>
+  <div class="modal-footer"><button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Đóng</button>
+    <button type="button" class="btn btn-nam-suong btn-sm" id="importSubmitBtn" onclick="submitImport()"><i class="bi bi-upload"></i> Nhập dữ liệu</button></div>
+</div></div></div>
+{% endif %}
 
-        let currentPage = 1;
-        let requestsById = {};
-        let lastSignature = '';
-        let activeEdits = 0; // số ô đang mở sửa - tạm hoãn auto-refresh khi > 0
-        let draftRequest = makeDraft();
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+<script>
+const ROLE = "{{ role }}";
+const STATUS_OPTIONS = {{ status_options|tojson }};
+const STORE_LIST = {{ store_list|tojson }};
+const REFRESH_MS = 30000, PAGE_SIZE = 50, DONE = ['Đã về kho', 'Đã giao', 'Đã huỷ'];
+const HFIELDS = ['customer_name','customer_phone','customer_request_date','vehicle_type','frame_number','vehicle_color','vehicle_year','order_value','deposit_amount'];
+const IFIELDS = ['part_code','part_name','quantity','unit_price','status','order_type','order_date','expected_delivery_date','customer_call_date','actual_delivery_date','call_note','source','source_store'];
+const MY_STORE = "{{ store_code or '' }}", SRC = ['Đặt hàng', 'Xin nội bộ'];
+let pendingQuick = 0, currentPage = 1, byId = {}, lastSig = '', curStatus = '', cur = null, dirty = false, saving = false, edModal = null;
+const $ = id => document.getElementById(id);
 
-        document.addEventListener('DOMContentLoaded', () => {
-            renderDraft();
-            loadOrders();
-            document.getElementById('fSearch').addEventListener('keyup', e => { if (e.key === 'Enter') { currentPage = 1; loadOrders(); } });
-            document.getElementById('fStatus').addEventListener('change', () => { currentPage = 1; loadOrders(); });
-            const fStore = document.getElementById('fStore');
-            if (fStore) fStore.addEventListener('change', () => { currentPage = 1; loadOrders(); });
+/* ---------- Tiện ích ---------- */
+const esc = v => v == null ? '' : String(v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+const fmtMoney = v => (v == null || v === '') ? '' : Number(v).toLocaleString('vi-VN');
+const fmtDate = iso => { if (!iso) return ''; const p = String(iso).split('-'); return p.length === 3 ? `${p[2]}/${p[1]}/${p[0]}` : esc(iso); };
+const norm = s => String(s || '').replace(/[^A-Za-z0-9]/g, '').toUpperCase();
+const stCls = s => 's' + Math.max(0, STATUS_OPTIONS.indexOf(s));
+const todayISO = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; };
+function toast(msg, err) { const t = $('toast'); t.textContent = msg; t.className = err ? 'err' : ''; t.style.display = 'block'; clearTimeout(toast._t); toast._t = setTimeout(() => t.style.display = 'none', 3200); }
+async function api(url, body) {
+  const res = await fetch(url, { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body) });
+  const json = await res.json(); if (!res.ok || !json.success) throw new Error(json.error || 'Lỗi máy chủ'); return json;
+}
+function parseDate(s) {
+  s = String(s).trim().toLowerCase(); if (!s) return null; if (s === 't') return todayISO();
+  let p = s.split(/[\/.\-\s]+/).filter(Boolean), now = new Date();
+  if (p.length === 1 && /^\d+$/.test(s)) p = s.length <= 2 ? [s] : s.length <= 4 ? [s.slice(0,2), s.slice(2)] : [s.slice(0,2), s.slice(2,4), s.slice(4)];
+  let [d, m, y] = p.map(Number); m = m || now.getMonth() + 1; y = y || now.getFullYear(); if (y < 100) y += 2000;
+  const dt = new Date(y, m - 1, d);
+  if (!d || dt.getFullYear() !== y || dt.getMonth() !== m - 1 || dt.getDate() !== d) return undefined;
+  return `${y}-${String(m).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+}
+function parseMoney(s) { const t = String(s).trim().toLowerCase(), d = t.replace(/\D/g, ''); return d ? Number(d) * (/k$/.test(t) ? 1000 : 1) : null; }
+const maskDate = v => { if (/\D/.test(v)) return v; const d = v.slice(0,8); return d.length > 4 ? `${d.slice(0,2)}/${d.slice(2,4)}/${d.slice(4)}` : d.length > 2 ? `${d.slice(0,2)}/${d.slice(2)}` : d; };
+const isLate = it => !!(it.expected_delivery_date && it.expected_delivery_date < todayISO() && !DONE.includes(it.status));
+const qtyNum = q => { const m = String(q || '').match(/\d+(?:[.,]\d+)?/); return m ? parseFloat(m[0].replace(',', '.')) : 1; };
+const lineTotal = it => (it.unit_price != null && it.unit_price !== '') ? Math.round(Number(it.unit_price) * qtyNum(it.quantity)) : null;
+function autoTotal(rq) { let t = 0, f = false; rq.items.forEach(it => { const l = lineTotal(it); if (l !== null) { t += l; f = true; } }); return f ? t : null; }
+const itemFilled = it => ['part_code','part_name','quantity','order_type'].some(f => it[f] && String(it[f]).trim()) || !!it.unit_price || ['order_date','expected_delivery_date','customer_call_date','actual_delivery_date'].some(f => it[f]);
+const blankItem = () => ({ id: null, status: STATUS_OPTIONS[0], part_code: '', part_name: '', quantity: '', unit_price: null, order_type: '', order_date: null, expected_delivery_date: null, customer_call_date: null, actual_delivery_date: null, call_note: '', source: 'Đặt hàng', source_store: '' });
+function buildPayload(rq) {
+  const header = {}; HFIELDS.forEach(f => header[f] = rq[f] ?? ''); header.order_value_manual = !!rq.order_value_manual;
+  return { header, items: rq.items.filter(it => it.id != null || itemFilled(it)).map(it => { const o = {}; if (it.id != null) o.id = it.id; IFIELDS.forEach(f => o[f] = it[f] ?? ''); return o; }) };
+}
 
-            // Sửa trực tiếp trên ô: 1 listener duy nhất, uỷ quyền theo click.
-            document.getElementById('ordersTable').addEventListener('click', e => {
-                const td = e.target.closest('td.editable');
-                if (td) beginEdit(td);
-            });
+/* ---------- Danh sách ---------- */
+function renderChips() {
+  $('chips').innerHTML = ['', ...STATUS_OPTIONS].map(s => `<button class="chip ${s === curStatus ? 'on' : ''}" data-st="${esc(s)}">${s || 'Tất cả'}</button>`).join('');
+}
+function rowHtml(rq) {
+  const qd = (it, i, f, late) => `<input class="qe${late ? ' late' : ''}" data-rid="${esc(rq.request_id)}" data-i="${i}" data-f="${f}" data-t="date" value="${fmtDate(it[f])}" placeholder="—" autocomplete="off" title="${late ? 'Trễ hẹn' : ''}">`;
+  const items = rq.items.map((it, i) => {
+    const f = i === 0 ? ' first' : '', late = isLate(it), nb = it.source === 'Xin nội bộ';
+    return `<div class="${f}">${it.part_code ? `<span class="code">${esc(it.part_code)}</span>` : '<span class="dv none">chưa có mã</span>'}${nb ? `<span class="src">NỘI BỘ${it.source_store ? ' ← ' + esc(it.source_store) : ''}</span>` : ''}<div class="pname">${esc(it.part_name)}</div></div>`
+      + `<div class="qty${f}">${esc(it.quantity)}</div>`
+      + `<div class="${f}"><select class="pillsel ${stCls(it.status)}" data-rid="${esc(rq.request_id)}" data-i="${i}">${STATUS_OPTIONS.map(s => `<option ${s === it.status ? 'selected' : ''}>${esc(s)}</option>`).join('')}</select></div>`
+      + `<div class="${f}"><input class="qe" list="ot-list" data-rid="${esc(rq.request_id)}" data-i="${i}" data-f="order_type" value="${esc(it.order_type)}" placeholder="—" autocomplete="off"></div>`
+      + `<div class="${f}">${qd(it, i, 'order_date')}</div><div class="${f}">${qd(it, i, 'expected_delivery_date', late)}</div>`
+      + `<div class="${f}">${qd(it, i, 'customer_call_date')}</div><div class="${f}">${qd(it, i, 'actual_delivery_date')}</div>`
+      + `<div class="${f}"><input class="qe note" data-rid="${esc(rq.request_id)}" data-i="${i}" data-f="call_note" value="${esc(it.call_note)}" placeholder="Ghi chú..." autocomplete="off"></div>`;
+  }).join('');
+  const rest = rq.order_value != null && rq.deposit_amount != null ? rq.order_value - rq.deposit_amount : null;
+  return `<tbody class="req" id="req-${esc(rq.request_id)}"><tr data-rid="${esc(rq.request_id)}">`
+    + `<td class="k-stt"><div class="stt">${esc(rq.seq_no)}</div>${ROLE === 'admin' ? `<div class="stt-store">${esc(rq.store_code)}</div>` : ''}</td>`
+    + `<td class="k-cust"><div class="f-name">${esc(rq.customer_name)}</div><div class="f-sub"><i class="bi bi-telephone"></i> ${esc(rq.customer_phone) || '—'}</div><div class="f-sub"><i class="bi bi-calendar-event"></i> ${fmtDate(rq.customer_request_date) || '—'}</div></td>`
+    + `<td class="k-veh"><div style="font-weight:600">${esc(rq.vehicle_type) || '—'}</div><div class="f-sub mono">${esc(rq.frame_number)}</div><div class="f-sub">${esc(rq.vehicle_color)}${rq.vehicle_color && rq.vehicle_year ? ' · ' : ''}${esc(rq.vehicle_year)}</div></td>`
+    + `<td><div class="ig">${items}</div></td>`
+    + `<td class="k-money"><div class="money-big">${fmtMoney(rq.order_value) || '—'}</div><div class="money-sub">Cọc: ${fmtMoney(rq.deposit_amount) || '—'}</div>${rest ? `<div class="money-sub" style="color:#b91c1c;font-weight:700">Còn: ${fmtMoney(rest)}</div>` : ''}</td>`
+    + `<td class="k-act"><button class="ico" title="Sửa" data-act="edit" data-rid="${esc(rq.request_id)}"><i class="bi bi-pencil"></i></button> <button class="ico danger" title="Xoá cả đơn" data-act="del" data-rid="${esc(rq.request_id)}"><i class="bi bi-trash3"></i></button></td></tr></tbody>`;
+}
+function setMsg(html, cls) {
+  document.querySelectorAll('#ordersTable tbody').forEach(t => t.remove());
+  $('ordersTable').insertAdjacentHTML('beforeend', `<tbody><tr><td colspan="6" class="text-center ${cls} py-4">${html}</td></tr></tbody>`); lastSig = '';
+}
+function renderRequests(list) {
+  byId = {}; if (!list.length) return setMsg('Không có đơn đặt hàng nào.', 'text-muted');
+  document.querySelectorAll('#ordersTable tbody').forEach(t => t.remove());
+  list.forEach(rq => byId[rq.request_id] = rq);
+  $('ordersTable').insertAdjacentHTML('beforeend', list.map(rowHtml).join(''));
+}
+function updatePager(total, page, size) {
+  const pages = Math.max(1, Math.ceil(total / size));
+  $('pagerInfo').textContent = total === 0 ? 'Không có đơn hàng nào.' : `Trang ${page}/${pages} - tổng ${total.toLocaleString('vi-VN')} đơn`;
+  $('pagerPrev').disabled = page <= 1; $('pagerNext').disabled = page >= pages;
+}
+const goToPage = p => { if (p >= 1) { currentPage = p; loadOrders(); } };
+async function loadOrders(opts = {}) {
+  const silent = !!opts.silent, q = new URLSearchParams(), s = $('fSearch').value.trim(), fs = $('fStore');
+  if (s) q.set('search', s); if (curStatus) q.set('status', curStatus); if (fs && fs.value) q.set('store_code', fs.value);
+  q.set('page', currentPage); q.set('page_size', PAGE_SIZE);
+  if (!silent) setMsg('Đang tải...', 'text-muted');
+  try {
+    const res = await fetch('/api/orders?' + q), json = await res.json();
+    if (!res.ok || !json.success) throw new Error(json.error || 'Lỗi tải dữ liệu');
+    const sig = JSON.stringify(json.data);
+    if (!(silent && sig === lastSig)) { renderRequests(json.data); lastSig = sig; }
+    updatePager(json.total ?? json.data.length, json.page ?? currentPage, json.page_size ?? PAGE_SIZE);
+  } catch (e) { if (!silent) setMsg(esc(e.message), 'text-danger'); }
+}
+function quickSave(rq) {   // lưu nối tiếp từng đơn, không vẽ lại danh sách
+  pendingQuick++;
+  rq._q = (rq._q || Promise.resolve()).then(async () => {
+    try { const p = buildPayload(rq); p.request_id = rq.request_id; await api('/api/orders/save', p); lastSig = ''; toast('Đã lưu'); }
+    catch (e) { toast('Lỗi lưu: ' + e.message, true); loadOrders({ silent: true }); }
+    finally { pendingQuick--; }
+  });
+}
+function quickStatus(sel) {
+  const rq = byId[sel.dataset.rid]; if (!rq) return; const it = rq.items[+sel.dataset.i];
+  it.status = sel.value; sel.className = 'pillsel ' + stCls(it.status); refreshLate(rq); quickSave(rq);
+}
+function refreshLate(rq) {
+  rq.items.forEach((it, i) => { const el = document.querySelector(`input.qe[data-rid="${rq.request_id}"][data-i="${i}"][data-f="expected_delivery_date"]`); if (el) el.classList.toggle('late', isLate(it)); });
+}
+function quickEdit(el) {
+  const rq = byId[el.dataset.rid]; if (!rq) return; const it = rq.items[+el.dataset.i], f = el.dataset.f; let v;
+  if (el.dataset.t === 'date') { v = parseDate(el.value); if (v === undefined) { el.classList.add('bad'); toast('Ngày không hợp lệ (vd 25/09/2026, 25/9, t).', true); return; } el.classList.remove('bad'); el.value = fmtDate(v); }
+  else v = el.value.trim();
+  if ((it[f] ?? '') === (v ?? '')) return;
+  it[f] = v; if (f === 'expected_delivery_date') refreshLate(rq); quickSave(rq);
+}
+async function deleteRequest(rid) {
+  const rq = byId[rid]; if (!confirm(`Xoá toàn bộ đơn của khách "${rq ? rq.customer_name : ''}" (${rq ? rq.items.length : 0} mặt hàng)?`)) return;
+  try { await api('/api/orders/delete', { request_id: rid }); delete byId[rid]; const el = $('req-' + rid); if (el) el.remove(); toast('Đã xoá đơn'); }
+  catch (e) { toast(e.message, true); }
+}
 
-            setInterval(() => {
-                if (activeEdits > 0 || document.hidden) return;
-                loadOrders({ silent: true });
-            }, AUTO_REFRESH_SECONDS * 1000);
-            document.addEventListener('visibilitychange', () => {
-                if (!document.hidden && activeEdits === 0) loadOrders({ silent: true });
-            });
-        });
+/* ---------- Phiếu nhập / sửa ---------- */
+function openEditor(rid) {
+  cur = rid ? JSON.parse(JSON.stringify(byId[rid])) : { request_id: null, store_code: STORE_LIST[0] || '', customer_name: '', customer_phone: '', customer_request_date: todayISO(), vehicle_type: '', frame_number: '', vehicle_color: '', vehicle_year: '', order_value: null, deposit_amount: null, order_value_manual: false, items: [blankItem()] };
+  if (cur.order_value_manual && autoTotal(cur) === null) cur.order_value_manual = false;   // đơn cũ chưa có đơn giá: cho tự tính khi thêm mã
+  dirty = false; $('edTitle').textContent = rid ? `Sửa đơn #${cur.seq_no} — ${cur.customer_name}` : 'Thêm đơn mới';
+  $('btnSaveNew').classList.toggle('d-none', !!rid); renderForm(); cur.items.forEach((it, i) => it.part_code && loadStock(i)); edModal = bootstrap.Modal.getOrCreateInstance($('edModal')); edModal.show();
+}
+$('edModal').addEventListener('shown.bs.modal', () => { const f = $('edBody').querySelector('[data-f="customer_name"]'); if (f) f.focus(); });
+$('edModal').addEventListener('hide.bs.modal', e => { if (dirty && !saving && !confirm('Đơn chưa lưu. Đóng và bỏ thay đổi?')) { e.preventDefault(); return; } acClose(); });
+const inp = (f, v, extra = '', cls = '') => `<input class="form-control ${cls}" data-f="${f}" value="${esc(v ?? '')}" autocomplete="off" ${extra}>`;
+const dateInp = (f, v, i) => `<input class="form-control" data-f="${f}" data-t="date" ${i != null ? `data-i="${i}"` : ''} value="${fmtDate(v)}" placeholder="dd/mm/yyyy" autocomplete="off">`;
+function renderForm() {
+  const c = cur, L = (t, h, w) => `<div class="col-md-${w}"><div class="lb">${t}</div>${h}</div>`;
+  const items = c.items.map((it, i) => `<div class="item-card"><div class="ic-head"><span>Mặt hàng ${i + 1}</span>${c.items.length > 1 ? `<button type="button" tabindex="-1" class="ico danger" data-act="rm" data-i="${i}"><i class="bi bi-x-lg"></i></button>` : ''}</div>
+    <div class="row g-2">
+      ${L('Mã hàng', `<input class="form-control fw-bold" data-f="part_code" data-i="${i}" value="${esc(it.part_code)}" autocomplete="off" placeholder="Gõ mã hoặc tên để gợi ý">`, 3)}
+      ${L('Tên hàng', `<input class="form-control" data-f="part_name" data-i="${i}" value="${esc(it.part_name)}" autocomplete="off">`, 4)}
+      ${L('SL', `<input class="form-control text-center fw-bold" data-f="quantity" data-i="${i}" value="${esc(it.quantity)}" autocomplete="off">`, 1)}
+      ${L('Đơn giá', `<input class="form-control text-end" data-f="unit_price" data-t="money" data-i="${i}" value="${fmtMoney(it.unit_price)}" autocomplete="off">`, 2)}
+      ${L('Thành tiền', `<div class="line-total" id="lt-${i}">${fmtMoney(lineTotal(it)) || '—'}</div>`, 2)}
+      ${L('Trạng thái', `<select class="form-select" data-f="status" data-i="${i}">${STATUS_OPTIONS.map(s => `<option ${s === it.status ? 'selected' : ''}>${esc(s)}</option>`).join('')}</select>`, 2)}
+      ${L('Loại đơn', `<input class="form-control" data-f="order_type" data-i="${i}" value="${esc(it.order_type)}" placeholder="KHẨN, ĐỊNH KỲ..." autocomplete="off">`, 2)}
+      ${L('Ngày đặt / xin nội bộ', dateInp('order_date', it.order_date, i), 2)}${L('Ngày PT về', dateInp('expected_delivery_date', it.expected_delivery_date, i), 2)}
+      ${L('Ngày gọi K/H', dateInp('customer_call_date', it.customer_call_date, i), 2)}${L('Ngày giao PT', dateInp('actual_delivery_date', it.actual_delivery_date, i), 2)}
+      ${L('Nguồn hàng', `<select class="form-select" data-f="source" data-i="${i}">${SRC.map(x => `<option ${x === (it.source || SRC[0]) ? 'selected' : ''}>${x}</option>`).join('')}</select>`, 2)}
+      <div class="col-md-2 ${it.source === 'Xin nội bộ' ? '' : 'd-none'}" id="sf-${i}"><div class="lb">Xin từ chi nhánh</div><select class="form-select" data-f="source_store" data-i="${i}"><option value="">-- chọn --</option>${STORE_LIST.map(x => `<option ${x === it.source_store ? 'selected' : ''}>${esc(x)}</option>`).join('')}</select></div>
+      <div class="col"><div class="lb">Tồn các chi nhánh khác <span class="text-secondary fw-normal">(bấm để xin nội bộ)</span></div><div class="stk" id="stk-${i}"><span class="none">—</span></div></div>
+      ${L('Ghi chú', `<input class="form-control" data-f="call_note" data-i="${i}" value="${esc(it.call_note)}" placeholder="Ghi chú cho mặt hàng này" autocomplete="off">`, 12)}
+    </div></div>`).join('');
+  $('edBody').innerHTML = `<div class="sec">Khách hàng</div><div class="row g-2">
+      ${ROLE === 'admin' && !c.request_id ? L('Chi nhánh', `<select class="form-select" data-f="store_code">${STORE_LIST.map(s => `<option ${s === c.store_code ? 'selected' : ''}>${esc(s)}</option>`).join('')}</select>`, 2) : ''}
+      ${L('Ngày yêu cầu', dateInp('customer_request_date', c.customer_request_date), 2)}${L('Tên khách hàng *', inp('customer_name', c.customer_name, '', 'fw-bold'), 4)}${L('SĐT', inp('customer_phone', c.customer_phone), 3)}</div>
+    <div class="sec">Xe</div><div class="row g-2">${L('Loại xe', inp('vehicle_type', c.vehicle_type), 3)}${L('Số khung', inp('frame_number', c.frame_number, '', 'text-uppercase'), 3)}${L('Màu', inp('vehicle_color', c.vehicle_color), 3)}${L('Đời xe', inp('vehicle_year', c.vehicle_year), 3)}</div>
+    <div class="sec">Mặt hàng</div>${items}
+    <button type="button" class="btn btn-outline-primary btn-sm" data-act="add"><i class="bi bi-plus-lg"></i> Thêm mặt hàng (Ctrl+Enter)</button>
+    <button type="button" class="btn btn-outline-secondary btn-sm ms-2" data-act="paste"><i class="bi bi-clipboard-plus"></i> Dán danh sách mã từ Excel</button>
+    <div id="pasteWrap" class="d-none mt-2"><textarea id="pasteBox" class="form-control" rows="4" placeholder="Copy cột Mã hàng (kèm cột SL nếu có) từ Excel rồi dán vào đây. Mỗi dòng 1 mã. Tên hàng và đơn giá sẽ tự điền."></textarea>
+      <button type="button" class="btn btn-nam-suong btn-sm mt-2" data-act="pasteok">Thêm vào đơn</button></div>`;
+  $('totVal').value = fmtMoney(c.order_value); document.querySelector('.tot-bar [data-f="deposit_amount"]').value = fmtMoney(c.deposit_amount); recalc();
+}
+function recalc() {
+  const c = cur, a = autoTotal(c);
+  if (!c.order_value_manual && a !== null) { c.order_value = a; $('totVal').value = fmtMoney(a); }
+  c.items.forEach((it, i) => { const el = $('lt-' + i); if (el) el.textContent = fmtMoney(lineTotal(it)) || '—'; });
+  $('totTag').innerHTML = c.order_value_manual ? '<span class="tag">nhập tay</span>' : (a !== null ? '<span class="tag">tự tính</span>' : '');
+  $('totReset').classList.toggle('d-none', !(c.order_value_manual && a !== null && a !== c.order_value)); $('totReset').textContent = `Tính lại theo mã: ${fmtMoney(a)}`;
+  $('remain').textContent = c.order_value != null ? fmtMoney(c.order_value - (c.deposit_amount || 0)) : '—';
+}
+function syncField(el, final) {   // đọc 1 ô nhập vào cur
+  const f = el.dataset.f, t = el.dataset.t, tgt = el.dataset.i != null ? cur.items[+el.dataset.i] : cur; let v;
+  if (t === 'date') { v = parseDate(el.value); if (v === undefined) { el.classList.add('is-bad'); if (final) toast('Ngày không hợp lệ (vd 25/09/2026).', true); return false; } el.classList.remove('is-bad'); if (final && v) el.value = fmtDate(v); }
+  else if (t === 'money') v = parseMoney(el.value); else v = el.value.trim();
+  tgt[f] = v;
+  if (f === 'order_value') cur.order_value_manual = v !== null && v !== autoTotal(cur);
+  return true;
+}
+$('edBody').addEventListener('input', e => {
+  const el = e.target; if (!el.dataset.f) return; dirty = true;
+  if (el.dataset.t === 'date') el.value = maskDate(el.value);
+  if (el.dataset.t === 'money' && !/k/i.test(el.value)) { const d = el.value.replace(/\D/g, ''); el.value = d ? Number(d).toLocaleString('vi-VN') : ''; }
+  if (el.dataset.t !== 'date' || el.value.length >= 10 || el.value.toLowerCase() === 't') syncField(el, false);
+  if (el.dataset.f === 'part_code') acQuery(el);
+  recalc();
+});
+$('edBody').addEventListener('change', e => {
+  const el = e.target; if (!el.dataset.f) return; syncField(el, true);
+  if (el.dataset.f === 'source') { $('sf-' + el.dataset.i).classList.toggle('d-none', el.value !== 'Xin nội bộ'); if (el.value === 'Xin nội bộ') loadStock(+el.dataset.i); }
+  if (el.dataset.f === 'part_code') loadStock(+el.dataset.i);
+  recalc();
+});
+async function loadStock(i) {
+  const it = cur.items[i], box = $('stk-' + i); if (!box) return;
+  if (!it.part_code) { box.innerHTML = '<span class="none">—</span>'; return; }
+  const code = it.part_code;
+  try {
+    const j = await (await fetch('/api/orders/stock?code=' + encodeURIComponent(code))).json(), own = ROLE === 'admin' ? cur.store_code : MY_STORE;
+    if (cur.items[i] !== it || it.part_code !== code) return;
+    const rows = (j.data || []).filter(r => r.store !== own);
+    box.innerHTML = rows.length ? rows.map(r => `<button type="button" tabindex="-1" data-store="${esc(r.store)}" data-i="${i}" class="${it.source === 'Xin nội bộ' && it.source_store === r.store ? 'on' : ''}">${esc(r.store)}: ${r.qty}</button>`).join('') : '<span class="none">Không chi nhánh nào còn tồn</span>';
+  } catch (e) { box.innerHTML = '<span class="none">—</span>'; }
+}
+document.querySelector('.tot-bar').addEventListener('input', e => {
+  const el = e.target; if (!el.dataset.f) return; dirty = true;
+  if (!/k/i.test(el.value)) { const d = el.value.replace(/\D/g, ''); el.value = d ? Number(d).toLocaleString('vi-VN') : ''; }
+  syncField(el, false); recalc();
+});
+$('totReset').addEventListener('click', () => { cur.order_value_manual = false; recalc(); });
+$('edBody').addEventListener('click', e => {
+  const sb = e.target.closest('[data-store]');
+  if (sb) { const i = +sb.dataset.i, it = cur.items[i]; it.source = 'Xin nội bộ'; it.source_store = sb.dataset.store; dirty = true;
+    const q = n => $('edBody').querySelector(`[data-f="${n}"][data-i="${i}"]`); q('source').value = 'Xin nội bộ'; q('source_store').value = sb.dataset.store; $('sf-' + i).classList.remove('d-none');
+    $('stk-' + i).querySelectorAll('button').forEach(x => x.classList.toggle('on', x === sb)); return; }
+  const b = e.target.closest('[data-act]'); if (!b) return;
+  if (b.dataset.act === 'paste') { $('pasteWrap').classList.toggle('d-none'); if (!$('pasteWrap').classList.contains('d-none')) $('pasteBox').focus(); } else if (b.dataset.act === 'pasteok') importCodes($('pasteBox').value); else if (b.dataset.act === 'add') addItem(); else if (b.dataset.act === 'rm') { syncAll(); cur.items.splice(+b.dataset.i, 1); dirty = true; renderForm(); }
+});
+/* ---------- Dán danh sách mã từ Excel ---------- */
+function parsePasted(text) {
+  return text.split(/\r?\n/).map(l => l.trim()).filter(Boolean).map(l => {
+    const cols = l.includes('\t') ? l.split('\t').map(x => x.trim()) : l.split(/\s+/); let qty = '';
+    for (let k = 1; k < cols.length; k++) if (/^\d+([.,]\d+)?$/.test(cols[k])) { qty = cols[k]; break; }
+    return { code: cols[0], qty };
+  }).filter(r => r.code && !/^(m[ãa]|stt)/i.test(r.code));
+}
+async function importCodes(text) {
+  const rows = parsePasted(text); if (!rows.length) { toast('Không đọc được mã hàng.', true); return; }
+  syncAll(); let found = {};
+  try { found = (await api('/api/orders/parts/bulk', { codes: rows.map(r => r.code) })).data || {}; } catch (e) { toast(e.message, true); }
+  const blanks = cur.items.filter(it => !itemFilled(it)); let miss = 0;
+  rows.forEach(r => {
+    const p = found[norm(r.code)]; let it = blanks.shift(); if (!it) { it = blankItem(); cur.items.push(it); }
+    it.part_code = p ? p.code : r.code; it.quantity = r.qty || '1';
+    if (p) { if (p.name) it.part_name = p.name; if (p.price != null) it.unit_price = p.price; } else miss++;
+  });
+  dirty = true; renderForm(); cur.items.forEach((it, i) => it.part_code && loadStock(i));
+  toast(`Đã thêm ${rows.length} mã` + (miss ? ` — ${miss} mã không có trong danh mục (tự nhập tên/giá)` : ''), miss > 0);
+  const last = $('edBody').querySelector(`[data-f="quantity"][data-i="${cur.items.length - 1}"]`); if (last) last.scrollIntoView({ block: 'center' });
+}
+$('edBody').addEventListener('paste', e => {
+  const el = e.target, t = (e.clipboardData || window.clipboardData).getData('text');
+  if (el.id === 'pasteBox') { e.preventDefault(); importCodes(t); }
+  else if (el.dataset && el.dataset.f === 'part_code' && /[\r\n\t]/.test(t.trim())) { e.preventDefault(); importCodes(t); }
+});
+function addItem() {
+  syncAll(); cur.items.push(blankItem()); dirty = true; renderForm();
+  const f = $('edBody').querySelector(`[data-f="part_code"][data-i="${cur.items.length - 1}"]`); if (f) { f.scrollIntoView({ block: 'center' }); f.focus(); }
+}
+function syncAll() {   // ô Giá trị đơn đã được theo dõi trực tiếp khi gõ nên bỏ qua ở đây
+  let ok = true;
+  document.querySelectorAll('#edBody [data-f], .tot-bar [data-f]:not(#totVal)').forEach(el => { if (!syncField(el, true)) ok = false; });
+  return ok;
+}
+async function saveEditor(again) {
+  if (saving) return; if (!syncAll()) return;
+  document.querySelectorAll('#edBody .is-bad').forEach(x => x.classList.remove('is-bad'));
+  if (!String(cur.customer_name || '').trim()) { toast('Nhập tên khách hàng.', true); const f = document.querySelector('#edBody [data-f="customer_name"]'); f.classList.add('is-bad'); f.focus(); return; }
+  if (!cur.items.some(itemFilled)) { toast('Nhập ít nhất 1 mặt hàng.', true); const f = document.querySelector('#edBody [data-f="part_code"]'); f.classList.add('is-bad'); f.focus(); return; }
+  saving = true; $('btnSave').disabled = true;
+  try {
+    const p = buildPayload(cur); if (cur.request_id) p.request_id = cur.request_id; else if (ROLE === 'admin') p.store_code = cur.store_code;
+    await api('/api/orders/save', p); dirty = false; edModal.hide(); toast('Đã lưu đơn');
+    if (!cur.request_id) currentPage = 1; loadOrders(); if (again) setTimeout(() => openEditor(null), 350);
+  } catch (e) { toast('Lỗi lưu: ' + e.message, true); }
+  finally { saving = false; $('btnSave').disabled = false; }
+}
+/* Enter = sang ô kế; Ctrl+Enter = thêm mặt hàng; Ctrl+S = lưu */
+function focusNext(el, dir) {
+  const list = [...$('edModal').querySelectorAll('input:not([readonly]):not([type=hidden]),select')].filter(x => x.offsetParent), i = list.indexOf(el), n = list[i + dir];
+  if (n) { n.focus(); if (n.select) n.select(); } else if (dir > 0) $('btnSave').focus();
+}
+$('edModal').addEventListener('keydown', async e => {
+  const el = e.target, isCode = !!(el.dataset && el.dataset.f === 'part_code');
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') { e.preventDefault(); return saveEditor(false); }
+  if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') { e.preventDefault(); return addItem(); }
+  if (e.isComposing) return;
+  if (isCode) {
+    if (AC.list.length && (e.key === 'ArrowDown' || e.key === 'ArrowUp')) { e.preventDefault(); AC.idx = (AC.idx + (e.key === 'ArrowDown' ? 1 : -1) + AC.list.length) % AC.list.length; return acShow(el); }
+    if (e.key === 'Escape' && AC.list.length) { e.preventDefault(); e.stopImmediatePropagation(); return acClose(); }
+    if ((e.key === 'Tab' && !e.shiftKey) || e.key === 'Enter') {
+      if (AC.timer || AC.pending || AC.list.length) {
+        e.preventDefault(); await acSettle(el);
+        const p = AC.idx >= 0 ? AC.list[AC.idx] : AC.list.find(x => norm(x.code) === norm(el.value)); acClose();
+        if (p) { pickPart(+el.dataset.i, p); const q = $('edBody').querySelector(`[data-f="quantity"][data-i="${el.dataset.i}"]`); q.focus(); q.select(); } else focusNext(el, 1);
+        return;
+      }
+    }
+  }
+  if (e.key === 'Enter' && el.tagName === 'INPUT') { e.preventDefault(); focusNext(el, 1); }
+});
+function pickPart(i, p) {
+  const it = cur.items[i], set = (f, v) => { const x = $('edBody').querySelector(`[data-f="${f}"][data-i="${i}"]`); if (x) x.value = v; };
+  it.part_code = p.code; set('part_code', p.code);
+  if (p.name) { it.part_name = p.name; set('part_name', p.name); }
+  if (p.price != null) { it.unit_price = p.price; set('unit_price', fmtMoney(p.price)); }
+  if (!String(it.quantity || '').trim()) { it.quantity = '1'; set('quantity', '1'); }
+  dirty = true; recalc(); loadStock(i);
+}
 
-        function goToPage(page) {
-            if (page < 1) return;
-            currentPage = page;
-            loadOrders();
-        }
+/* ---------- Gợi ý mã hàng ---------- */
+const AC = { el: null, list: [], idx: -1, seq: 0, timer: null, pending: null };
+function acEl() {
+  if (!AC.el) {
+    AC.el = document.createElement('div'); AC.el.className = 'ac'; document.body.appendChild(AC.el);
+    AC.el.addEventListener('mousedown', e => { e.preventDefault(); const r = e.target.closest('[data-i]'), a = document.activeElement;
+      if (r && a && a.dataset.f === 'part_code') { pickPart(+a.dataset.i, AC.list[+r.dataset.i]); acClose(); const q = $('edBody').querySelector(`[data-f="quantity"][data-i="${a.dataset.i}"]`); q.focus(); q.select(); } });
+  }
+  return AC.el;
+}
+function acClose() { clearTimeout(AC.timer); AC.timer = null; AC.pending = null; AC.list = []; AC.idx = -1; if (AC.el) AC.el.style.display = 'none'; }
+function acShow(el) {
+  const box = acEl(); if (!AC.list.length) { box.style.display = 'none'; return; }
+  const r = el.getBoundingClientRect();
+  box.style.cssText = `display:block;left:${r.left}px;top:${r.bottom + 4}px;min-width:${Math.max(r.width, 460)}px`;
+  box.innerHTML = AC.list.map((p, i) => `<div class="ac-i ${i === AC.idx ? 'on' : ''}" data-i="${i}"><b>${esc(p.code)}</b><span>${esc(p.name)}</span><em>${p.price != null ? fmtMoney(p.price) : ''}</em></div>`).join('');
+  const on = box.querySelector('.on'); if (on) on.scrollIntoView({ block: 'nearest' });
+}
+function acFetch(el) {
+  const q = el.value.trim(); if (q.length < 2) { AC.list = []; AC.idx = -1; acShow(el); return Promise.resolve(); }
+  const my = ++AC.seq;
+  return AC.pending = fetch('/api/orders/parts?q=' + encodeURIComponent(q)).then(r => r.json()).then(j => {
+    if (my !== AC.seq) return; AC.list = j.data || []; AC.idx = AC.list.findIndex(p => norm(p.code) === norm(q)); acShow(el);
+  }).catch(() => {});
+}
+function acQuery(el) { clearTimeout(AC.timer); AC.timer = setTimeout(() => { AC.timer = null; acFetch(el); }, 140); }
+async function acSettle(el) { if (AC.timer) { clearTimeout(AC.timer); AC.timer = null; await acFetch(el); } else if (AC.pending) await AC.pending; }
+$('edBody').addEventListener('focusout', e => { if (e.target.dataset && e.target.dataset.f === 'part_code') setTimeout(() => { if (document.activeElement !== e.target) acClose(); }, 120); });
 
-        /* ---------- Định dạng ---------- */
-        function escapeHtml(v) {
-            if (v === null || v === undefined) return '';
-            return String(v)
-                .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-                .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
-        }
-        function fmtMoney(v) {
-            if (v === null || v === undefined || v === '') return '';
-            return Number(v).toLocaleString('vi-VN');
-        }
-        function fmtDate(iso) {           // 'YYYY-MM-DD' -> 'DD/MM/YYYY'
-            if (!iso) return '';
-            const p = String(iso).split('-');
-            return p.length === 3 ? `${p[2]}/${p[1]}/${p[0]}` : escapeHtml(iso);
-        }
-        function statusBadgeClass(status) {
-            const map = {
-                'Chưa đặt': 'bg-secondary',
-                'Đã đặt': 'bg-info text-dark',
-                'Đang về': 'bg-warning text-dark',
-                'Đã về kho': 'bg-primary',
-                'Đã giao': 'bg-success',
-                'Đã huỷ': 'bg-danger',
-            };
-            return map[status] || 'bg-secondary';
-        }
-        function fmtValue(field, v) {
-            const meta = FIELD_META[field];
-            if (meta.type === 'money') return fmtMoney(v);
-            if (meta.type === 'date') return fmtDate(v);
-            if (field === 'status') return `<span class="badge rounded-pill status ${statusBadgeClass(v)}">${escapeHtml(v)}</span>`;
-            return escapeHtml(v);
-        }
+/* ---------- Sự kiện chung ---------- */
+document.addEventListener('DOMContentLoaded', () => {
+  renderChips(); loadOrders();
+  $('chips').addEventListener('click', e => { const b = e.target.closest('[data-st]'); if (b) { curStatus = b.dataset.st; currentPage = 1; renderChips(); loadOrders(); } });
+  $('fSearch').addEventListener('keyup', e => { if (e.key === 'Enter') { currentPage = 1; loadOrders(); } });
+  if ($('fStore')) $('fStore').addEventListener('change', () => { currentPage = 1; loadOrders(); });
+  $('ordersTable').addEventListener('change', e => { if (e.target.classList.contains('pillsel')) quickStatus(e.target); else if (e.target.classList.contains('qe')) quickEdit(e.target); });
+  $('ordersTable').addEventListener('input', e => { const el = e.target; if (el.classList.contains('qe') && el.dataset.t === 'date') el.value = maskDate(el.value); });
+  $('ordersTable').addEventListener('keydown', e => {
+    if (!e.target.classList.contains('qe')) return;
+    if (e.key === 'Enter') { e.preventDefault(); e.target.blur(); }
+    else if (e.key === 'Escape') { const rq = byId[e.target.dataset.rid]; if (rq) { const v = rq.items[+e.target.dataset.i][e.target.dataset.f]; e.target.value = e.target.dataset.t === 'date' ? fmtDate(v) : (v || ''); } e.target.blur(); }
+  });
+  $('ordersTable').addEventListener('click', e => {
+    const b = e.target.closest('[data-act]');
+    if (b) { if (b.dataset.act === 'edit') openEditor(b.dataset.rid); else deleteRequest(b.dataset.rid); return; }
+    if (e.target.closest('select, input')) return; const tr = e.target.closest('tr[data-rid]'); if (tr) openEditor(tr.dataset.rid);
+  });
+  const busy = () => document.querySelector('.modal.show') || document.hidden || document.activeElement.classList.contains('pillsel') || document.activeElement.classList.contains('qe') || pendingQuick > 0;
+  setInterval(() => { if (!busy()) loadOrders({ silent: true }); }, REFRESH_MS);
+  document.addEventListener('visibilitychange', () => { if (!busy()) loadOrders({ silent: true }); });
+});
 
-        /* ---------- Tải + vẽ bảng ---------- */
-        function updatePagerUI(total, page, pageSize) {
-            const totalPages = Math.max(1, Math.ceil(total / pageSize));
-            document.getElementById('pagerInfo').textContent =
-                total === 0 ? 'Không có đơn hàng nào.' :
-                `Trang ${page}/${totalPages} - tổng ${total.toLocaleString('vi-VN')} đơn`;
-            document.getElementById('pagerPrev').disabled = page <= 1;
-            document.getElementById('pagerNext').disabled = page >= totalPages;
-        }
-
-        function setTableMessage(html, cls) {
-            document.getElementById('ordersTable').querySelectorAll('tbody:not(#draftTbody)').forEach(t => t.remove());
-            document.getElementById('ordersTable').insertAdjacentHTML('beforeend',
-                `<tbody id="loadingTbody"><tr><td colspan="${COLS}" class="text-center ${cls} py-4">${html}</td></tr></tbody>`);
-            lastSignature = '';
-        }
-
-        async function loadOrders(opts = {}) {
-            const silent = !!opts.silent;
-            const params = new URLSearchParams();
-            const search = document.getElementById('fSearch').value.trim();
-            const status = document.getElementById('fStatus').value;
-            if (search) params.set('search', search);
-            if (status) params.set('status', status);
-            const fStore = document.getElementById('fStore');
-            if (fStore && fStore.value) params.set('store_code', fStore.value);
-            params.set('page', currentPage);
-            params.set('page_size', PAGE_SIZE);
-
-            if (!silent) setTableMessage('Đang tải...', 'text-muted');
-
-            try {
-                const res = await fetch('/api/orders?' + params.toString());
-                const json = await res.json();
-                if (!res.ok || !json.success) throw new Error(json.error || 'Lỗi tải dữ liệu');
-                const sig = JSON.stringify(json.data);
-                if (!(silent && sig === lastSignature)) {
-                    renderRequests(json.data);
-                    lastSignature = sig;
-                }
-                updatePagerUI(json.total ?? json.data.length, json.page ?? currentPage, json.page_size ?? PAGE_SIZE);
-            } catch (e) {
-                if (!silent) setTableMessage(escapeHtml(e.message), 'text-danger');
-            }
-        }
-
-        // Tải lại đúng 1 yêu cầu (sau khi sửa/thêm/xoá 1 ô) thay vì tải lại cả
-        // trang - giữ nguyên vị trí cuộn, đúng như thao tác trên Google Sheets.
-        async function refreshRequest(rid) {
-            const res = await fetch('/api/orders?request_id=' + encodeURIComponent(rid) + '&page_size=1');
-            const json = await res.json();
-            if (!res.ok || !json.success) throw new Error(json.error || 'Lỗi tải lại dữ liệu');
-            const rq = json.data && json.data[0];
-            if (rq) {
-                requestsById[rq.request_id] = rq;
-                renderRequestInPlace(rq);
-            } else {
-                // Yêu cầu không còn tồn tại (đã bị xoá ở nơi khác) - bỏ khỏi bảng
-                delete requestsById[rid];
-                const old = document.getElementById('req-' + rid);
-                if (old) old.remove();
-            }
-        }
-
-        function renderRequests(list) {
-            requestsById = {};
-            document.getElementById('ordersTable').querySelectorAll('tbody:not(#draftTbody)').forEach(t => t.remove());
-            if (!list.length) {
-                setTableMessage('Chưa có đơn đặt hàng nào.', 'text-muted');
-                return;
-            }
-            list.forEach(rq => { requestsById[rq.request_id] = rq; });
-            document.getElementById('ordersTable').insertAdjacentHTML('beforeend', list.map(rq => renderRequest(rq)).join(''));
-        }
-
-        function renderRequestInPlace(rq) {
-            const html = renderRequest(rq);
-            const old = document.getElementById('req-' + rq.request_id);
-            if (old) {
-                old.outerHTML = html;
-            } else {
-                document.getElementById('draftTbody').insertAdjacentHTML('afterend', html);
-            }
-        }
-
-        function isUniform(items, f) {
-            const v0 = items[0][f] ?? null;
-            return items.every(it => (it[f] ?? null) === v0);
-        }
-
-        // 1 yêu cầu = 1 <tbody>. Giống Excel gốc:
-        //  - Ô của KHÁCH/XE (STT, ngày yêu cầu, tên, SĐT, xe...) luôn gộp dọc (rowspan).
-        //  - Ô Trạng thái, Giá trị đơn, Đặt cọc, Ngày PT về / gọi K/H / giao PT: gộp dọc
-        //    khi mọi mặt hàng có CÙNG giá trị; nếu khác nhau thì hiện riêng từng dòng.
-        //  - Mã hàng, tên hàng, SL, ngày đặt, loại đơn: luôn mỗi mặt hàng 1 dòng.
-        // Mọi ô hiển thị đều bấm-để-sửa (class "editable" + data-rid/data-field/data-scope/data-item).
-        function renderRequest(rq) {
-            const items = rq.items;
-            const n = items.length;
-            const rs = n > 1 ? ` rowspan="${n}"` : '';
-            const rid = escapeHtml(rq.request_id);
-
-            const stt = `<div class="stt">${escapeHtml(rq.seq_no)}</div>` +
-                (ROLE === 'admin' ? `<div class="stt-store">${escapeHtml(rq.store_code)}</div>` : '');
-            const actions = `<button class="row-mini-btn danger" style="width:26px;height:26px;font-size:.85rem;" title="Xoá cả đơn" onclick="deleteRequest('${rid}')"><i class="bi bi-trash3"></i></button>`;
-
-            // Ô header, luôn gộp dọc cho cả đơn, bấm để sửa
-            const headerTd = (field, cls) =>
-                (i) => i === 0 ? `<td class="${cls} editable" data-rid="${rid}" data-field="${field}" data-scope="header"${rs}>${fmtValue(field, rq[field])}</td>` : '';
-            const plainSpan = (cls, html) => (i) => i === 0 ? `<td class="${cls}"${rs}>${html}</td>` : '';
-
-            // Ô có thể là header (order_value/deposit_amount) hoặc item (status, các
-            // ngày), gộp dọc khi mọi mặt hàng đang cùng giá trị, ngược lại 1 dòng/mặt hàng.
-            const flex = (field) => {
-                const meta = FIELD_META[field];
-                const uniform = n === 1 || isUniform(items, field);
-                const cls = field === 'status' ? 'c2' : 't-center';
-                return (it, i) => {
-                    const val = meta.scope === 'header' ? rq[field] : it[field];
-                    const itemAttr = meta.scope === 'header' ? '' : ` data-item="${it.id ?? ''}"`;
-                    if (uniform) {
-                        return i === 0 ? `<td class="${cls} editable" data-rid="${rid}" data-field="${field}" data-scope="${meta.scope}"${itemAttr}${rs}>${fmtValue(field, val)}</td>` : '';
-                    }
-                    return `<td class="${cls} editable" data-rid="${rid}" data-field="${field}" data-scope="${meta.scope}"${itemAttr}>${fmtValue(field, val)}</td>`;
-                };
-            };
-            const cStatus = flex('status');
-            const cValue = flex('order_value');
-            const cDeposit = flex('deposit_amount');
-            const cExpected = flex('expected_delivery_date');
-            const cCall = flex('customer_call_date');
-            const cActual = flex('actual_delivery_date');
-
-            // Ô riêng từng mặt hàng, không bao giờ gộp dọc
-            const itemTd = (field, cls, extra) => (it) =>
-                `<td class="${cls || ''} editable" data-rid="${rid}" data-field="${field}" data-scope="item" data-item="${it.id ?? ''}">${fmtValue(field, it[field])}${extra ? extra(it) : ''}</td>`;
-            const cPartCode = itemTd('part_code');
-            const cPartName = itemTd('part_name', 't-wrap', it => it.call_note ? ` <i class="bi bi-chat-left-text note-ico" title="${escapeHtml(it.call_note)}" onclick="event.stopPropagation()"></i>` : '');
-            const cQuantity = itemTd('quantity', 't-center');
-            const cOrderDate = itemTd('order_date', 't-center');
-            const cOrderType = itemTd('order_type');
-
-            const rows = items.map((it, i) => {
-                const isLast = i === n - 1;
-                const rowActions =
-                    (n > 1 ? `<button class="row-mini-btn danger" title="Xoá mặt hàng này" onclick="removeItemRow('${rid}','${it.id}')"><i class="bi bi-x-lg"></i></button>` : '') +
-                    (isLast ? `<button class="row-mini-btn" title="Thêm mặt hàng" onclick="addItemRow('${rid}')"><i class="bi bi-plus-lg"></i></button>` : '');
-                return '<tr>' +
-                    plainSpan('c1 t-center', stt)(i) +
-                    cStatus(it, i) +
-                    headerTd('customer_request_date', 'c3 t-center')(i) +
-                    headerTd('customer_name', 'c4')(i) +
-                    headerTd('customer_phone', '')(i) +
-                    headerTd('vehicle_type', '')(i) +
-                    headerTd('frame_number', '')(i) +
-                    headerTd('vehicle_color', 'col-sm')(i) +
-                    headerTd('vehicle_year', 'col-sm')(i) +
-                    cPartCode(it) +
-                    cPartName(it) +
-                    cQuantity(it) +
-                    `<td class="col-xs">${rowActions}</td>` +
-                    cValue(it, i) +
-                    cDeposit(it, i) +
-                    cOrderDate(it) +
-                    cOrderType(it) +
-                    cExpected(it, i) +
-                    cCall(it, i) +
-                    cActual(it, i) +
-                    plainSpan('c-act', actions)(i) +
-                    '</tr>';
-            });
-            return `<tbody class="req" id="req-${rid}">${rows.join('')}</tbody>`;
-        }
-
-        /* ---------- Sửa trực tiếp trên ô ---------- */
-        function beginEdit(td) {
-            if (td.classList.contains('editing')) return;
-            const rid = td.dataset.rid;
-            const scope = td.dataset.scope;
-            const field = td.dataset.field;
-            const itemId = td.dataset.item;
-            const rq = rid === '__draft__' ? draftRequest : requestsById[rid];
-            if (!rq) return;
-
-            let rawVal;
-            if (scope === 'header') rawVal = rq[field];
-            else { const it = rq.items.find(x => String(x.id ?? '') === String(itemId ?? '')); rawVal = it ? it[field] : ''; }
-            if (rawVal === null || rawVal === undefined) rawVal = '';
-
-            const meta = FIELD_META[field];
-            td.classList.add('editing');
-            activeEdits++;
-
-            let inputHtml;
-            if (meta.type === 'select') {
-                inputHtml = `<select class="cell-input">` +
-                    STATUS_OPTIONS.map(s => `<option value="${escapeHtml(s)}" ${s === rawVal ? 'selected' : ''}>${escapeHtml(s)}</option>`).join('') +
-                    `</select>`;
-            } else if (meta.type === 'date') {
-                inputHtml = `<input type="date" class="cell-input" value="${escapeHtml(rawVal)}">`;
-            } else if (meta.type === 'money') {
-                const shown = rawVal === '' || rawVal === null ? '' : Number(rawVal).toLocaleString('en-US');
-                inputHtml = `<input type="text" class="cell-input text-end" value="${escapeHtml(shown)}">`;
-            } else {
-                inputHtml = `<input type="text" class="cell-input" value="${escapeHtml(rawVal)}">`;
-            }
-            td.innerHTML = inputHtml;
-            const input = td.querySelector('.cell-input');
-            input.focus();
-            if (input.select) input.select();
-
-            let settled = false;
-            const cancel = () => {
-                if (settled) return;
-                settled = true;
-                activeEdits--;
-                renderCellOwner(rq);
-            };
-            const commit = async () => {
-                if (settled) return;
-                settled = true;
-                activeEdits--;
-                let newVal = input.value;
-                if (meta.type === 'money') {
-                    newVal = newVal.trim() === '' ? null : parseFloat(newVal.replace(/,/g, ''));
-                    if (newVal !== null && isNaN(newVal)) newVal = null;
-                } else if (meta.type === 'date') {
-                    newVal = newVal || null;
-                }
-                const before = rawVal === undefined ? null : rawVal;
-                const after = newVal === undefined ? null : newVal;
-                if (String(before ?? '') === String(after ?? '')) {
-                    renderCellOwner(rq); // không đổi gì - chỉ vẽ lại để thoát chế độ sửa
-                    return;
-                }
-                await applyEdit(rq, scope, field, itemId, newVal, td);
-            };
-
-            input.addEventListener('keydown', e => {
-                if (e.key === 'Enter') { e.preventDefault(); input.blur(); }
-                else if (e.key === 'Escape') { e.preventDefault(); cancel(); }
-            });
-            input.addEventListener('blur', commit);
-            if (meta.type === 'select') input.addEventListener('change', () => input.blur());
-        }
-
-        function renderCellOwner(rq) {
-            if (rq === draftRequest) renderDraft();
-            else renderRequestInPlace(rq);
-        }
-
-        async function applyEdit(rq, scope, field, itemId, newVal, td) {
-            if (scope === 'header') {
-                rq[field] = newVal;
-            } else {
-                const it = rq.items.find(x => String(x.id ?? '') === String(itemId ?? ''));
-                if (it) it[field] = newVal;
-            }
-
-            if (rq === draftRequest) {
-                // Dòng "thêm mới": chỉ thực sự lưu lên máy chủ khi đã có tên
-                // khách hàng VÀ ít nhất 1 mặt hàng có dữ liệu (khớp điều kiện
-                // _item_is_blank() ở orders.py) - nếu không, mọi lần gõ tên/SĐT/
-                // xe... trước khi kịp điền mã hàng sẽ cứ bị server từ chối và
-                // bật alert liên tục mỗi lần chuyển ô.
-                const hasItem = rq.items.some(it =>
-                    (it.part_code && String(it.part_code).trim()) ||
-                    (it.part_name && String(it.part_name).trim()) ||
-                    (it.quantity && String(it.quantity).trim()) ||
-                    (it.order_type && String(it.order_type).trim()) ||
-                    it.order_date || it.expected_delivery_date || it.customer_call_date || it.actual_delivery_date
-                );
-                if (!rq.customer_name || !rq.customer_name.trim() || !hasItem) {
-                    renderDraft();
-                    return;
-                }
-                try {
-                    await createRequest(rq);
-                    draftRequest = makeDraft();
-                    renderDraft();
-                    currentPage = 1;
-                    loadOrders();
-                } catch (e) {
-                    renderDraft();
-                    alert(e.message);
-                }
-                return;
-            }
-
-            const prev = JSON.parse(JSON.stringify(rq));
-            renderRequestInPlace(rq);
-            const savingTd = document.querySelector(`#req-${cssId(rq.request_id)} [data-field="${field}"]${scope === 'item' ? `[data-item="${itemId}"]` : ''}`);
-            if (savingTd) savingTd.classList.add('saving');
-            try {
-                await persistRequest(rq);
-                await refreshRequest(rq.request_id);
-            } catch (e) {
-                requestsById[rq.request_id] = prev;
-                renderRequestInPlace(prev);
-                alert('Lỗi lưu: ' + e.message);
-            }
-        }
-
-        function cssId(v) { return String(v).replace(/([^a-zA-Z0-9_-])/g, '\\$1'); }
-
-        function buildPayload(rq) {
-            const header = {};
-            HEADER_FIELDS.forEach(f => { header[f] = rq[f] ?? ''; });
-            const items = rq.items.map(it => {
-                const o = {};
-                if (it.id !== null && it.id !== undefined) o.id = it.id;
-                ITEM_FIELDS.forEach(f => { o[f] = it[f] ?? ''; });
-                return o;
-            });
-            return { header, items };
-        }
-
-        async function persistRequest(rq) {
-            const payload = buildPayload(rq);
-            payload.request_id = rq.request_id;
-            const res = await fetch('/api/orders/save', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(payload),
-            });
-            const json = await res.json();
-            if (!res.ok || !json.success) throw new Error(json.error || 'Lỗi lưu dữ liệu');
-            return json;
-        }
-
-        async function createRequest(rq) {
-            const payload = buildPayload(rq);
-            if (ROLE === 'admin') payload.store_code = rq.store_code;
-            const res = await fetch('/api/orders/save', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(payload),
-            });
-            const json = await res.json();
-            if (!res.ok || !json.success) throw new Error(json.error || 'Lỗi lưu dữ liệu');
-            return json;
-        }
-
-        /* ---------- Thêm / xoá mặt hàng ngay trong dòng ---------- */
-        function blankItem() {
-            return {
-                id: null, status: STATUS_OPTIONS[0], part_code: '', part_name: '', quantity: '',
-                order_type: '', order_date: null, expected_delivery_date: null,
-                customer_call_date: null, actual_delivery_date: null,
-            };
-        }
-
-        function addItemRow(rid) {
-            const rq = rid === '__draft__' ? draftRequest : requestsById[rid];
-            if (!rq) return;
-            rq.items.push(blankItem());
-            renderCellOwner(rq);
-            const sel = `${rid === '__draft__' ? '#draftTbody' : '#req-' + cssId(rid)} tr:last-child td[data-field="part_code"]`;
-            const td = document.querySelector(sel);
-            if (td) beginEdit(td);
-        }
-
-        async function removeItemRow(rid, itemId) {
-            const rq = requestsById[rid];
-            if (!rq || rq.items.length <= 1) return;
-            if (!confirm('Xoá mặt hàng này khỏi đơn?')) return;
-            const prev = JSON.parse(JSON.stringify(rq));
-            rq.items = rq.items.filter(it => String(it.id ?? '') !== String(itemId ?? ''));
-            renderRequestInPlace(rq);
-            try {
-                await persistRequest(rq);
-                await refreshRequest(rid);
-            } catch (e) {
-                requestsById[rid] = prev;
-                renderRequestInPlace(prev);
-                alert('Lỗi xoá: ' + e.message);
-            }
-        }
-
-        async function deleteRequest(rid) {
-            const rq = requestsById[rid];
-            const n = rq ? rq.items.length : 0;
-            const label = rq ? `"${rq.customer_name}" (${n} mặt hàng)` : 'này';
-            if (!confirm(`Xoá toàn bộ đơn đặt hàng của khách ${label}?`)) return;
-            try {
-                const res = await fetch('/api/orders/delete', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ request_id: rid }),
-                });
-                const json = await res.json();
-                if (!res.ok || !json.success) throw new Error(json.error || 'Lỗi xoá');
-                delete requestsById[rid];
-                const el = document.getElementById('req-' + rid);
-                if (el) el.remove();
-            } catch (e) {
-                alert(e.message);
-            }
-        }
-
-        /* ---------- Dòng "Thêm đơn mới" ghim đầu bảng ---------- */
-        function makeDraft() {
-            return {
-                request_id: null,
-                store_code: STORE_LIST && STORE_LIST.length ? STORE_LIST[0] : '',
-                seq_no: null,
-                customer_name: '', customer_phone: '', vehicle_type: '', frame_number: '',
-                vehicle_color: '', vehicle_year: '', customer_request_date: null,
-                order_value: null, deposit_amount: null,
-                items: [blankItem()],
-            };
-        }
-
-        function renderDraft() {
-            document.getElementById('draftTbody').innerHTML = renderRequest({ ...draftRequest, request_id: '__draft__' });
-            const sttTd = document.querySelector('#draftTbody tr:first-child td.c1');
-            if (sttTd) {
-                sttTd.classList.remove('editable');
-                sttTd.removeAttribute('data-field');
-                sttTd.innerHTML = ROLE === 'admin'
-                    ? `<div class="draft-badge mb-1">+ Mới</div><select class="draft-store-select" onchange="draftRequest.store_code=this.value">` +
-                      STORE_LIST.map(s => `<option value="${escapeHtml(s)}" ${s === draftRequest.store_code ? 'selected' : ''}>${escapeHtml(s)}</option>`).join('') +
-                      `</select>`
-                    : `<div class="draft-badge">+ Mới</div>`;
-            }
-            const actTd = document.querySelector('#draftTbody tr:first-child td.c-act');
-            if (actTd) actTd.innerHTML = '';
-        }
-
-        /* ---------- Nhập từ Excel (admin) ---------- */
-        async function submitImport() {
-            const storeSel = document.getElementById('imp_store_code');
-            const fileInput = document.getElementById('imp_file');
-            const resultBox = document.getElementById('importResult');
-            const btn = document.getElementById('importSubmitBtn');
-            const replace = document.getElementById('imp_replace').checked;
-
-            if (!storeSel.value) {
-                resultBox.innerHTML = '<span class="text-danger">Vui lòng chọn chi nhánh.</span>';
-                return;
-            }
-            if (!fileInput.files.length) {
-                resultBox.innerHTML = '<span class="text-danger">Vui lòng chọn file Excel.</span>';
-                return;
-            }
-            if (replace && !confirm(`Sẽ XOÁ TOÀN BỘ đơn hiện có của chi nhánh ${storeSel.value} rồi nhập lại từ Excel. Tiếp tục?`)) return;
-
-            const fd = new FormData();
-            fd.append('store_code', storeSel.value);
-            fd.append('file', fileInput.files[0]);
-            if (replace) fd.append('replace', '1');
-
-            btn.disabled = true;
-            resultBox.innerHTML = '<span class="text-muted">Đang import, vui lòng đợi (file lớn có thể mất một chút thời gian)...</span>';
-
-            try {
-                const res = await fetch('/api/orders/import', { method: 'POST', body: fd });
-                const json = await res.json();
-                if (!res.ok || !json.success) throw new Error(json.error || 'Lỗi import');
-                let html = `<span class="text-success">Đã import thành công ${json.inserted} mặt hàng (${json.requests} đơn).</span>`;
-                if (json.skipped) {
-                    html += `<br><span class="text-warning">Bỏ qua ${json.skipped} dòng do thiếu Tên khách hàng` +
-                        (json.skipped_rows_excel && json.skipped_rows_excel.length ?
-                            ` (dòng Excel: ${json.skipped_rows_excel.join(', ')}${json.skipped > json.skipped_rows_excel.length ? '...' : ''})` : '') +
-                        `.</span>`;
-                }
-                resultBox.innerHTML = html;
-                currentPage = 1;
-                loadOrders();
-            } catch (e) {
-                resultBox.innerHTML = `<span class="text-danger">${escapeHtml(e.message)}</span>`;
-            } finally {
-                btn.disabled = false;
-            }
-        }
-    </script>
+/* ---------- Nhập từ Excel (admin) ---------- */
+async function submitImport() {
+  const store = $('imp_store_code'), file = $('imp_file'), box = $('importResult'), btn = $('importSubmitBtn'), replace = $('imp_replace').checked;
+  if (!store.value) { box.innerHTML = '<span class="text-danger">Vui lòng chọn chi nhánh.</span>'; return; }
+  if (!file.files.length) { box.innerHTML = '<span class="text-danger">Vui lòng chọn file Excel.</span>'; return; }
+  if (replace && !confirm(`Sẽ XOÁ TOÀN BỘ đơn hiện có của chi nhánh ${store.value} rồi nhập lại từ Excel. Tiếp tục?`)) return;
+  const fd = new FormData(); fd.append('store_code', store.value); fd.append('file', file.files[0]); if (replace) fd.append('replace', '1');
+  btn.disabled = true; box.innerHTML = '<span class="text-muted">Đang import, vui lòng đợi...</span>';
+  try {
+    const res = await fetch('/api/orders/import', { method: 'POST', body: fd }), json = await res.json();
+    if (!res.ok || !json.success) throw new Error(json.error || 'Lỗi import');
+    let h = `<span class="text-success">Đã import ${json.inserted} mặt hàng (${json.requests} đơn).</span>`;
+    if (json.skipped) h += `<br><span class="text-warning">Bỏ qua ${json.skipped} dòng thiếu Tên khách hàng.</span>`;
+    box.innerHTML = h; currentPage = 1; loadOrders();
+  } catch (e) { box.innerHTML = `<span class="text-danger">${esc(e.message)}</span>`; }
+  finally { btn.disabled = false; }
+}
+</script>
 </body>
 </html>

@@ -27,12 +27,13 @@ Nếu thiếu biến này, các route bên dưới sẽ trả lỗi rõ ràng ch
 bị crash lúc khởi động vì thiếu cấu hình CSDL phụ này.
 """
 import os
+import re
 import uuid
 from datetime import datetime
 
 from flask import Blueprint, request, jsonify, session, g, render_template, redirect, url_for
 import psycopg2
-from psycopg2 import pool as pg_pool
+from psycopg2 import pool as pg_pool, sql
 from psycopg2.extras import RealDictCursor, execute_values
 
 # Import lại vài hàm/hằng số dùng chung từ app.py chính. AN TOÀN vì
@@ -71,16 +72,17 @@ HEADER_DATE_FIELDS = ['customer_request_date']
 HEADER_NUMBER_FIELDS = ['order_value', 'deposit_amount']
 
 # Thông tin cấp MẶT HÀNG - mỗi mã hàng 1 dòng, có thể khác nhau trong cùng 1 yêu cầu.
-ITEM_TEXT_FIELDS = ['status', 'part_code', 'part_name', 'quantity', 'order_type']
+ITEM_TEXT_FIELDS = ['status', 'part_code', 'part_name', 'quantity', 'order_type', 'call_note', 'source', 'source_store']
 ITEM_DATE_FIELDS = ['order_date', 'expected_delivery_date', 'customer_call_date',
                     'actual_delivery_date']
-ITEM_NUMBER_FIELDS = []  # (tiền đã chuyển lên cấp đơn - xem HEADER_NUMBER_FIELDS)
+ITEM_NUMBER_FIELDS = ['unit_price']  # đơn giá bán của mã hàng (giá trị đơn = tổng đơn giá x SL)
+HEADER_BOOL_FIELDS = ['order_value_manual']  # True = người dùng tự sửa tổng, không tự tính lại
 
 # Độ dài tối đa theo schema (kiểm tra trước để báo lỗi rõ ràng thay vì lỗi 500)
 FIELD_LIMITS = {
     'customer_name': 255, 'customer_phone': 30, 'vehicle_type': 100, 'frame_number': 50,
     'vehicle_color': 50, 'vehicle_year': 50, 'status': 50, 'part_code': 100,
-    'quantity': 50, 'order_type': 100,
+    'quantity': 50, 'order_type': 100, 'source': 30, 'source_store': 20,
 }
 FIELD_LABELS = {
     'customer_name': 'Tên khách hàng', 'customer_phone': 'SĐT', 'vehicle_type': 'Loại xe',
@@ -94,7 +96,7 @@ LIST_COLUMNS = (
     'vehicle_type, frame_number, vehicle_color, vehicle_year, part_code, part_name, '
     'quantity, order_value, deposit_amount, order_date, order_type, '
     'customer_request_date, expected_delivery_date, customer_call_date, '
-    'actual_delivery_date, call_note'
+    'actual_delivery_date, call_note, unit_price, order_value_manual, source, source_store'
 )
 
 
@@ -210,6 +212,10 @@ def init_orders_tables():
             'vehicle_year VARCHAR(50)', # ĐỜI XE
             'quantity VARCHAR(50)',     # SL (giữ dạng text để không mất dữ liệu kiểu "2 bộ")
             'order_type VARCHAR(100)',  # LOẠI ĐƠN
+            'unit_price NUMERIC',       # ĐƠN GIÁ
+            'source VARCHAR(30)',       # NGUỒN HÀNG: 'Đặt hàng' | 'Xin nội bộ'
+            'source_store VARCHAR(20)',  # chi nhánh được xin tồn (khi xin nội bộ)
+            'order_value_manual BOOLEAN',
         ):
             cursor.execute(f'ALTER TABLE bo_orders ADD COLUMN IF NOT EXISTS {col_def}')
 
@@ -243,6 +249,8 @@ def init_orders_tables():
             WHERE b.seq_no IS NULL AND b.request_id = s.request_id AND b.store_code = s.store_code
         ''')
 
+        # Đơn cũ đã có Giá trị đơn (nhập tay/Excel) -> coi là nhập tay, không bị tự tính đè lên.
+        cursor.execute('UPDATE bo_orders SET order_value_manual = TRUE WHERE order_value_manual IS NULL AND order_value IS NOT NULL')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_bo_orders_store ON bo_orders(store_code)')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_bo_orders_status ON bo_orders(status)')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_bo_orders_part_code ON bo_orders(part_code)')
@@ -315,6 +323,8 @@ def _collect_header(data):
         values[f] = _parse_date(data.get(f))
     for f in HEADER_NUMBER_FIELDS:
         values[f] = _parse_number(data.get(f))
+    for f in HEADER_BOOL_FIELDS:
+        values[f] = bool(data.get(f))
     return values
 
 
@@ -331,7 +341,7 @@ def _collect_item(data):
 
 def _item_is_blank(values):
     """Mặt hàng mới hoàn toàn trống (chỉ có trạng thái mặc định) -> bỏ qua."""
-    for f in ['part_code', 'part_name', 'quantity', 'order_type'] + ITEM_DATE_FIELDS:
+    for f in ['part_code', 'part_name', 'quantity', 'order_type', 'unit_price', 'call_note'] + ITEM_DATE_FIELDS:
         if values.get(f) not in (None, ''):
             return False
     return True
@@ -344,15 +354,31 @@ def _item_to_dict(r):
         'part_code': r['part_code'],
         'part_name': r['part_name'],
         'quantity': r['quantity'],
-        'order_value': _num(r['order_value']),
-        'deposit_amount': _num(r['deposit_amount']),
+        'unit_price': _num(r['unit_price']),
         'order_date': _iso(r['order_date']),
         'order_type': r['order_type'],
         'expected_delivery_date': _iso(r['expected_delivery_date']),
         'customer_call_date': _iso(r['customer_call_date']),
         'actual_delivery_date': _iso(r['actual_delivery_date']),
         'call_note': r['call_note'],
+        'source': r['source'],
+        'source_store': r['source_store'],
     }
+
+
+def _qty_number(q):
+    m = re.search(r'\d+(?:[.,]\d+)?', str(q or ''))
+    return float(m.group().replace(',', '.')) if m else 1.0
+
+
+def _auto_total(items):
+    """Giá trị đơn = tổng (đơn giá x SL) của các mặt hàng có đơn giá; None nếu chưa mặt hàng nào có giá."""
+    total, found = 0.0, False
+    for _, v in items:
+        if v.get('unit_price') is not None:
+            total += float(v['unit_price']) * _qty_number(v.get('quantity'))
+            found = True
+    return round(total) if found else None
 
 
 def _rows_to_request(rid, items):
@@ -375,6 +401,7 @@ def _rows_to_request(rid, items):
         req[f] = first(f)
     req['order_value'] = _num(first('order_value'))
     req['deposit_amount'] = _num(first('deposit_amount'))
+    req['order_value_manual'] = bool(first('order_value_manual'))
     req['items'] = [_item_to_dict(it) for it in items]
     return req
 
@@ -539,6 +566,11 @@ def save_order():
     if not items:
         return jsonify({'error': 'Vui lòng nhập ít nhất 1 mặt hàng.'}), 400
 
+    if not header.get('order_value_manual'):
+        auto = _auto_total(items)
+        if auto is not None:
+            header['order_value'] = auto
+
     request_id = (data.get('request_id') or '').strip() or None
     now = vn_now()
     db = get_orders_db()
@@ -590,25 +622,28 @@ def save_order():
             cursor.execute('DELETE FROM bo_orders WHERE id = ANY(%s) AND request_id = %s', (removed, request_id))
 
         actor = _current_actor_name()
+        item_ids = []
         for item_id, values in items:
             row = {**header, **values, 'request_id': request_id, 'store_code': store_code,
                    'seq_no': seq_no, 'updated_at': now}
             if item_id is not None:
                 row['id'] = item_id
-                cols = HEADER_TEXT_FIELDS + HEADER_DATE_FIELDS + HEADER_NUMBER_FIELDS \
+                cols = HEADER_TEXT_FIELDS + HEADER_DATE_FIELDS + HEADER_NUMBER_FIELDS + HEADER_BOOL_FIELDS \
                     + ITEM_TEXT_FIELDS + ITEM_DATE_FIELDS + ITEM_NUMBER_FIELDS
                 set_clause = ', '.join(f'{c} = %({c})s' for c in cols)
                 cursor.execute(
                     f'UPDATE bo_orders SET {set_clause}, updated_at = %(updated_at)s '
                     f'WHERE id = %(id)s AND request_id = %(request_id)s', row)
+                item_ids.append(item_id)
             else:
                 row['created_by'] = actor
                 row['created_at'] = now
                 cols = ['request_id', 'store_code', 'seq_no'] + HEADER_TEXT_FIELDS + HEADER_DATE_FIELDS \
-                    + HEADER_NUMBER_FIELDS + ITEM_TEXT_FIELDS + ITEM_DATE_FIELDS + ITEM_NUMBER_FIELDS \
+                    + HEADER_NUMBER_FIELDS + HEADER_BOOL_FIELDS + ITEM_TEXT_FIELDS + ITEM_DATE_FIELDS + ITEM_NUMBER_FIELDS \
                     + ['created_by', 'created_at', 'updated_at']
                 cursor.execute(
-                    f'INSERT INTO bo_orders ({", ".join(cols)}) VALUES ({", ".join(f"%({c})s" for c in cols)})', row)
+                    f'INSERT INTO bo_orders ({", ".join(cols)}) VALUES ({", ".join(f"%({c})s" for c in cols)}) RETURNING id', row)
+                item_ids.append(cursor.fetchone()['id'])
         db.commit()
     except Exception as e:
         db.rollback()
@@ -616,7 +651,8 @@ def save_order():
         return jsonify({'error': f'Lỗi lưu dữ liệu: {e}'}), 500
     cursor.close()
 
-    return jsonify({'success': True, 'request_id': request_id, 'seq_no': seq_no})
+    return jsonify({'success': True, 'request_id': request_id, 'seq_no': seq_no,
+                    'item_ids': item_ids, 'order_value': header.get('order_value')})
 
 
 @orders_bp.route('/api/orders/import', methods=['POST'])
@@ -680,7 +716,7 @@ def import_orders_excel():
         'store_code', 'request_id', 'seq_no', 'status', 'customer_name', 'customer_address',
         'customer_phone', 'license_plate', 'frame_number', 'vehicle_type', 'vehicle_color',
         'vehicle_year', 'part_name', 'part_code', 'quantity', 'order_type',
-        'order_value', 'deposit_amount', 'po_code',
+        'order_value', 'deposit_amount', 'po_code', 'order_value_manual',
         'customer_request_date', 'order_date', 'expected_delivery_date',
         'actual_delivery_date', 'customer_call_date', 'call_note',
         'created_by', 'created_at', 'updated_at',
@@ -688,6 +724,8 @@ def import_orders_excel():
     try:
         if replace:
             cursor.execute('DELETE FROM bo_orders WHERE store_code = %s', (store_code,))
+        for row in rows:
+            row['order_value_manual'] = row.get('order_value') is not None
         values_list = [tuple(row.get(col) for col in insert_columns) for row in rows]
         execute_values(
             cursor,
@@ -740,3 +778,95 @@ def delete_order():
     if not deleted:
         return jsonify({'error': 'Không tìm thấy đơn (hoặc không thuộc cửa hàng của bạn).'}), 404
     return jsonify({'success': True, 'deleted_items': deleted})
+
+# ----------------------------------------------------------------------------
+# GỢI Ý MÃ HÀNG - tra CSDL CHÍNH: inventory_items (mã, tên) + part_prices (giá bán)
+# ----------------------------------------------------------------------------
+_NORM_SQL = "regexp_replace(upper(i.part_code), '[^A-Z0-9]', '', 'g')"
+
+
+def _price_number(v):
+    return float(v) if v is not None else None
+
+
+@orders_bp.route('/api/orders/parts', methods=['GET'])
+def suggest_parts():
+    if 'user' not in session:
+        return jsonify({'error': 'Unauthorized'}), 401
+    q = (request.args.get('q') or '').strip()[:60]
+    if len(q) < 2:
+        return jsonify({'success': True, 'data': []})
+    norm = re.sub(r'[^A-Za-z0-9]', '', q).upper()
+    try:
+        cur = get_main_db().cursor()
+        cur.execute(f'''
+            SELECT i.part_code AS code, MAX(i.part_name) AS name, MAX(pp.sale_price) AS price
+            FROM inventory_items i
+            LEFT JOIN part_prices pp ON pp.part_code = i.part_code
+            WHERE {_NORM_SQL} LIKE %s OR i.part_name ILIKE %s
+            GROUP BY i.part_code
+            ORDER BY ({_NORM_SQL} = %s) DESC,
+                     (i.part_code ILIKE %s) DESC, i.part_code
+            LIMIT 8
+        ''', (f'%{norm}%' if norm else '%', f'%{q}%', norm, f'{norm}%'))
+        rows = cur.fetchall()
+        cur.close()
+        return jsonify({'success': True, 'data': [
+            {'code': r['code'], 'name': r['name'], 'price': _price_number(r['price'])} for r in rows]})
+    except Exception as e:
+        try:
+            get_main_db().rollback()
+        except Exception:
+            pass
+        return jsonify({'success': True, 'data': [], 'note': f'Lỗi tra cứu: {e}'})
+
+
+@orders_bp.route('/api/orders/stock', methods=['GET'])
+def part_stock():
+    """Tồn kho theo chi nhánh của 1 mã hàng (để xin tồn nội bộ)."""
+    if 'user' not in session:
+        return jsonify({'error': 'Unauthorized'}), 401
+    code = (request.args.get('code') or '').strip()
+    if not code:
+        return jsonify({'success': True, 'data': []})
+    try:
+        cur = get_main_db().cursor()
+        cur.execute('SELECT store_code, SUM(quantity) AS qty FROM inventory_items WHERE part_code = %s '
+                    'GROUP BY store_code HAVING SUM(quantity) > 0 ORDER BY store_code', (code,))
+        rows = cur.fetchall()
+        cur.close()
+        return jsonify({'success': True, 'data': [{'store': r['store_code'], 'qty': float(r['qty'])} for r in rows]})
+    except Exception as e:
+        try:
+            get_main_db().rollback()
+        except Exception:
+            pass
+        return jsonify({'success': True, 'data': [], 'note': f'Lỗi tra cứu: {e}'})
+
+
+@orders_bp.route('/api/orders/parts/bulk', methods=['POST'])
+def parts_bulk():
+    """Tra nhiều mã hàng cùng lúc (dùng khi dán danh sách mã từ Excel). Khớp chính xác, bỏ qua dấu gạch/khoảng trắng."""
+    if 'user' not in session:
+        return jsonify({'error': 'Unauthorized'}), 401
+    raw = (request.json or {}).get('codes') or []
+    codes = list(dict.fromkeys(c for c in (re.sub(r'[^A-Za-z0-9]', '', str(x)).upper() for x in raw[:300]) if c))
+    if not codes:
+        return jsonify({'success': True, 'data': {}})
+    try:
+        cur = get_main_db().cursor()
+        cur.execute(f'''
+            SELECT i.part_code AS code, MAX(i.part_name) AS name, MAX(pp.sale_price) AS price
+            FROM inventory_items i LEFT JOIN part_prices pp ON pp.part_code = i.part_code
+            WHERE {_NORM_SQL} = ANY(%s) GROUP BY i.part_code
+        ''', (codes,))
+        rows = cur.fetchall()
+        cur.close()
+        out = {re.sub(r'[^A-Za-z0-9]', '', r['code']).upper(): {'code': r['code'], 'name': r['name'], 'price': _price_number(r['price'])} for r in rows}
+        return jsonify({'success': True, 'data': out})
+    except Exception as e:
+        try:
+            get_main_db().rollback()
+        except Exception:
+            pass
+        return jsonify({'success': True, 'data': {}, 'note': f'Lỗi tra cứu: {e}'})
