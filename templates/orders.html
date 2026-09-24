@@ -55,21 +55,31 @@ input.qe.late { color:#b91c1c; font-weight:800; } input.qe.bad { border-color:#d
 .sec { font-weight:800; font-size:.9rem; border-left:4px solid var(--brand); padding-left:.6rem; margin:1.1rem 0 .6rem; }
 .sec:first-child { margin-top:0; }
 .lb { font-size:.78rem; font-weight:700; color:var(--mut); margin-bottom:2px; }
-#edBody .form-control, #edBody .form-select, .tot-bar .form-control { font-size:.92rem; background:#dce9fd; border:1.5px solid #6fa0e6; box-shadow:inset 0 1px 2px rgba(15,23,42,.06); transition:background .12s,border-color .12s; }
-#edBody .form-control:hover, #edBody .form-select:hover, .tot-bar .form-control:hover { background:#cbe0fc; border-color:#4b82d6; }
+#edBody .form-control, #edBody .form-select, .tot-bar .form-control { font-size:.92rem; background:#cbe3ff; border:1.5px solid #4f93e3; box-shadow:inset 0 1px 2px rgba(15,23,42,.06); transition:background .12s,border-color .12s; }
+#edBody .form-control:hover, #edBody .form-select:hover, .tot-bar .form-control:hover { background:#b3d6fd; border-color:#2f78d6; }
 #edBody .form-control:focus, #edBody .form-select:focus, .tot-bar .form-control:focus { border-color:var(--brand); box-shadow:0 0 0 3px rgba(29,78,216,.3); background:#fff; }
 #edBody .is-bad { border-color:#dc2626 !important; box-shadow:0 0 0 3px rgba(220,38,38,.2) !important; }
 #edBody .form-control[readonly], #edBody .form-control:disabled { background:#f1f3f6; border-style:dashed; color:#6b7280; box-shadow:none; }
 #edBody .lb, .tot-bar .lb { text-transform:uppercase; letter-spacing:.02em; }
-.item-card { border:1px solid #b6c2d6; border-left:4px solid var(--brand); border-radius:8px; padding:.5rem .7rem .55rem; margin-bottom:.5rem; background:#f8faff; }
-.item-card:focus-within { background:#eef4ff; border-color:var(--brand); }
-.item-card .row.g-2 { --bs-gutter-y:.4rem; }
+.item-card { border:1px solid #a9c3e8; border-left:4px solid var(--brand); border-radius:8px; padding:.5rem .7rem .55rem; margin-bottom:.5rem; background:#eef6ff; }
+.item-card:focus-within { background:#e2eeff; border-color:var(--brand); }
 .item-card .lb { margin-bottom:1px; font-size:.72rem; }
 .item-card .form-control, .item-card .form-select { padding:.25rem .5rem; }
 .item-card .ic-head { margin-bottom:.3rem; }
 .ic-head { display:flex; justify-content:space-between; align-items:center; margin-bottom:.4rem; font-weight:700; font-size:.82rem; color:var(--mut); }
 .line-total { font-weight:800; text-align:right; padding:.4rem .2rem; font-variant-numeric:tabular-nums; }
 .tot-bar { background:#f1f5f9; border-top:2px solid var(--line); }
+/* ---- Mặt hàng: 1 hàng ngang, cuộn ngang nếu form hẹp ---- */
+.ic-row { display:flex; flex-wrap:nowrap; align-items:stretch; gap:.5rem; overflow-x:auto; padding-bottom:3px; }
+.ic-f { flex:0 0 auto; }
+.ic-f.grow { flex:1 1 150px; }
+.ic-f .stk { padding-top:.32rem; }
+/* ---- Modal tự co giãn theo màn hình + kéo tay để đổi kích thước ---- */
+.modal-dialog.resizable-dialog { width:min(96vw,1680px); max-width:96vw; margin:1.2rem auto; }
+.modal-dialog.resizable-dialog .modal-content { resize:both; overflow:hidden; display:flex; flex-direction:column; width:100%; height:min(88vh,920px); min-width:620px; min-height:420px; max-width:96vw; max-height:94vh; }
+.modal-dialog.resizable-dialog .modal-header, .modal-dialog.resizable-dialog .tot-bar { flex:0 0 auto; }
+.modal-dialog.resizable-dialog .modal-body { flex:1 1 auto; overflow:auto; }
+@media (max-width:700px) { .modal-dialog.resizable-dialog .modal-content { resize:none; } }
 .tag { font-size:.66rem; font-weight:700; background:#e2e8f0; border-radius:4px; padding:0 .35rem; margin-left:.3rem; }
 .lnk { border:0; background:none; color:var(--brand); font-size:.76rem; font-weight:600; text-decoration:underline; padding:0; }
 .ac { position:fixed; z-index:2000; display:none; background:#fff; border:1px solid #8fb4f5; border-radius:8px; box-shadow:0 10px 30px rgba(15,23,42,.3); max-height:300px; overflow:auto; font-size:.86rem; }
@@ -128,7 +138,7 @@ input.qe.late { color:#b91c1c; font-weight:800; } input.qe.bad { border-color:#d
 </div>
 
 <!-- Phiếu nhập / sửa đơn -->
-<div class="modal fade" id="edModal" data-bs-backdrop="static" tabindex="-1"><div class="modal-dialog modal-xl modal-dialog-scrollable"><div class="modal-content">
+<div class="modal fade" id="edModal" data-bs-backdrop="static" tabindex="-1"><div class="modal-dialog resizable-dialog"><div class="modal-content">
   <div class="modal-header"><h5 class="modal-title" id="edTitle">Thêm đơn mới</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
   <div class="modal-body" id="edBody"></div>
   <div class="tot-bar p-3">
@@ -355,18 +365,19 @@ const inp = (f, v, extra = '', cls = '') => `<input class="form-control ${cls}" 
 const dateInp = (f, v, i) => `<input class="form-control" data-f="${f}" data-t="date" ${i != null ? `data-i="${i}"` : ''} value="${fmtDate(v)}" placeholder="dd/mm/yyyy" autocomplete="off">`;
 function renderForm() {
   const c = cur, L = (t, h, w) => `<div class="col-md-${w}"><div class="lb">${t}</div>${h}</div>`, m0 = c.items[0];
+  const Lh = (t, h, w, grow) => `<div class="ic-f${grow ? ' grow' : ''}" style="${grow ? `flex-basis:${w}px;min-width:${w}px` : `flex-basis:${w}px;width:${w}px`}"><div class="lb">${t}</div>${h}</div>`;
   const mrgDate = f => `<input class="form-control" data-f="${f}" data-t="date" data-mrg="1" value="${fmtDate(m0[f])}" placeholder="dd/mm/yyyy" autocomplete="off">`;
   const items = c.items.map((it, i) => `<div class="item-card"><div class="ic-head"><span>Mặt hàng ${i + 1}</span>${c.items.length > 1 ? `<button type="button" tabindex="-1" class="ico danger" data-act="rm" data-i="${i}"><i class="bi bi-x-lg"></i></button>` : ''}</div>
-    <div class="row g-2">
-      ${L('Mã hàng', `<input class="form-control fw-bold" data-f="part_code" data-i="${i}" value="${esc(it.part_code)}" autocomplete="off" placeholder="Gõ mã hoặc tên để gợi ý">`, 3)}
-      ${L('Tên hàng', `<input class="form-control" data-f="part_name" data-i="${i}" value="${esc(it.part_name)}" autocomplete="off">`, 4)}
-      ${L('SL', `<input class="form-control text-center fw-bold" data-f="quantity" data-i="${i}" value="${esc(it.quantity)}" autocomplete="off">`, 1)}
-      ${L('Đơn giá', `<input class="form-control text-end" data-f="unit_price" data-t="money" data-i="${i}" value="${fmtMoney(it.unit_price)}" autocomplete="off">`, 2)}
-      ${L('Thành tiền', `<div class="line-total" id="lt-${i}">${fmtMoney(lineTotal(it)) || '—'}</div>`, 2)}
-      ${L('Nguồn hàng', `<select class="form-select" data-f="source" data-i="${i}">${SRC.map(x => `<option ${x === (it.source || SRC[0]) ? 'selected' : ''}>${x}</option>`).join('')}</select>`, 2)}
-      <div class="col-md-2 ${it.source === 'Xin nội bộ' ? '' : 'd-none'}" id="sf-${i}"><div class="lb">Xin từ chi nhánh</div><select class="form-select" data-f="source_store" data-i="${i}"><option value="">-- chọn --</option>${STORE_LIST.map(x => `<option ${x === it.source_store ? 'selected' : ''}>${esc(x)}</option>`).join('')}</select></div>
-      <div class="col"><div class="lb">Tồn các chi nhánh khác <span class="text-secondary fw-normal">(bấm để xin nội bộ)</span></div><div class="stk" id="stk-${i}"><span class="none">—</span></div></div>
-      ${L('Ghi chú', `<input class="form-control" data-f="call_note" data-i="${i}" value="${esc(it.call_note)}" placeholder="Ghi chú cho mặt hàng này" autocomplete="off">`, 7)}
+    <div class="ic-row">
+      ${Lh('Mã hàng', `<input class="form-control fw-bold" data-f="part_code" data-i="${i}" value="${esc(it.part_code)}" autocomplete="off" placeholder="Gõ mã hoặc tên để gợi ý">`, 150)}
+      ${Lh('Tên hàng', `<input class="form-control" data-f="part_name" data-i="${i}" value="${esc(it.part_name)}" autocomplete="off">`, 190, true)}
+      ${Lh('SL', `<input class="form-control text-center fw-bold" data-f="quantity" data-i="${i}" value="${esc(it.quantity)}" autocomplete="off">`, 60)}
+      ${Lh('Đơn giá', `<input class="form-control text-end" data-f="unit_price" data-t="money" data-i="${i}" value="${fmtMoney(it.unit_price)}" autocomplete="off">`, 105)}
+      ${Lh('Thành tiền', `<div class="line-total" id="lt-${i}">${fmtMoney(lineTotal(it)) || '—'}</div>`, 105)}
+      ${Lh('Nguồn hàng', `<select class="form-select" data-f="source" data-i="${i}">${SRC.map(x => `<option ${x === (it.source || SRC[0]) ? 'selected' : ''}>${x}</option>`).join('')}</select>`, 125)}
+      <div class="ic-f ${it.source === 'Xin nội bộ' ? '' : 'd-none'}" style="flex-basis:135px;width:135px" id="sf-${i}"><div class="lb">Xin từ chi nhánh</div><select class="form-select" data-f="source_store" data-i="${i}"><option value="">-- chọn --</option>${STORE_LIST.map(x => `<option ${x === it.source_store ? 'selected' : ''}>${esc(x)}</option>`).join('')}</select></div>
+      <div class="ic-f grow" style="flex-basis:170px;min-width:170px"><div class="lb">Tồn các chi nhánh khác <span class="text-secondary fw-normal">(bấm để xin nội bộ)</span></div><div class="stk" id="stk-${i}"><span class="none">—</span></div></div>
+      ${Lh('Ghi chú', `<input class="form-control" data-f="call_note" data-i="${i}" value="${esc(it.call_note)}" placeholder="Ghi chú" autocomplete="off">`, 130)}
     </div></div>`).join('');
   $('edBody').innerHTML = `<div class="sec">Khách hàng</div><div class="row g-2">
       ${ROLE === 'admin' && !c.request_id ? L('Chi nhánh', `<select class="form-select" data-f="store_code">${STORE_LIST.map(s => `<option ${s === c.store_code ? 'selected' : ''}>${esc(s)}</option>`).join('')}</select>`, 2) : ''}
