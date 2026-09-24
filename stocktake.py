@@ -680,19 +680,21 @@ def stocktake_count_delete(count_id):
 
 @stocktake_bp.route('/api/stocktake/<int:session_id>/sync-locations', methods=['POST'])
 def stocktake_sync_locations(session_id):
-    """ĐỒNG BỘ HÀNG LOẠT cột "Vị Trí Kho" của TẤT CẢ các mã ĐÃ ĐẾM trong
-    phiên này, lấy theo đúng vị trí ĐANG import (part_locations) hiện tại -
-    dùng khi trong lúc cửa hàng đang kiểm kê, kho có thay đổi/import lại vị
-    trí hàng loạt (vd sắp xếp lại kệ) SAU KHI 1 số mã đã được đếm, khiến
-    "Vị Trí Kho" ghi nhận lúc đếm (chụp tại thời điểm đó - xem
-    stocktake_count()) không còn khớp vị trí mới nhất.
+    """ĐỒNG BỘ vị trí từ NHẬT KÝ ĐẾM -> vị trí ĐÃ IMPORT (part_locations).
 
-    CHỈ áp dụng cho các mã hàng ĐÃ CÓ ít nhất 1 lượt đếm trong phiên (không
-    đụng tới các mã chưa đếm - chúng sẽ tự lấy đúng vị trí mới nhất khi được
-    đếm lần đầu). Ghi đè TOÀN BỘ area_note của các dòng log thuộc mã đó
-    trong phiên (kể cả những dòng đã được admin sửa tay riêng lẻ qua PUT
-    /api/stocktake/count/<id> trước đó) - vì mục đích của nút này chính là
-    "đặt lại theo đúng vị trí kho mới nhất", không phải merge."""
+    Chiều đồng bộ: log kiểm kê (stocktake_counts.area_note) GHI ĐÈ lên vị
+    trí đang import (part_locations.location_1/2/3) của cửa hàng trong phiên.
+    (Trước đây chiều ngược lại: part_locations ghi đè log - đã đổi theo yêu
+    cầu người dùng.)
+
+      - Mã hàng ĐÃ ĐẾM và có vị trí ở log  -> thay vị trí import bằng vị trí ở log.
+      - Mã hàng KHÔNG có trong log kiểm (hoặc dòng log để trống vị trí)
+        -> GIỮ NGUYÊN vị trí đang import, không đụng tới.
+
+    Nếu 1 mã có nhiều lượt đếm, lấy vị trí của lượt đếm GẦN NHẤT có vị trí.
+    Chuỗi area_note dạng "A, B, C" được tách theo dấu phẩy thành tối đa 3 ô
+    location_1/2/3 (phần dư nếu có hơn 3 vị trí được gộp vào location_3).
+    Chỉ ghi (và cập nhật updated_at/cache) khi vị trí thực sự thay đổi."""
     err = _require_admin()
     if err:
         return err
@@ -707,30 +709,66 @@ def stocktake_sync_locations(session_id):
         cursor.close()
         return jsonify({'error': 'Phiên kiểm kê đã chốt, không thể đồng bộ vị trí.'}), 400
 
-    cursor.execute('''
-        WITH counted_parts AS (
-            SELECT DISTINCT part_code FROM stocktake_counts WHERE session_id = %(sid)s
-        ),
-        locs AS (
-            SELECT cp.part_code,
-                   NULLIF(CONCAT_WS(', ', pl.location_1, pl.location_2, pl.location_3), '') AS combined
-            FROM counted_parts cp
-            LEFT JOIN part_locations pl ON pl.part_code = cp.part_code AND pl.store_code = %(store)s
+    cursor.execute(
+        """SELECT DISTINCT ON (part_code) part_code, area_note
+           FROM stocktake_counts
+           WHERE session_id = %s AND area_note IS NOT NULL AND BTRIM(area_note) <> ''
+           ORDER BY part_code, counted_at DESC, id DESC""",
+        (session_id,)
+    )
+    log_rows = cursor.fetchall()
+
+    cursor.execute(
+        "SELECT COUNT(DISTINCT part_code) AS c FROM stocktake_counts WHERE session_id = %s",
+        (session_id,)
+    )
+    counted_parts = cursor.fetchone()['c']
+
+    now = vn_now()
+    store_code = sess['store_code']
+    upsert_rows = []
+    for r in log_rows:
+        parts = [p.strip() for p in re.split(r'\s*,\s*', r['area_note']) if p.strip()]
+        if not parts:
+            continue
+        if len(parts) > 3:
+            parts = parts[:2] + [', '.join(parts[2:])]
+        parts = [p[:100] for p in parts] + [None] * (3 - len(parts))
+        upsert_rows.append((
+            store_code, r['part_code'], parts[0], parts[1], parts[2],
+            _current_actor_name(), now
+        ))
+
+    changed = 0
+    if upsert_rows:
+        # Chỉ UPDATE khi vị trí khác thật -> không làm bẩn updated_at/cache
+        # /api/locations cho các mã đã khớp sẵn.
+        changed_rows = execute_values(
+            cursor,
+            """INSERT INTO part_locations
+                   (store_code, part_code, location_1, location_2, location_3, updated_by, updated_at)
+               VALUES %s
+               ON CONFLICT (store_code, part_code) DO UPDATE SET
+                   location_1 = EXCLUDED.location_1,
+                   location_2 = EXCLUDED.location_2,
+                   location_3 = EXCLUDED.location_3,
+                   updated_by = EXCLUDED.updated_by,
+                   updated_at = EXCLUDED.updated_at
+               WHERE (part_locations.location_1, part_locations.location_2, part_locations.location_3)
+                     IS DISTINCT FROM (EXCLUDED.location_1, EXCLUDED.location_2, EXCLUDED.location_3)
+               RETURNING part_code""",
+            upsert_rows,
+            fetch=True
         )
-        UPDATE stocktake_counts c
-        SET area_note = locs.combined
-        FROM locs
-        WHERE c.session_id = %(sid)s AND c.part_code = locs.part_code
-        RETURNING c.part_code
-    ''', {'sid': session_id, 'store': sess['store_code']})
-    updated_rows = cursor.fetchall()
+        changed = len(changed_rows)
     db.commit()
     cursor.close()
 
     return jsonify({
         'success': True,
-        'updated_rows': len(updated_rows),
-        'updated_parts': len({r['part_code'] for r in updated_rows}),
+        'synced_parts': len(upsert_rows),          # mã có vị trí ở log -> đã đối chiếu/đồng bộ
+        'changed_parts': changed,                  # trong đó số mã vị trí import thực sự bị thay đổi
+        'kept_parts': max(counted_parts - len(upsert_rows), 0),  # mã đã đếm nhưng log không có vị trí -> giữ nguyên
     })
 
 

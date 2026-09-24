@@ -45,12 +45,39 @@
     #st-summary-pages .nav-link.active { background-color: var(--ns-blue) !important; color: #fff !important; border-color: var(--ns-blue); }
     tr.row-recount { background: #fff5f5; }
     tr.row-minor { background: #fffdf5; }
+
+    /* ===== Co giãn theo màn hình - giống index.html: khung .app-container
+       giãn 1400px -> 95vw (>=1400px) -> 97vw (>=1900px) thay vì .container
+       của Bootstrap bị chặn cứng theo từng nấc (max 1320px). ===== */
+    .app-container { max-width: 1400px; }
+    @media (min-width: 1400px) { .app-container { max-width: 95vw; } }
+    @media (min-width: 1900px) { .app-container { max-width: 97vw; } }
+
+    /* Bảng cuộn trong khung riêng, header dính; cao theo chiều cao màn hình */
+    .table-responsive { -webkit-overflow-scrolling: touch; }
+    .st-log-scroll { max-height: 60vh; }
+
+    /* Thanh phân trang số trang: 1 hàng cuộn ngang thay vì xuống dòng dài */
+    #st-summary-pages { flex-wrap: nowrap; overflow-x: auto; max-width: 100%; padding-bottom: 4px; gap: 4px; }
+    #st-summary-pages .nav-link { white-space: nowrap; }
+
+    @media (max-width: 768px) {
+        .container-fluid { padding-left: 10px !important; padding-right: 10px !important; }
+        .card-body { padding: 0.85rem; }
+        h4 { font-size: 1.1rem; }
+        .table { font-size: 0.8rem; }
+        .table thead th { font-size: 0.68rem; }
+        .btn-sm { padding: 0.3rem 0.55rem; }
+        .st-log-scroll { max-height: 55vh; }
+        #st-last-count-qty { width: 84px !important; }
+        .modal-dialog { margin: 0.5rem; }
+    }
 </style>
 </head>
 <body>
-<div class="container py-4">
-    <div class="d-flex justify-content-between align-items-center mb-3">
-        <h4 class="fw-bold mb-0" style="color: var(--ns-dark);"><i class="bi bi-clipboard-check" style="color: var(--ns-blue);"></i> Kiểm Kê Kho <span class="text-muted fw-normal fs-6">- Nam Sương Motor</span></h4>
+<div class="container-fluid app-container px-2 px-md-4 py-3 py-md-4">
+    <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
+        <h4 class="fw-bold mb-0" style="color: var(--ns-dark);"><i class="bi bi-clipboard-check" style="color: var(--ns-blue);"></i> Kiểm Kê Kho <span class="text-muted fw-normal fs-6 d-none d-sm-inline">- Nam Sương Motor</span></h4>
         <a href="/" class="btn btn-outline-secondary btn-sm"><i class="bi bi-arrow-left"></i> Về trang chính</a>
     </div>
 
@@ -76,7 +103,7 @@
     <!-- Nhập số đếm -->
     <div class="card shadow-sm mb-3" id="st-count-card" style="display:none;">
         <div class="card-body">
-            <div class="d-flex justify-content-between align-items-center mb-2">
+            <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-2">
                 <h6 class="fw-semibold mb-0">Nhập Số Đếm</h6>
                 <button type="button" class="btn btn-outline-secondary btn-sm" id="st-sound-toggle" onclick="toggleSound()"></button>
             </div>
@@ -85,7 +112,7 @@
                 <div class="col-4 col-md-3"><input type="number" id="st-count-qty" class="form-control" placeholder="Mặc định: 1" min="0" step="any"></div>
                 <div class="col-12 col-md-4"><button type="button" class="btn btn-success w-100" onclick="submitCount()"><i class="bi bi-check-lg"></i> Ghi Nhận</button></div>
             </div>
-            <div class="form-text mt-1">Scan xong là ghi nhận NGAY với số lượng mặc định 1, không cần bấm Enter lần 2. Nếu số lượng thực tế khác 1, sửa lại ở khung "Mã Vừa Kiểm" bên dưới sau khi scan. Vị trí kho được hệ thống TỰ ĐỘNG điền theo đúng vị trí đã import sẵn cho mã hàng đó - không cần gõ tay. Nếu kho vừa đổi vị trí hàng loạt trong lúc đang kiểm, dùng nút "Cập Nhật Vị Trí Kho" ở khung Nhật Ký Đếm bên dưới để đồng bộ lại các mã đã đếm.</div>
+            <div class="form-text mt-1">Scan xong là ghi nhận NGAY với số lượng mặc định 1, không cần bấm Enter lần 2. Nếu số lượng thực tế khác 1, sửa lại ở khung "Mã Vừa Kiểm" bên dưới sau khi scan. Vị trí kho được hệ thống TỰ ĐỘNG điền theo đúng vị trí đã import sẵn cho mã hàng đó - không cần gõ tay. Nếu vị trí thực tế khác vị trí import, sửa ở cột "Vị Trí Kho" của Nhật Ký Đếm rồi dùng nút "Cập Nhật Vị Trí Kho" bên dưới để đưa vị trí đó ngược lại vào dữ liệu vị trí kho.</div>
             <div id="st-count-msg" class="small mt-2"></div>
 
             <!-- Mã Vừa Kiểm - hiện ngay lượt scan gần nhất để sửa số lượng
@@ -99,7 +126,7 @@
                         <div><span class="part-code" id="st-last-count-part"></span> <span id="st-last-count-name" class="small text-muted"></span></div>
                         <div class="small text-muted mt-1">Vị trí kho: <span id="st-last-count-area">-</span> - Lúc <span id="st-last-count-time"></span></div>
                     </div>
-                    <div class="d-flex align-items-center gap-2">
+                    <div class="d-flex flex-wrap align-items-center gap-2">
                         <label class="small text-secondary mb-0">Số lượng:</label>
                         <input type="number" id="st-last-count-qty" class="form-control form-control-sm" style="width:100px;" min="0" step="any">
                         <button type="button" class="btn btn-primary btn-sm" onclick="updateLastCount()"><i class="bi bi-check-lg"></i> Cập nhật</button>
@@ -118,14 +145,14 @@
         <div class="card-body">
             <div class="d-flex flex-wrap justify-content-between align-items-center mb-2 gap-2">
                 <h6 class="fw-semibold mb-0"><i class="bi bi-journal-text"></i> Nhật Ký Đếm (lịch sử từng lần)</h6>
-                <div class="d-flex gap-2">
-                    <button type="button" class="btn btn-outline-primary btn-sm" onclick="syncLocations()" title="Đồng bộ lại cột Vị Trí Kho của các mã ĐÃ ĐẾM theo đúng vị trí đang import mới nhất - dùng khi kho vừa đổi/sắp xếp lại vị trí hàng loạt trong lúc đang kiểm kê."><i class="bi bi-arrow-repeat"></i> Cập Nhật Vị Trí Kho</button>
+                <div class="d-flex flex-wrap gap-2">
+                    <button type="button" class="btn btn-outline-primary btn-sm" onclick="syncLocations()" title="Lấy vị trí ở Nhật Ký Đếm thay thế vị trí kho đang import. Mã nào có trong log kiểm thì được cập nhật, mã nào không có thì giữ nguyên."><i class="bi bi-arrow-repeat"></i> Cập Nhật Vị Trí Kho</button>
                     <button type="button" class="btn btn-outline-secondary btn-sm" onclick="loadLog()"><i class="bi bi-arrow-clockwise"></i> Làm mới</button>
                 </div>
             </div>
-            <div class="small text-muted mb-2">Ghi lại đầy đủ từng lần quét/nhập số đếm - dùng bộ lọc bên dưới (mã hàng, vị trí) để tra cứu. Cột "Vị Trí Kho" tự động điền theo vị trí đã import sẵn lúc đếm - bấm vào để sửa tay nếu cần, hoặc dùng nút "Cập Nhật Vị Trí Kho" ở trên để đồng bộ hàng loạt các mã đã đếm theo vị trí mới nhất. Log này tự động xoá 5 ngày sau khi phiên được CHỐT, nên nhớ xuất Excel (sheet "Nhat Ky Dem") sớm nếu cần lưu lại lâu dài.</div>
+            <div class="small text-muted mb-2">Ghi lại đầy đủ từng lần quét/nhập số đếm - dùng bộ lọc bên dưới (mã hàng, vị trí) để tra cứu. Cột "Vị Trí Kho" tự động điền theo vị trí đã import sẵn lúc đếm - bấm vào để sửa tay nếu cần, rồi dùng nút "Cập Nhật Vị Trí Kho" ở trên để lấy vị trí trong log thay thế vị trí kho đang import (mã không có trong log giữ nguyên). Log này tự động xoá 5 ngày sau khi phiên được CHỐT, nên nhớ xuất Excel (sheet "Nhat Ky Dem") sớm nếu cần lưu lại lâu dài.</div>
             <div id="st-sync-locations-msg" class="small mb-2"></div>
-            <div class="table-responsive" style="max-height: 320px;">
+            <div class="table-responsive st-log-scroll">
                 <table class="table table-sm">
                     <thead class="table-light"><tr><th>Thời Gian Kiểm</th><th>Mã Hàng</th><th>Tên Hàng</th><th class="text-end">Số Lượng Đã Quét</th><th class="text-end">Thực Tế</th><th class="text-end">Tồn Sổ Sách</th><th>Tình Trạng</th><th>Vị Trí Kho</th><th></th></tr></thead>
                     <tbody id="st-log-body"></tbody>
@@ -140,7 +167,7 @@
         <div class="card-body">
             <div class="d-flex flex-wrap justify-content-between align-items-center mb-2 gap-2">
                 <h6 class="fw-semibold mb-0">Bảng Đối Chiếu</h6>
-                <div class="d-flex gap-2">
+                <div class="d-flex flex-wrap gap-2">
                     <button type="button" class="btn btn-outline-secondary btn-sm" onclick="loadSummary()"><i class="bi bi-arrow-clockwise"></i> Làm mới</button>
                     <input type="file" id="st-import-sales-file" accept=".xlsx,.xls" style="display:none" onchange="importSalesFile(this)">
                     <button type="button" class="btn btn-outline-primary btn-sm" onclick="document.getElementById('st-import-sales-file').click()"><i class="bi bi-upload"></i> Import Xuất Kho (Bán Ra)</button>
@@ -215,10 +242,10 @@
     <!-- Lịch sử -->
     <div class="card shadow-sm">
         <div class="card-body">
-            <div class="d-flex justify-content-between align-items-center mb-2">
+            <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-2">
                 <h6 class="fw-semibold mb-0">Lịch Sử Kiểm Kê</h6>
-                <div>
-                    <button type="button" class="btn btn-outline-success btn-sm me-1" onclick="exportHistory()" title="Xuất file Excel gồm danh sách phiên + sheet riêng Nhật Ký Đếm gộp của các phiên đang hiển thị"><i class="bi bi-file-earmark-excel"></i> Xuất Lịch Sử (Excel)</button>
+                <div class="d-flex flex-wrap gap-2">
+                    <button type="button" class="btn btn-outline-success btn-sm" onclick="exportHistory()" title="Xuất file Excel gồm danh sách phiên + sheet riêng Nhật Ký Đếm gộp của các phiên đang hiển thị"><i class="bi bi-file-earmark-excel"></i> Xuất Lịch Sử (Excel)</button>
                     <button type="button" class="btn btn-outline-danger btn-sm" onclick="purgeStoreData()"><i class="bi bi-trash3"></i> Xoá Dữ Liệu Kiểm Kê Cửa Hàng</button>
                 </div>
             </div>
@@ -234,7 +261,7 @@
 
 <!-- Modal Báo Phát Sinh -->
 <div class="modal fade" id="st-adj-modal" tabindex="-1">
-    <div class="modal-dialog">
+    <div class="modal-dialog modal-dialog-scrollable">
         <div class="modal-content">
             <div class="modal-header">
                 <h6 class="modal-title fw-semibold">Báo Phát Sinh Sau Khi Đếm - <span id="st-adj-part-code"></span></h6>
@@ -861,20 +888,19 @@
         loadLog();
     }
 
-    // "Cập Nhật Vị Trí Kho" hàng loạt - đồng bộ lại area_note của TẤT CẢ
-    // các mã ĐÃ ĐẾM trong phiên theo đúng vị trí đang import (part_locations)
-    // hiện tại. Dùng khi kho vừa đổi/sắp xếp lại vị trí hàng loạt trong lúc
-    // cửa hàng đang kiểm kê, khiến vị trí ghi nhận lúc đếm không còn khớp.
+    // "Cập Nhật Vị Trí Kho" - đồng bộ CHIỀU: Nhật Ký Đếm -> vị trí kho đang
+    // import (part_locations). Mã có vị trí trong log thì thay vị trí import
+    // bằng vị trí ở log; mã không có trong log kiểm thì giữ nguyên.
     async function syncLocations() {
         if (!currentSession) return;
         const msgEl = document.getElementById('st-sync-locations-msg');
-        if (!confirm('Đồng bộ lại Vị Trí Kho của TẤT CẢ các mã đã đếm trong phiên này theo đúng vị trí đang import mới nhất? Thao tác này sẽ GHI ĐÈ vị trí đang hiển thị (kể cả những dòng đã sửa tay riêng lẻ).')) return;
+        if (!confirm('Lấy Vị Trí Kho trong Nhật Ký Đếm để THAY THẾ vị trí kho đang import của các mã đã đếm? Mã nào không có trong log kiểm sẽ giữ nguyên vị trí cũ.')) return;
         msgEl.innerHTML = '<span class="text-muted">Đang đồng bộ...</span>';
         try {
             const res = await fetch(`/api/stocktake/${currentSession.id}/sync-locations`, { method: 'POST' });
             const result = await res.json();
             if (!res.ok || !result.success) { msgEl.innerHTML = `<span class="text-danger">Lỗi: ${result.error || 'Không đồng bộ được.'}</span>`; return; }
-            msgEl.innerHTML = `<span class="text-success">Đã cập nhật vị trí cho ${result.updated_parts} mã (${result.updated_rows} lượt đếm).</span>`;
+            msgEl.innerHTML = `<span class="text-success">Đã thay vị trí kho của ${result.changed_parts} mã theo log kiểm (${result.synced_parts} mã có vị trí trong log; ${result.kept_parts} mã đã đếm nhưng log không có vị trí nên giữ nguyên).</span>`;
             loadLog();
         } catch (e) {
             console.error(e);
