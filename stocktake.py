@@ -118,6 +118,11 @@ def init_stocktake_tables(cursor):
     ''')
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_stocktake_counts_session ON stocktake_counts(session_id, part_code)')
 
+    # Đánh dấu mã hàng KHÔNG có tồn ở cửa hàng lúc chụp tồn (T0) nhưng vẫn có
+    # trong danh mục hàng, được thêm vào phiên NGAY LÚC QUÉT (book_quantity =
+    # 0) - xem stocktake_count()/_resolve_catalog_part().
+    cursor.execute('ALTER TABLE stocktake_snapshot_items ADD COLUMN IF NOT EXISTS is_extra BOOLEAN NOT NULL DEFAULT FALSE')
+
     # Kết quả CUỐI khi chốt phiên - lưu vĩnh viễn để làm biên bản, tách khỏi
     # stocktake_counts (vốn có thể bị sửa lại nếu phiên được mở lại).
     cursor.execute('''
@@ -475,6 +480,47 @@ def _resolve_part_code(cursor, session_id, raw_code):
     return rows[0]['part_code'], None
 
 
+def _resolve_catalog_part(cursor, raw_code):
+    """Tra mã hàng trong DANH MỤC HÀNG toàn hệ thống (không chỉ tồn của 1
+    cửa hàng) - dùng khi mã quét KHÔNG có trong tồn kho chụp của phiên, để
+    phân biệt:
+      - mã CÓ trong danh mục nhưng cửa hàng không có tồn -> vẫn cho đếm
+        (hàng phát sinh ngoài sổ), FE phát âm cảnh báo "mã không tồn";
+      - mã KHÔNG có trong danh mục -> báo "Sai mã".
+    Danh mục = mã từng xuất hiện trong tồn kho admin đã import ở BẤT KỲ cửa
+    hàng nào (inventory_items), hoặc đã được gán vị trí (part_locations) -
+    cùng tiêu chí với /api/locations/save. So khớp không phân biệt hoa/
+    thường, bỏ qua "-" và khoảng trắng như _resolve_part_code().
+    Trả về (part_code, part_name, unit, error_message)."""
+    normalized = _PART_CODE_NORMALIZE_RE.sub('', raw_code or '').upper()
+    if not normalized:
+        return None, None, None, None
+    cursor.execute(
+        "SELECT DISTINCT ON (part_code) part_code, part_name, unit FROM inventory_items "
+        "WHERE UPPER(REGEXP_REPLACE(part_code, '[\\s-]+', '', 'g')) = %s "
+        "ORDER BY part_code, (part_name IS NULL)",
+        (normalized,)
+    )
+    rows = cursor.fetchall()
+    if not rows:
+        cursor.execute(
+            "SELECT DISTINCT part_code FROM part_locations "
+            "WHERE UPPER(REGEXP_REPLACE(part_code, '[\\s-]+', '', 'g')) = %s",
+            (normalized,)
+        )
+        rows = [{'part_code': r['part_code'], 'part_name': None, 'unit': None} for r in cursor.fetchall()]
+    if not rows:
+        return None, None, None, None
+    if len(rows) > 1:
+        return None, None, None, (
+            f'Mã "{raw_code}" khớp với nhiều hơn 1 mã hàng khác nhau trong danh '
+            'mục (chỉ khác dấu "-"/khoảng trắng/hoa-thường). Vui lòng gõ tay '
+            'chính xác mã cần đếm.'
+        )
+    r = rows[0]
+    return r['part_code'], r['part_name'], r['unit'], None
+
+
 def _lookup_imported_location(cursor, part_code, store_code):
     """Trả về chuỗi vị trí kệ hàng ĐÃ IMPORT sẵn (part_locations.location_1/
     2/3, xem app.py::import_locations_excel/save_location) cho 1 mã hàng
@@ -541,9 +587,40 @@ def stocktake_count():
     if resolve_err:
         cursor.close()
         return jsonify({'error': resolve_err}), 400
-    if not part_code:
-        cursor.close()
-        return jsonify({'error': f'Mã hàng "{raw_part_code}" không có trong tồn kho hệ thống của cửa hàng này.'}), 400
+
+    # 3 trường hợp:
+    #   1. Mã CÓ trong tồn kho chụp của phiên  -> đếm bình thường (nếu tồn sổ
+    #      sách <= 0 thì vẫn đếm nhưng cờ no_stock=True để FE báo "không tồn").
+    #   2. Mã KHÔNG có trong tồn cửa hàng nhưng CÓ trong danh mục hàng -> vẫn
+    #      cho đếm: thêm mã vào snapshot của phiên với tồn sổ sách = 0
+    #      (is_extra=TRUE) để Bảng Đối Chiếu/Nhật Ký/Xuất Excel/Chốt phiên
+    #      hiển thị bình thường (đếm được bao nhiêu = Dư bấy nhiêu). no_stock=True.
+    #   3. Mã KHÔNG có trong danh mục -> báo lỗi "Sai mã", không ghi nhận.
+    snap_name = None
+    no_stock = False
+    if part_code:
+        cursor.execute(
+            "SELECT part_name, book_quantity FROM stocktake_snapshot_items "
+            "WHERE session_id = %s AND part_code = %s",
+            (session_id, part_code)
+        )
+        snap = cursor.fetchone()
+        snap_name = snap['part_name'] if snap else None
+        no_stock = float((snap['book_quantity'] if snap else 0) or 0) <= 0
+    else:
+        cat_code, cat_name, cat_unit, cat_err = _resolve_catalog_part(cursor, raw_part_code)
+        if cat_err:
+            cursor.close()
+            return jsonify({'error': cat_err}), 400
+        if not cat_code:
+            cursor.close()
+            return jsonify({'error': f'Sai mã: "{raw_part_code}" không có trong danh mục hàng.'}), 400
+        cursor.execute(
+            "INSERT INTO stocktake_snapshot_items (session_id, part_code, part_name, unit, book_quantity, is_extra) "
+            "VALUES (%s, %s, %s, %s, 0, TRUE) ON CONFLICT (session_id, part_code) DO NOTHING",
+            (session_id, cat_code, cat_name, cat_unit)
+        )
+        part_code, snap_name, no_stock = cat_code, cat_name, True
 
     # "Vị Trí Kho" của lượt đếm này = vị trí ĐÃ IMPORT hiện tại cho đúng mã
     # hàng + cửa hàng của phiên (không còn gõ tay) - xem docstring hàm trên.
@@ -565,19 +642,15 @@ def stocktake_count():
     # FE dùng khối "count" này để hiển thị ngay khung "Mã Vừa Kiểm" (sửa
     # số lượng/xoá mà không cần đếm lại) - trước đây route này chỉ trả
     # {'success': True} nên khung đó không bao giờ hiện ra được.
-    cursor.execute(
-        "SELECT part_name FROM stocktake_snapshot_items WHERE session_id = %s AND part_code = %s",
-        (session_id, part_code)
-    )
-    name_row = cursor.fetchone()
     cursor.close()
-    return jsonify({'success': True, 'count': {
+    return jsonify({'success': True, 'no_stock': no_stock, 'count': {
         'id': new_row['id'],
         'part_code': part_code,
-        'part_name': name_row['part_name'] if name_row else None,
+        'part_name': snap_name,
         'quantity': quantity,
         'area_note': area_note,
         'counted_at': format_vi_datetime(new_row['counted_at']),
+        'no_stock': no_stock,
     }})
 
 
@@ -660,7 +733,7 @@ def stocktake_count_delete(count_id):
     db = get_db()
     cursor = db.cursor()
     cursor.execute(
-        "SELECT sc.id, ss.status FROM stocktake_counts sc "
+        "SELECT sc.id, sc.session_id, sc.part_code, ss.status FROM stocktake_counts sc "
         "JOIN stocktake_sessions ss ON ss.id = sc.session_id WHERE sc.id = %s",
         (count_id,)
     )
@@ -673,6 +746,16 @@ def stocktake_count_delete(count_id):
         return jsonify({'error': 'Phiên kiểm kê đã chốt, không thể xoá.'}), 400
 
     cursor.execute("DELETE FROM stocktake_counts WHERE id = %s", (count_id,))
+    # Mã phát sinh ngoài tồn (is_extra) chỉ tồn tại nhờ lượt đếm: nếu xoá
+    # lượt đếm cuối cùng của nó (và chưa có báo phát sinh nào) thì gỡ luôn
+    # khỏi phiên, tránh để lại 1 dòng "Chưa đếm" tồn 0 vô nghĩa trong bảng.
+    cursor.execute(
+        "DELETE FROM stocktake_snapshot_items s "
+        "WHERE s.session_id = %s AND s.part_code = %s AND s.is_extra = TRUE "
+        "AND NOT EXISTS (SELECT 1 FROM stocktake_counts c WHERE c.session_id = s.session_id AND c.part_code = s.part_code) "
+        "AND NOT EXISTS (SELECT 1 FROM stocktake_manual_adjustments m WHERE m.session_id = s.session_id AND m.part_code = s.part_code)",
+        (row['session_id'], row['part_code'])
+    )
     db.commit()
     cursor.close()
     return jsonify({'success': True})
@@ -1016,7 +1099,7 @@ def _fetch_summary_rows(cursor, session_id, store_code, cutoff_time, part_codes=
             SELECT part_code, STRING_AGG(DISTINCT NULLIF(TRIM(area_note), ''), ', ') AS area_list
             FROM stocktake_counts WHERE session_id = %(sid)s GROUP BY part_code
         )
-        SELECT s.part_code, s.part_name, s.unit, s.book_quantity,
+        SELECT s.part_code, s.part_name, s.unit, s.book_quantity, s.is_extra,
                COALESCE(r.qty, 0) AS received_qty,
                COALESCE(se.qty, 0) AS sent_qty,
                COALESCE(dm.qty, 0) AS damaged_qty,
@@ -1058,7 +1141,7 @@ def _build_summary(rows):
                 'part_code': r['part_code'], 'part_name': r['part_name'], 'unit': r['unit'],
                 'book_quantity': book, 'known_movement_qty': manual_qty, 'expected_quantity': book + manual_qty,
                 'counted_quantity': None, 'diff_quantity': None, 'has_manual_adjustment': has_manual,
-                'areas': areas, 'counted': False, 'status': 'not_counted',
+                'areas': areas, 'counted': False, 'status': 'not_counted', 'is_extra': bool(r['is_extra']),
             })
             continue
         movement = float(r['received_qty'] or 0) - float(r['sent_qty'] or 0) - float(r['damaged_qty'] or 0) + manual_qty
@@ -1079,7 +1162,7 @@ def _build_summary(rows):
             'part_code': r['part_code'], 'part_name': r['part_name'], 'unit': r['unit'],
             'book_quantity': book, 'known_movement_qty': movement, 'expected_quantity': expected,
             'counted_quantity': counted, 'diff_quantity': diff, 'has_manual_adjustment': has_manual,
-            'areas': areas, 'counted': True, 'status': status,
+            'areas': areas, 'counted': True, 'status': status, 'is_extra': bool(r['is_extra']),
         })
     return out
 
@@ -1524,6 +1607,7 @@ def stocktake_export(session_id):
             'Tồn Kỳ Vọng': r['expected_quantity'], 'Số Đếm Thực Tế': r['counted_quantity'],
             'Chênh Lệch': r['diff_quantity'],
             'Vị Trí Đã Đếm': ', '.join(area_map.get(r['part_code'], [])),
+            'Ghi Chú': 'Không có tồn' if float(r['book_quantity'] or 0) <= 0 and float(r['counted_quantity'] or 0) > 0 else '',
         } for r in rows]
     else:
         rows = _fetch_summary_rows(cursor, session_id, sess['store_code'], sess['cutoff_time'])
@@ -1541,6 +1625,7 @@ def stocktake_export(session_id):
             'Chênh Lệch': it['diff_quantity'] if it['counted'] else '',
             'Trạng Thái': status_label.get(it['status'], it['status']),
             'Vị Trí Đã Đếm': ', '.join(area_map.get(it['part_code'], [])),
+            'Ghi Chú': 'Không có tồn' if it['counted'] and it['book_quantity'] <= 0 else '',
         } for it in summary]
 
     log_out_rows = [{

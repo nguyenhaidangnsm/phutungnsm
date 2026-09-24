@@ -45,6 +45,13 @@
     #st-summary-pages .nav-link.active { background-color: var(--ns-blue) !important; color: #fff !important; border-color: var(--ns-blue); }
     tr.row-recount { background: #fff5f5; }
     tr.row-minor { background: #fffdf5; }
+    /* Nháy đỏ + rung ô Mã hàng khi scan sai (đi kèm còi báo động, xem playErrorAlarm()) */
+    @keyframes st-scan-error-anim {
+        0%, 100% { transform: translateX(0); background-color: #fff; }
+        15%, 55% { transform: translateX(-8px); background-color: #ffc9c9; }
+        35%, 75% { transform: translateX(8px); background-color: #ffc9c9; }
+    }
+    .st-scan-error { animation: st-scan-error-anim 0.6s ease-in-out 2; border-color: #dc3545 !important; box-shadow: 0 0 0 0.25rem rgba(220,53,69,0.35) !important; }
 
     /* ===== Co giãn theo màn hình - giống index.html: khung .app-container
        giãn 1400px -> 95vw (>=1400px) -> 97vw (>=1900px) thay vì .container
@@ -112,7 +119,7 @@
                 <div class="col-4 col-md-3"><input type="number" id="st-count-qty" class="form-control" placeholder="Mặc định: 1" min="0" step="any"></div>
                 <div class="col-12 col-md-4"><button type="button" class="btn btn-success w-100" onclick="submitCount()"><i class="bi bi-check-lg"></i> Ghi Nhận</button></div>
             </div>
-            <div class="form-text mt-1">Scan xong là ghi nhận NGAY với số lượng mặc định 1, không cần bấm Enter lần 2. Nếu số lượng thực tế khác 1, sửa lại ở khung "Mã Vừa Kiểm" bên dưới sau khi scan. Vị trí kho được hệ thống TỰ ĐỘNG điền theo đúng vị trí đã import sẵn cho mã hàng đó - không cần gõ tay. Nếu vị trí thực tế khác vị trí import, sửa ở cột "Vị Trí Kho" của Nhật Ký Đếm rồi dùng nút "Cập Nhật Vị Trí Kho" bên dưới để đưa vị trí đó ngược lại vào dữ liệu vị trí kho.</div>
+            <div class="form-text mt-1">Scan xong là ghi nhận NGAY với số lượng mặc định 1, không cần bấm Enter lần 2. Nếu số lượng thực tế khác 1, sửa lại ở khung "Mã Vừa Kiểm" bên dưới sau khi scan. Mã có trong danh mục hàng nhưng cửa hàng không có tồn vẫn được ghi nhận (tồn sổ sách = 0, đếm bao nhiêu tính Dư bấy nhiêu) kèm âm cảnh báo "Mã không tồn"; mã KHÔNG có trong danh mục sẽ báo còi "Sai mã" và không ghi nhận. Vị trí kho được hệ thống TỰ ĐỘNG điền theo đúng vị trí đã import sẵn cho mã hàng đó - không cần gõ tay. Nếu vị trí thực tế khác vị trí import, sửa ở cột "Vị Trí Kho" của Nhật Ký Đếm rồi dùng nút "Cập Nhật Vị Trí Kho" bên dưới để đưa vị trí đó ngược lại vào dữ liệu vị trí kho.</div>
             <div id="st-count-msg" class="small mt-2"></div>
 
             <!-- Mã Vừa Kiểm - hiện ngay lượt scan gần nhất để sửa số lượng
@@ -431,6 +438,7 @@
         if (!result.success) {
             msgEl.innerHTML = `<span class="text-danger">${result.error}</span>`;
             speakError();
+            flashScanError(partEl);
             // Mã hàng scan sai/không tồn tại - khôi phục lại đúng mã VỪA
             // scan vào ô (đã xoá ở trên trước khi gọi API) để người dùng
             // vẫn thấy mã bị lỗi, bôi đen sẵn để scan/gõ lại đè lên ngay.
@@ -439,8 +447,14 @@
             partEl.select();
             return;
         }
-        msgEl.innerHTML = '<span class="text-success">Đã ghi nhận.</span>';
-        speakSuccess();
+        if (result.no_stock) {
+            // Mã có trong danh mục nhưng cửa hàng không có tồn: vẫn đã ghi nhận.
+            msgEl.innerHTML = '<span class="text-warning-emphasis fw-semibold"><i class="bi bi-exclamation-triangle-fill text-warning"></i> Đã ghi nhận - CẢNH BÁO: mã này KHÔNG CÓ TỒN ở cửa hàng.</span>';
+            speakNoStock();
+        } else {
+            msgEl.innerHTML = '<span class="text-success">Đã ghi nhận.</span>';
+            speakSuccess();
+        }
         const store = document.getElementById('st-store').value;
         lastCountInfo = result.count;
         renderLastCountBox();
@@ -462,7 +476,9 @@
         document.getElementById('st-last-count-area').textContent = lastCountInfo.area_note || '-';
         document.getElementById('st-last-count-time').textContent = lastCountInfo.counted_at || '';
         document.getElementById('st-last-count-qty').value = lastCountInfo.quantity;
-        document.getElementById('st-last-count-msg').innerHTML = '';
+        document.getElementById('st-last-count-msg').innerHTML = lastCountInfo.no_stock
+            ? '<span class="text-warning-emphasis fw-semibold"><i class="bi bi-exclamation-triangle-fill text-warning"></i> Mã này không có tồn ở cửa hàng.</span>'
+            : '';
     }
 
     async function updateLastCount() {
@@ -620,7 +636,103 @@
         }
     }
     function speakSuccess() { speakText('Đã ghi nhận', _stBeepFallbackSuccess); }
-    function speakError() { speakText('Sai mã', _stBeepFallbackError); }
+
+    // CÒI BÁO ĐỘNG TO khi scan sai mã: sóng vuông (square) nghe chói/xuyên
+    // tiếng ồn kho hơn hẳn sóng sin, gain gần mức tối đa, 2 tần số cao/thấp
+    // luân phiên như còi xe ưu tiên, kéo dài ~1 giây. Phát NGAY và luôn phát
+    // (không phụ thuộc giọng đọc tiếng Việt), sau đó mới đọc "Sai mã" để
+    // biết rõ lý do. Vẫn tôn trọng nút "Âm báo: Tắt". Lưu ý: chỉ tăng được
+    // âm lượng trong trang - âm lượng THIẾT BỊ (điện thoại/máy tính) vẫn
+    // phải để đủ lớn.
+    function playErrorAlarm() {
+        const ctx = _stGetAudioCtx();
+        const t0 = ctx.currentTime;
+        const pulses = 6, pulseLen = 0.16;
+        // nén động để không bị vỡ tiếng khi gain lớn, giữ âm lượng đều
+        const comp = ctx.createDynamicsCompressor();
+        comp.connect(ctx.destination);
+        for (let i = 0; i < pulses; i++) {
+            const start = t0 + i * pulseLen;
+            const osc = ctx.createOscillator();
+            const gain = ctx.createGain();
+            osc.type = 'square';
+            osc.frequency.value = (i % 2 === 0) ? 1000 : 700;
+            gain.gain.setValueAtTime(0.0001, start);
+            gain.gain.exponentialRampToValueAtTime(0.9, start + 0.01);
+            gain.gain.setValueAtTime(0.9, start + pulseLen - 0.02);
+            gain.gain.exponentialRampToValueAtTime(0.0001, start + pulseLen);
+            osc.connect(gain);
+            gain.connect(comp);
+            osc.start(start);
+            osc.stop(start + pulseLen);
+        }
+        return pulses * pulseLen; // thời lượng còi (giây)
+    }
+    function speakError() {
+        if (!stSoundEnabled) return;
+        let alarmSec = 0;
+        try { alarmSec = playErrorAlarm(); } catch (e) { /* không có Web Audio - dùng giọng đọc bên dưới */ }
+        // Rung điện thoại (nếu hỗ trợ) - báo được cả khi tắt loa/ồn quá.
+        try { if (navigator.vibrate) navigator.vibrate([250, 100, 250, 100, 250]); } catch (e) { /* bỏ qua */ }
+        // Đọc "Sai mã" SAU khi còi dứt để hai âm không đè nhau.
+        setTimeout(() => speakText('Sai mã', () => {}), Math.round(alarmSec * 1000) + 50);
+    }
+
+    // ÂM CẢNH BÁO "MÃ KHÔNG TỒN": mã CÓ trong danh mục nhưng cửa hàng không
+    // có tồn -> vẫn ghi nhận, nhưng phát 3 tiếng "bùng" chậm, trầm, 1 tần số
+    // (sóng răng cưa) + đọc "Mã không tồn". Khác hẳn còi sai mã (còi hụ nhanh
+    // 2 tần số cao/thấp) để nghe là biết ngay đây là ghi nhận được nhưng cần
+    // để ý, không phải lỗi.
+    function playNoStockAlarm() {
+        const ctx = _stGetAudioCtx();
+        const t0 = ctx.currentTime;
+        const pulses = 3, on = 0.22, gap = 0.12;
+        const comp = ctx.createDynamicsCompressor();
+        comp.connect(ctx.destination);
+        for (let i = 0; i < pulses; i++) {
+            const start = t0 + i * (on + gap);
+            const osc = ctx.createOscillator();
+            const gain = ctx.createGain();
+            osc.type = 'sawtooth';
+            osc.frequency.value = 520;
+            gain.gain.setValueAtTime(0.0001, start);
+            gain.gain.exponentialRampToValueAtTime(0.8, start + 0.015);
+            gain.gain.setValueAtTime(0.8, start + on - 0.03);
+            gain.gain.exponentialRampToValueAtTime(0.0001, start + on);
+            osc.connect(gain);
+            gain.connect(comp);
+            osc.start(start);
+            osc.stop(start + on);
+        }
+        return pulses * (on + gap);
+    }
+    function speakNoStock() {
+        if (!stSoundEnabled) return;
+        let sec = 0;
+        try { sec = playNoStockAlarm(); } catch (e) { /* không có Web Audio - dùng giọng đọc bên dưới */ }
+        try { if (navigator.vibrate) navigator.vibrate([200, 100, 200]); } catch (e) { /* bỏ qua */ }
+        setTimeout(() => speakText('Mã không tồn', () => {}), Math.round(sec * 1000) + 50);
+    }
+
+    // Trình duyệt chặn phát âm thanh cho tới khi người dùng đã thao tác với
+    // trang - mở khoá sẵn AudioContext ở lần chạm/gõ phím ĐẦU TIÊN để còi
+    // báo lỗi lần đầu tiên (thường xảy ra ngay khi mới scan) không bị câm.
+    (function _stUnlockAudioOnFirstGesture() {
+        const unlock = () => {
+            try { _stGetAudioCtx(); } catch (e) { /* bỏ qua */ }
+            ['pointerdown', 'keydown', 'touchstart'].forEach(ev => document.removeEventListener(ev, unlock, true));
+        };
+        ['pointerdown', 'keydown', 'touchstart'].forEach(ev => document.addEventListener(ev, unlock, true));
+    })();
+
+    // Nháy đỏ + rung ô Mã hàng (gọi kèm speakError khi scan sai).
+    function flashScanError(inputEl) {
+        if (!inputEl) return;
+        inputEl.classList.remove('st-scan-error');
+        void inputEl.offsetWidth; // reset animation để scan sai liên tiếp vẫn nháy lại
+        inputEl.classList.add('st-scan-error');
+        setTimeout(() => inputEl.classList.remove('st-scan-error'), 1300);
+    }
 
     // ------------------------------------------------------------------
     // HỖ TRỢ MÁY SCAN TAY (USB/Bluetooth, giả lập bàn phím: gõ thẳng mã
@@ -764,7 +876,7 @@
         document.getElementById('st-summary-body').innerHTML = items.map(it => `
             <tr class="${it.status === 'shortage' ? 'row-recount' : (it.status === 'surplus' ? 'row-minor' : '')}">
                 <td><span class="part-code">${it.part_code}</span></td>
-                <td class="small">${it.part_name || ''} ${it.has_manual_adjustment ? '<i class="bi bi-info-circle-fill text-warning" title="Đã có báo phát sinh"></i>' : ''}</td>
+                <td class="small">${it.part_name || ''} ${(it.counted && it.book_quantity <= 0) ? '<span class="badge-status badge-minor" title="Mã có trong danh mục nhưng cửa hàng không có tồn sổ sách">Không tồn</span>' : ''} ${it.has_manual_adjustment ? '<i class="bi bi-info-circle-fill text-warning" title="Đã có báo phát sinh"></i>' : ''}</td>
                 <td>${areaChips(it.areas)}</td>
                 <td class="text-end">${fmt(it.book_quantity)}</td>
                 <td class="text-end">${it.counted ? fmt(it.known_movement_qty) : '-'}</td>
