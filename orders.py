@@ -61,7 +61,7 @@ ORDERS_DATABASE_URL = os.environ.get('ORDERS_DATABASE_URL')
 
 _orders_pool = None
 
-STATUS_OPTIONS = ['Chưa đặt', 'Đã đặt', 'Đang về', 'Đã về kho', 'Đã giao', 'Đã huỷ']
+STATUS_OPTIONS = ['Chưa đặt', 'Đã đặt', 'Đang về', 'Đã về kho', 'Đã gọi', 'Đã giao', 'Đã huỷ']
 
 # Thông tin cấp "YÊU CẦU ĐẶT" - chung cho mọi mặt hàng của 1 khách (mỗi dòng
 # bo_orders đều lưu bản sao, nhưng luôn sửa đồng loạt qua /api/orders/save).

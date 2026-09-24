@@ -37,7 +37,7 @@ tbody.req tr { cursor:pointer; } tbody.req tr:hover td { background:#e8f0ff; }
 .dv { font-size:.82rem; font-weight:600; font-variant-numeric:tabular-nums; } .dv.none { color:#94a3b8; font-weight:400; } .dv.late { color:#b91c1c; font-weight:800; }
 select.pillsel { appearance:none; -webkit-appearance:none; border:1px solid; border-radius:999px; font-weight:700; font-size:.76rem; padding:.2rem .6rem; width:100%; cursor:pointer; background-image:none; }
 .s0 { color:#92400e; background:#fef3c7; border-color:#f5c451; } .s1 { color:#1e40af; background:#dbeafe; border-color:#93b4f5; } .s2 { color:#6d28d9; background:#ede9fe; border-color:#c0aaf5; }
-.s3 { color:#0f766e; background:#ccfbf1; border-color:#6fd3c4; } .s4 { color:#166534; background:#dcfce7; border-color:#86d69f; } .s5 { color:#b91c1c; background:#fee2e2; border-color:#f3a0a0; }
+.s3 { color:#0f766e; background:#ccfbf1; border-color:#6fd3c4; } .s4 { color:#a16207; background:#fef9c3; border-color:#eab308; } .s5 { color:#166534; background:#dcfce7; border-color:#86d69f; } .s6 { color:#b91c1c; background:#fee2e2; border-color:#f3a0a0; }
 .money-big { font-weight:800; font-size:1rem; font-variant-numeric:tabular-nums; } .money-sub { color:var(--mut); font-size:.8rem; font-variant-numeric:tabular-nums; }
 .ico { border:1px solid #c5d0e2; background:#fff; color:var(--mut); width:30px; height:30px; border-radius:7px; } .ico:hover { background:#dbe8ff; color:var(--brand); } .ico.danger:hover { background:#fee2e2; color:#dc2626; }
 
@@ -164,9 +164,26 @@ input.qe.late { color:#b91c1c; font-weight:800; } input.qe.bad { border-color:#d
 const ROLE = "{{ role }}";
 const STATUS_OPTIONS = {{ status_options|tojson }};
 const STORE_LIST = {{ store_list|tojson }};
-const REFRESH_MS = 30000, PAGE_SIZE = 50, DONE = ['Đã về kho', 'Đã giao', 'Đã huỷ'];
+const REFRESH_MS = 30000, PAGE_SIZE = 50, DONE = ['Đã về kho', 'Đã gọi', 'Đã giao', 'Đã huỷ'];
 const HFIELDS = ['customer_name','customer_phone','customer_request_date','vehicle_type','frame_number','vehicle_color','vehicle_year','order_value','deposit_amount'];
 const IFIELDS = ['part_code','part_name','quantity','unit_price','status','order_type','order_date','expected_delivery_date','customer_call_date','actual_delivery_date','call_note','source','source_store'];
+const MERGEDFIELDS = ['status','order_type','order_date','expected_delivery_date','customer_call_date','actual_delivery_date'];   // giao/gọi/trạng thái dùng chung cho cả đơn -> 1 ô sửa, ghi vào mọi mặt hàng
+const DATEFIELDS = ['order_date','expected_delivery_date','customer_call_date','actual_delivery_date'];
+function mergedVals(rq) {   // mặt hàng mới thêm vào lấy theo giá trị chung hiện có của đơn (mặt hàng đầu tiên)
+  const src = rq.items[0], d = {}; if (src) MERGEDFIELDS.forEach(f => d[f] = src[f]); return d;
+}
+/* Trạng thái tự nhảy theo mốc ngày đã điền: có ngày đặt -> Đã đặt, có ngày PT về -> Đã về kho, có ngày gọi K/H -> Đã gọi, có ngày giao -> Đã giao.
+   Không tự đổi nếu đơn đang ở trạng thái Đã huỷ (huỷ là thao tác tay, không phụ thuộc ngày tháng). */
+const stFind = re => STATUS_OPTIONS.find(s => re.test(s));
+const ST_HUY = stFind(/hu[ỷy]/i), ST_GIAO = stFind(/giao/i), ST_GOI = stFind(/gọi/i), ST_VEKHO = stFind(/về\s*kho/i), ST_DADAT = stFind(/^đã\s*đặt/i);
+function autoStatus(it) {
+  if (ST_HUY && it.status === ST_HUY) return it.status;
+  if (ST_GIAO && it.actual_delivery_date) return ST_GIAO;
+  if (ST_GOI && it.customer_call_date) return ST_GOI;
+  if (ST_VEKHO && it.expected_delivery_date) return ST_VEKHO;
+  if (ST_DADAT && it.order_date) return ST_DADAT;
+  return STATUS_OPTIONS[0] || it.status;   // chưa có ngày nào -> Chưa đặt
+}
 const MY_STORE = "{{ store_code or '' }}", SRC = ['Đặt hàng', 'Xin nội bộ'];
 let pendingQuick = 0, currentPage = 1, byId = {}, lastSig = '', curStatus = '', cur = null, dirty = false, saving = false, edModal = null;
 const $ = id => document.getElementById(id);
@@ -210,15 +227,17 @@ function renderChips() {
   $('chips').innerHTML = ['', ...STATUS_OPTIONS].map(s => `<button class="chip ${s === curStatus ? 'on' : ''}" data-st="${esc(s)}">${s || 'Tất cả'}</button>`).join('');
 }
 function rowHtml(rq) {
-  const qd = (it, i, f, late) => `<input class="qe${late ? ' late' : ''}" data-rid="${esc(rq.request_id)}" data-i="${i}" data-f="${f}" data-t="date" value="${fmtDate(it[f])}" placeholder="—" autocomplete="off" title="${late ? 'Trễ hẹn' : ''}">`;
+  const N = rq.items.length, it0 = rq.items[0], late0 = isLate(it0), rs = ` style="grid-row:span ${N}"`;
+  const mqd = (f, late) => `<input class="qe merged${late ? ' late' : ''}" data-rid="${esc(rq.request_id)}" data-i="0" data-f="${f}" data-t="date" value="${fmtDate(it0[f])}" placeholder="—" autocomplete="off" title="${late ? 'Trễ hẹn' : ''}">`;
+  const merged = `<div class="first"${rs}><select class="pillsel merged ${stCls(it0.status)}" data-rid="${esc(rq.request_id)}" data-i="0">${STATUS_OPTIONS.map(s => `<option ${s === it0.status ? 'selected' : ''}>${esc(s)}</option>`).join('')}</select></div>`
+    + `<div class="first"${rs}><input class="qe merged" list="ot-list" data-rid="${esc(rq.request_id)}" data-i="0" data-f="order_type" value="${esc(it0.order_type)}" placeholder="—" autocomplete="off"></div>`
+    + `<div class="first"${rs}>${mqd('order_date')}</div><div class="first"${rs}>${mqd('expected_delivery_date', late0)}</div>`
+    + `<div class="first"${rs}>${mqd('customer_call_date')}</div><div class="first"${rs}>${mqd('actual_delivery_date')}</div>`;
   const items = rq.items.map((it, i) => {
-    const f = i === 0 ? ' first' : '', late = isLate(it), nb = it.source === 'Xin nội bộ';
+    const f = i === 0 ? ' first' : '', nb = it.source === 'Xin nội bộ';
     return `<div class="${f}">${it.part_code ? `<span class="code">${esc(it.part_code)}</span>` : '<span class="dv none">chưa có mã</span>'}${nb ? `<span class="src">NỘI BỘ${it.source_store ? ' ← ' + esc(it.source_store) : ''}</span>` : ''}<div class="pname">${esc(it.part_name)}</div></div>`
       + `<div class="qty${f}">${esc(it.quantity)}</div>`
-      + `<div class="${f}"><select class="pillsel ${stCls(it.status)}" data-rid="${esc(rq.request_id)}" data-i="${i}">${STATUS_OPTIONS.map(s => `<option ${s === it.status ? 'selected' : ''}>${esc(s)}</option>`).join('')}</select></div>`
-      + `<div class="${f}"><input class="qe" list="ot-list" data-rid="${esc(rq.request_id)}" data-i="${i}" data-f="order_type" value="${esc(it.order_type)}" placeholder="—" autocomplete="off"></div>`
-      + `<div class="${f}">${qd(it, i, 'order_date')}</div><div class="${f}">${qd(it, i, 'expected_delivery_date', late)}</div>`
-      + `<div class="${f}">${qd(it, i, 'customer_call_date')}</div><div class="${f}">${qd(it, i, 'actual_delivery_date')}</div>`
+      + (i === 0 ? merged : '')
       + `<div class="${f}"><input class="qe note" data-rid="${esc(rq.request_id)}" data-i="${i}" data-f="call_note" value="${esc(it.call_note)}" placeholder="Ghi chú..." autocomplete="off"></div>`;
   }).join('');
   const rest = rq.order_value != null && rq.deposit_amount != null ? rq.order_value - rq.deposit_amount : null;
@@ -235,10 +254,23 @@ function setMsg(html, cls) {
   $('ordersTable').insertAdjacentHTML('beforeend', `<tbody><tr><td colspan="6" class="text-center ${cls} py-4">${html}</td></tr></tbody>`); lastSig = '';
 }
 function renderRequests(list) {
-  byId = {}; if (!list.length) return setMsg('Không có đơn đặt hàng nào.', 'text-muted');
-  document.querySelectorAll('#ordersTable tbody').forEach(t => t.remove());
-  list.forEach(rq => byId[rq.request_id] = rq);
-  $('ordersTable').insertAdjacentHTML('beforeend', list.map(rowHtml).join(''));
+  if (!list.length) { byId = {}; return setMsg('Không có đơn đặt hàng nào.', 'text-muted'); }
+  document.querySelectorAll('#ordersTable tbody:not([id^="req-"])').forEach(t => t.remove());   // bỏ tbody thông báo/loading, giữ nguyên các đơn không đổi
+  const table = $('ordersTable'), seen = new Set(); let after = table.querySelector('thead');
+  list.forEach(rq => {
+    seen.add(rq.request_id);
+    const changed = !byId[rq.request_id] || JSON.stringify(byId[rq.request_id]) !== JSON.stringify(rq);
+    byId[rq.request_id] = rq;
+    let el = document.getElementById('req-' + rq.request_id);
+    if (changed || !el) {   // chỉ vẽ lại đúng đơn có thay đổi, các đơn khác giữ nguyên DOM (không "load lại cả trang")
+      const tpl = document.createElement('template'); tpl.innerHTML = rowHtml(rq); const fresh = tpl.content.firstElementChild;
+      if (el) el.replaceWith(fresh); el = fresh;
+    }
+    if (after.nextElementSibling !== el) after.insertAdjacentElement('afterend', el);   // đưa về đúng thứ tự nếu trang/lọc đổi
+    after = el;
+  });
+  document.querySelectorAll('#ordersTable tbody[id^="req-"]').forEach(t => { if (!seen.has(t.id.slice(4))) t.remove(); });
+  Object.keys(byId).forEach(rid => { if (!seen.has(rid)) delete byId[rid]; });
 }
 function updatePager(total, page, size) {
   const pages = Math.max(1, Math.ceil(total / size));
@@ -268,18 +300,34 @@ function quickSave(rq) {   // lưu nối tiếp từng đơn, không vẽ lại 
   });
 }
 function quickStatus(sel) {
-  const rq = byId[sel.dataset.rid]; if (!rq) return; const it = rq.items[+sel.dataset.i];
-  it.status = sel.value; sel.className = 'pillsel ' + stCls(it.status); refreshLate(rq); quickSave(rq);
+  const rq = byId[sel.dataset.rid]; if (!rq) return; const merged = sel.classList.contains('merged'), v = sel.value;
+  if (merged) rq.items.forEach(it => it.status = v); else rq.items[+sel.dataset.i].status = v;
+  sel.className = 'pillsel' + (merged ? ' merged' : '') + ' ' + stCls(v);
+  refreshLate(rq); quickSave(rq);
 }
-function refreshLate(rq) {
-  rq.items.forEach((it, i) => { const el = document.querySelector(`input.qe[data-rid="${rq.request_id}"][data-i="${i}"][data-f="expected_delivery_date"]`); if (el) el.classList.toggle('late', isLate(it)); });
+function refreshLate(rq) {   // Trạng thái & PT về đã gộp chung 1 ô/đơn -> chỉ 1 input đại diện cần cập nhật
+  const el = document.querySelector(`input.qe.merged[data-rid="${rq.request_id}"][data-f="expected_delivery_date"]`);
+  if (el) el.classList.toggle('late', isLate(rq.items[0]));
 }
 function quickEdit(el) {
-  const rq = byId[el.dataset.rid]; if (!rq) return; const it = rq.items[+el.dataset.i], f = el.dataset.f; let v;
+  const rq = byId[el.dataset.rid]; if (!rq) return; const f = el.dataset.f; let v;
   if (el.dataset.t === 'date') { v = parseDate(el.value); if (v === undefined) { el.classList.add('bad'); toast('Ngày không hợp lệ (vd 25/09/2026, 25/9, t).', true); return; } el.classList.remove('bad'); el.value = fmtDate(v); }
   else v = el.value.trim();
-  if ((it[f] ?? '') === (v ?? '')) return;
-  it[f] = v; if (f === 'expected_delivery_date') refreshLate(rq); quickSave(rq);
+  if (el.classList.contains('merged')) {   // Loại đơn / các mốc ngày: 1 ô dùng chung cho cả đơn -> ghi vào mọi mặt hàng
+    let changed = false; rq.items.forEach(it => { if ((it[f] ?? '') !== (v ?? '')) { it[f] = v; changed = true; } });
+    if (!changed) return;
+    if (DATEFIELDS.includes(f)) {
+      const ns = autoStatus(rq.items[0]);
+      if (ns !== rq.items[0].status) {
+        rq.items.forEach(it => it.status = ns);
+        const sel = document.querySelector(`select.pillsel.merged[data-rid="${esc(rq.request_id)}"]`);
+        if (sel) { sel.value = ns; sel.className = 'pillsel merged ' + stCls(ns); }
+      }
+    }
+    if (f === 'expected_delivery_date') refreshLate(rq); quickSave(rq); return;
+  }
+  const i = +el.dataset.i, it = rq.items[i];   // Ghi chú: vẫn giữ riêng từng mặt hàng
+  if ((it[f] ?? '') === (v ?? '')) return; it[f] = v; quickSave(rq);
 }
 async function deleteRequest(rid) {
   const rq = byId[rid]; if (!confirm(`Xoá toàn bộ đơn của khách "${rq ? rq.customer_name : ''}" (${rq ? rq.items.length : 0} mặt hàng)?`)) return;
@@ -299,7 +347,8 @@ $('edModal').addEventListener('hide.bs.modal', e => { if (dirty && !saving && !c
 const inp = (f, v, extra = '', cls = '') => `<input class="form-control ${cls}" data-f="${f}" value="${esc(v ?? '')}" autocomplete="off" ${extra}>`;
 const dateInp = (f, v, i) => `<input class="form-control" data-f="${f}" data-t="date" ${i != null ? `data-i="${i}"` : ''} value="${fmtDate(v)}" placeholder="dd/mm/yyyy" autocomplete="off">`;
 function renderForm() {
-  const c = cur, L = (t, h, w) => `<div class="col-md-${w}"><div class="lb">${t}</div>${h}</div>`;
+  const c = cur, L = (t, h, w) => `<div class="col-md-${w}"><div class="lb">${t}</div>${h}</div>`, m0 = c.items[0];
+  const mrgDate = f => `<input class="form-control" data-f="${f}" data-t="date" data-mrg="1" value="${fmtDate(m0[f])}" placeholder="dd/mm/yyyy" autocomplete="off">`;
   const items = c.items.map((it, i) => `<div class="item-card"><div class="ic-head"><span>Mặt hàng ${i + 1}</span>${c.items.length > 1 ? `<button type="button" tabindex="-1" class="ico danger" data-act="rm" data-i="${i}"><i class="bi bi-x-lg"></i></button>` : ''}</div>
     <div class="row g-2">
       ${L('Mã hàng', `<input class="form-control fw-bold" data-f="part_code" data-i="${i}" value="${esc(it.part_code)}" autocomplete="off" placeholder="Gõ mã hoặc tên để gợi ý">`, 3)}
@@ -307,10 +356,6 @@ function renderForm() {
       ${L('SL', `<input class="form-control text-center fw-bold" data-f="quantity" data-i="${i}" value="${esc(it.quantity)}" autocomplete="off">`, 1)}
       ${L('Đơn giá', `<input class="form-control text-end" data-f="unit_price" data-t="money" data-i="${i}" value="${fmtMoney(it.unit_price)}" autocomplete="off">`, 2)}
       ${L('Thành tiền', `<div class="line-total" id="lt-${i}">${fmtMoney(lineTotal(it)) || '—'}</div>`, 2)}
-      ${L('Trạng thái', `<select class="form-select" data-f="status" data-i="${i}">${STATUS_OPTIONS.map(s => `<option ${s === it.status ? 'selected' : ''}>${esc(s)}</option>`).join('')}</select>`, 2)}
-      ${L('Loại đơn', `<input class="form-control" data-f="order_type" data-i="${i}" value="${esc(it.order_type)}" placeholder="KHẨN, ĐỊNH KỲ..." autocomplete="off">`, 2)}
-      ${L('Ngày đặt / xin nội bộ', dateInp('order_date', it.order_date, i), 2)}${L('Ngày PT về', dateInp('expected_delivery_date', it.expected_delivery_date, i), 2)}
-      ${L('Ngày gọi K/H', dateInp('customer_call_date', it.customer_call_date, i), 2)}${L('Ngày giao PT', dateInp('actual_delivery_date', it.actual_delivery_date, i), 2)}
       ${L('Nguồn hàng', `<select class="form-select" data-f="source" data-i="${i}">${SRC.map(x => `<option ${x === (it.source || SRC[0]) ? 'selected' : ''}>${x}</option>`).join('')}</select>`, 2)}
       <div class="col-md-2 ${it.source === 'Xin nội bộ' ? '' : 'd-none'}" id="sf-${i}"><div class="lb">Xin từ chi nhánh</div><select class="form-select" data-f="source_store" data-i="${i}"><option value="">-- chọn --</option>${STORE_LIST.map(x => `<option ${x === it.source_store ? 'selected' : ''}>${esc(x)}</option>`).join('')}</select></div>
       <div class="col"><div class="lb">Tồn các chi nhánh khác <span class="text-secondary fw-normal">(bấm để xin nội bộ)</span></div><div class="stk" id="stk-${i}"><span class="none">—</span></div></div>
@@ -320,6 +365,11 @@ function renderForm() {
       ${ROLE === 'admin' && !c.request_id ? L('Chi nhánh', `<select class="form-select" data-f="store_code">${STORE_LIST.map(s => `<option ${s === c.store_code ? 'selected' : ''}>${esc(s)}</option>`).join('')}</select>`, 2) : ''}
       ${L('Ngày yêu cầu', dateInp('customer_request_date', c.customer_request_date), 2)}${L('Tên khách hàng *', inp('customer_name', c.customer_name, '', 'fw-bold'), 4)}${L('SĐT', inp('customer_phone', c.customer_phone), 3)}</div>
     <div class="sec">Xe</div><div class="row g-2">${L('Loại xe', inp('vehicle_type', c.vehicle_type), 3)}${L('Số khung', inp('frame_number', c.frame_number, '', 'text-uppercase'), 3)}${L('Màu', inp('vehicle_color', c.vehicle_color), 3)}${L('Đời xe', inp('vehicle_year', c.vehicle_year), 3)}</div>
+    <div class="sec">Trạng thái &amp; lịch hẹn <span class="tag">chung cho cả đơn</span></div><div class="row g-2">
+      ${L('Trạng thái', `<select class="form-select" data-f="status" data-mrg="1">${STATUS_OPTIONS.map(s => `<option ${s === m0.status ? 'selected' : ''}>${esc(s)}</option>`).join('')}</select>`, 2)}
+      ${L('Loại đơn', `<input class="form-control" data-f="order_type" data-mrg="1" value="${esc(m0.order_type)}" placeholder="KHẨN, ĐỊNH KỲ..." autocomplete="off">`, 2)}
+      ${L('Ngày đặt / xin nội bộ', mrgDate('order_date'), 2)}${L('Ngày PT về', mrgDate('expected_delivery_date'), 2)}
+      ${L('Ngày gọi K/H', mrgDate('customer_call_date'), 2)}${L('Ngày giao PT', mrgDate('actual_delivery_date'), 2)}</div>
     <div class="sec">Mặt hàng</div>${items}
     <button type="button" class="btn btn-outline-primary btn-sm" data-act="add"><i class="bi bi-plus-lg"></i> Thêm mặt hàng (Ctrl+Enter)</button>
     <button type="button" class="btn btn-outline-secondary btn-sm ms-2" data-act="paste"><i class="bi bi-clipboard-plus"></i> Dán danh sách mã từ Excel</button>
@@ -336,9 +386,21 @@ function recalc() {
   $('remain').textContent = c.order_value != null ? fmtMoney(c.order_value - (c.deposit_amount || 0)) : '—';
 }
 function syncField(el, final) {   // đọc 1 ô nhập vào cur
-  const f = el.dataset.f, t = el.dataset.t, tgt = el.dataset.i != null ? cur.items[+el.dataset.i] : cur; let v;
+  const f = el.dataset.f, t = el.dataset.t; let v;
   if (t === 'date') { v = parseDate(el.value); if (v === undefined) { el.classList.add('is-bad'); if (final) toast('Ngày không hợp lệ (vd 25/09/2026).', true); return false; } el.classList.remove('is-bad'); if (final && v) el.value = fmtDate(v); }
   else if (t === 'money') v = parseMoney(el.value); else v = el.value.trim();
+  if (el.dataset.mrg) {   // Trạng thái/Loại đơn/các mốc ngày: dùng chung cho cả đơn, ghi vào mọi mặt hàng
+    cur.items.forEach(it => it[f] = v);
+    if (DATEFIELDS.includes(f)) {
+      const ns = autoStatus(cur.items[0]);
+      if (ns !== cur.items[0].status) {
+        cur.items.forEach(it => it.status = ns);
+        const sel = $('edBody').querySelector('select[data-f="status"][data-mrg="1"]'); if (sel) sel.value = ns;
+      }
+    }
+    return true;
+  }
+  const tgt = el.dataset.i != null ? cur.items[+el.dataset.i] : cur;
   tgt[f] = v;
   if (f === 'order_value') cur.order_value_manual = v !== null && v !== autoTotal(cur);
   return true;
@@ -352,7 +414,8 @@ $('edBody').addEventListener('input', e => {
   recalc();
 });
 $('edBody').addEventListener('change', e => {
-  const el = e.target; if (!el.dataset.f) return; syncField(el, true);
+  const el = e.target; if (!el.dataset.f) return;
+  syncField(el, true);
   if (el.dataset.f === 'source') { $('sf-' + el.dataset.i).classList.toggle('d-none', el.value !== 'Xin nội bộ'); if (el.value === 'Xin nội bộ') loadStock(+el.dataset.i); }
   if (el.dataset.f === 'part_code') loadStock(+el.dataset.i);
   recalc();
@@ -394,9 +457,9 @@ async function importCodes(text) {
   const rows = parsePasted(text); if (!rows.length) { toast('Không đọc được mã hàng.', true); return; }
   syncAll(); let found = {};
   try { found = (await api('/api/orders/parts/bulk', { codes: rows.map(r => r.code) })).data || {}; } catch (e) { toast(e.message, true); }
-  const blanks = cur.items.filter(it => !itemFilled(it)); let miss = 0;
+  const blanks = cur.items.filter(it => !itemFilled(it)), cd = mergedVals(cur); let miss = 0;
   rows.forEach(r => {
-    const p = found[norm(r.code)]; let it = blanks.shift(); if (!it) { it = blankItem(); cur.items.push(it); }
+    const p = found[norm(r.code)]; let it = blanks.shift(); if (!it) { it = blankItem(); Object.assign(it, cd); cur.items.push(it); }
     it.part_code = p ? p.code : r.code; it.quantity = r.qty || '1';
     if (p) { if (p.name) it.part_name = p.name; if (p.price != null) it.unit_price = p.price; } else miss++;
   });
@@ -410,7 +473,7 @@ $('edBody').addEventListener('paste', e => {
   else if (el.dataset && el.dataset.f === 'part_code' && /[\r\n\t]/.test(t.trim())) { e.preventDefault(); importCodes(t); }
 });
 function addItem() {
-  syncAll(); cur.items.push(blankItem()); dirty = true; renderForm();
+  syncAll(); const nb = blankItem(); Object.assign(nb, mergedVals(cur)); cur.items.push(nb); dirty = true; renderForm();
   const f = $('edBody').querySelector(`[data-f="part_code"][data-i="${cur.items.length - 1}"]`); if (f) { f.scrollIntoView({ block: 'center' }); f.focus(); }
 }
 function syncAll() {   // ô Giá trị đơn đã được theo dõi trực tiếp khi gõ nên bỏ qua ở đây
@@ -494,6 +557,12 @@ async function acSettle(el) { if (AC.timer) { clearTimeout(AC.timer); AC.timer =
 $('edBody').addEventListener('focusout', e => { if (e.target.dataset && e.target.dataset.f === 'part_code') setTimeout(() => { if (document.activeElement !== e.target) acClose(); }, 120); });
 
 /* ---------- Sự kiện chung ---------- */
+document.addEventListener('keydown', e => {   // Ctrl+; (hoặc Cmd+;) tại bất kỳ ô ngày nào -> điền nhanh ngày hôm nay
+  if (!(e.ctrlKey || e.metaKey) || e.key !== ';') return;
+  const el = e.target; if (!el || !el.dataset || el.dataset.t !== 'date') return;
+  e.preventDefault(); el.value = fmtDate(todayISO());
+  el.dispatchEvent(new Event('input', { bubbles: true })); el.dispatchEvent(new Event('change', { bubbles: true }));
+});
 document.addEventListener('DOMContentLoaded', () => {
   renderChips(); loadOrders();
   $('chips').addEventListener('click', e => { const b = e.target.closest('[data-st]'); if (b) { curStatus = b.dataset.st; currentPage = 1; renderChips(); loadOrders(); } });
