@@ -38,8 +38,8 @@
     .badge-recount { background-color: #ffebe9; color: #cf222e; border: 1px solid rgba(207,34,46,0.2); }
     .badge-notcounted { background-color: #e8eaed; color: #495057; border: 1px solid rgba(73,80,87,0.2); }
     .area-chip { display: inline-block; padding: 2px 8px; border-radius: 6px; font-size: 0.74rem; font-weight: 600; background: #f1f5f9; color: #475569; border: 1px solid #e2e8f0; margin: 1px; white-space: nowrap; }
-    /* Vị trí ĐÃ IMPORT (part_locations) - tô màu khác area-chip (vị trí tự
-       ghi lúc đếm) để nhân viên phân biệt nhanh 2 nguồn khi đối chiếu. */
+    /* Vị Trí Kho trong Nhật Ký Đếm - tự động điền theo vị trí đã import,
+       bấm vào để sửa tay riêng lẻ (xem editLogLocation() trong script). */
     .loc-chip { display: inline-block; padding: 2px 8px; border-radius: 6px; font-size: 0.74rem; font-weight: 600; background: #eff6ff; color: #1d4ed8; border: 1px solid #bfdbfe; margin: 1px; white-space: nowrap; }
     #st-summary-pages .nav-link { border-radius: 8px; font-weight: 600; color: #475569; background: #f8fafc; border: 1px solid #e2e8f0; }
     #st-summary-pages .nav-link.active { background-color: var(--ns-blue) !important; color: #fff !important; border-color: var(--ns-blue); }
@@ -81,12 +81,11 @@
                 <button type="button" class="btn btn-outline-secondary btn-sm" id="st-sound-toggle" onclick="toggleSound()"></button>
             </div>
             <div class="row g-2">
-                <div class="col-6 col-md-3"><input type="text" id="st-count-part" class="form-control" placeholder="Mã hàng (scan hoặc gõ tay)" autocomplete="off"></div>
-                <div class="col-6 col-md-2"><input type="number" id="st-count-qty" class="form-control" placeholder="Mặc định: 1" min="0" step="any"></div>
-                <div class="col-6 col-md-3"><input type="text" id="st-count-area" class="form-control" placeholder="Vị trí (nhớ tự động cho lần sau)"></div>
-                <div class="col-6 col-md-2"><button type="button" class="btn btn-success w-100" onclick="submitCount()"><i class="bi bi-check-lg"></i> Ghi Nhận</button></div>
+                <div class="col-8 col-md-5"><input type="text" id="st-count-part" class="form-control" placeholder="Mã hàng (scan hoặc gõ tay)" autocomplete="off"></div>
+                <div class="col-4 col-md-3"><input type="number" id="st-count-qty" class="form-control" placeholder="Mặc định: 1" min="0" step="any"></div>
+                <div class="col-12 col-md-4"><button type="button" class="btn btn-success w-100" onclick="submitCount()"><i class="bi bi-check-lg"></i> Ghi Nhận</button></div>
             </div>
-            <div class="form-text mt-1">Scan xong là ghi nhận NGAY với số lượng mặc định 1, không cần bấm Enter lần 2. Nếu số lượng thực tế khác 1, sửa lại ở khung "Mã Vừa Kiểm" bên dưới sau khi scan. Ô Vị trí tự nhớ giá trị lần trước - chỉ cần gõ lại khi đổi sang vị trí mới.</div>
+            <div class="form-text mt-1">Scan xong là ghi nhận NGAY với số lượng mặc định 1, không cần bấm Enter lần 2. Nếu số lượng thực tế khác 1, sửa lại ở khung "Mã Vừa Kiểm" bên dưới sau khi scan. Vị trí kho được hệ thống TỰ ĐỘNG điền theo đúng vị trí đã import sẵn cho mã hàng đó - không cần gõ tay. Nếu kho vừa đổi vị trí hàng loạt trong lúc đang kiểm, dùng nút "Cập Nhật Vị Trí Kho" ở khung Nhật Ký Đếm bên dưới để đồng bộ lại các mã đã đếm.</div>
             <div id="st-count-msg" class="small mt-2"></div>
 
             <!-- Mã Vừa Kiểm - hiện ngay lượt scan gần nhất để sửa số lượng
@@ -98,7 +97,7 @@
                     <div>
                         <div class="small text-muted mb-1">Mã Vừa Kiểm</div>
                         <div><span class="part-code" id="st-last-count-part"></span> <span id="st-last-count-name" class="small text-muted"></span></div>
-                        <div class="small text-muted mt-1">Vị trí: <span id="st-last-count-area">-</span> - Lúc <span id="st-last-count-time"></span></div>
+                        <div class="small text-muted mt-1">Vị trí kho: <span id="st-last-count-area">-</span> - Lúc <span id="st-last-count-time"></span></div>
                     </div>
                     <div class="d-flex align-items-center gap-2">
                         <label class="small text-secondary mb-0">Số lượng:</label>
@@ -117,14 +116,18 @@
          (có sheet riêng "Nhat Ky Dem" trong file xuất). -->
     <div class="card shadow-sm mb-3" id="st-log-card" style="display:none;">
         <div class="card-body">
-            <div class="d-flex justify-content-between align-items-center mb-2">
+            <div class="d-flex flex-wrap justify-content-between align-items-center mb-2 gap-2">
                 <h6 class="fw-semibold mb-0"><i class="bi bi-journal-text"></i> Nhật Ký Đếm (lịch sử từng lần)</h6>
-                <button type="button" class="btn btn-outline-secondary btn-sm" onclick="loadLog()"><i class="bi bi-arrow-clockwise"></i> Làm mới</button>
+                <div class="d-flex gap-2">
+                    <button type="button" class="btn btn-outline-primary btn-sm" onclick="syncLocations()" title="Đồng bộ lại cột Vị Trí Kho của các mã ĐÃ ĐẾM theo đúng vị trí đang import mới nhất - dùng khi kho vừa đổi/sắp xếp lại vị trí hàng loạt trong lúc đang kiểm kê."><i class="bi bi-arrow-repeat"></i> Cập Nhật Vị Trí Kho</button>
+                    <button type="button" class="btn btn-outline-secondary btn-sm" onclick="loadLog()"><i class="bi bi-arrow-clockwise"></i> Làm mới</button>
+                </div>
             </div>
-            <div class="small text-muted mb-2">Ghi lại đầy đủ từng lần quét/nhập số đếm - dùng bộ lọc bên dưới (mã hàng, vị trí) để tra cứu. Cột "Vị Trí Import" là vị trí kệ hàng đã được import sẵn trong hệ thống (mục Vị Trí Kệ Hàng) - so với cột "Vị Trí" (nơi nhân viên tự ghi lúc đếm) để phát hiện lệch vị trí. Log này tự động xoá 5 ngày sau khi phiên được CHỐT, nên nhớ xuất Excel (sheet "Nhat Ky Dem") sớm nếu cần lưu lại lâu dài.</div>
+            <div class="small text-muted mb-2">Ghi lại đầy đủ từng lần quét/nhập số đếm - dùng bộ lọc bên dưới (mã hàng, vị trí) để tra cứu. Cột "Vị Trí Kho" tự động điền theo vị trí đã import sẵn lúc đếm - bấm vào để sửa tay nếu cần, hoặc dùng nút "Cập Nhật Vị Trí Kho" ở trên để đồng bộ hàng loạt các mã đã đếm theo vị trí mới nhất. Log này tự động xoá 5 ngày sau khi phiên được CHỐT, nên nhớ xuất Excel (sheet "Nhat Ky Dem") sớm nếu cần lưu lại lâu dài.</div>
+            <div id="st-sync-locations-msg" class="small mb-2"></div>
             <div class="table-responsive" style="max-height: 320px;">
                 <table class="table table-sm">
-                    <thead class="table-light"><tr><th>Thời Gian</th><th>Mã Hàng</th><th>Tên Hàng</th><th class="text-end">Số Lượng</th><th>Vị Trí</th><th>Vị Trí Trước Đó</th><th>Vị Trí Import</th><th class="text-end">Tổng Đã Quét (Mã Này)</th><th>Thừa/Thiếu/Đủ</th><th>Người Đếm</th><th></th></tr></thead>
+                    <thead class="table-light"><tr><th>Thời Gian Kiểm</th><th>Mã Hàng</th><th>Tên Hàng</th><th class="text-end">Số Lượng Đã Quét</th><th class="text-end">Thực Tế</th><th class="text-end">Tồn Sổ Sách</th><th>Tình Trạng</th><th>Vị Trí Kho</th><th></th></tr></thead>
                     <tbody id="st-log-body"></tbody>
                 </table>
             </div>
@@ -296,15 +299,6 @@
             // dưới) - vì loadSummary() phải quét lại TOÀN BỘ tồn kho cửa
             // hàng (có thể vài nghìn mã), chạy lại sau MỖI lượt quét là
             // nguyên nhân chính khiến "lưu xong vẫn chậm".
-            // Vị trí đếm: tự điền lại giá trị lần gần nhất đã dùng cho CỬA
-            // HÀNG này (nhớ theo localStorage, riêng từng cửa hàng) - chỉ
-            // điền khi ô đang trống, để không ghi đè vị trí người dùng vừa
-            // gõ dở nếu hàm này được gọi lại (vd sau khi ghi nhận 1 lượt đếm).
-            const areaEl = document.getElementById('st-count-area');
-            if (!areaEl.value) {
-                const remembered = localStorage.getItem(`st_last_area_${store}`);
-                if (remembered) areaEl.value = remembered;
-            }
             // Focus sẵn ô Mã hàng để scan được ngay, không cần bấm chuột vào
             // ô trước - áp dụng cả lần đầu mở phiên lẫn mỗi lần đổi cửa hàng.
             document.getElementById('st-count-part').focus();
@@ -388,7 +382,6 @@
         // ở khung "Mã Vừa Kiểm" ngay sau khi scan.
         const qtyRaw = document.getElementById('st-count-qty').value;
         const quantity = qtyRaw === '' ? '1' : qtyRaw;
-        const area_note = document.getElementById('st-count-area').value.trim();
         const msgEl = document.getElementById('st-count-msg');
         if (!currentSession || !part_code) { msgEl.innerHTML = '<span class="text-danger">Vui lòng nhập mã hàng.</span>'; return; }
 
@@ -405,7 +398,7 @@
 
         const res = await fetch('/api/stocktake/count', {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ session_id: currentSession.id, part_code, quantity, area_note })
+            body: JSON.stringify({ session_id: currentSession.id, part_code, quantity })
         });
         const result = await res.json();
         if (!result.success) {
@@ -421,12 +414,7 @@
         }
         msgEl.innerHTML = '<span class="text-success">Đã ghi nhận.</span>';
         speakSuccess();
-        // Ô Vị trí CỐ Ý không bị xoá sau khi ghi nhận - nhân viên thường đếm
-        // liên tục nhiều mã cùng 1 vị trí, chỉ cần gõ lại khi CHUYỂN sang vị
-        // trí khác. Đồng thời nhớ giá trị này cho CỬA HÀNG hiện tại để lần
-        // mở lại phiên/tải lại trang sau vẫn tự điền sẵn.
         const store = document.getElementById('st-store').value;
-        if (area_note) localStorage.setItem(`st_last_area_${store}`, area_note);
         lastCountInfo = result.count;
         renderLastCountBox();
         partEl.focus();
@@ -819,30 +807,79 @@
         logDebounceTimer = setTimeout(loadLog, 350);
     }
 
+    // Tách chuỗi "Thứ Tư, 23/09/2026 14:02" (format_vi_datetime ở BE) thành
+    // 2 dòng hiển thị: dòng trên "Thứ Tư, 14:02" (đậm), dòng dưới
+    // "23/09/2026" (nhạt, nhỏ hơn) - theo yêu cầu "Thứ và giờ ở trên, ngày
+    // ở dưới". Nếu không khớp đúng định dạng mong đợi (hiếm, phòng hờ),
+    // hiển thị nguyên chuỗi gốc trên 1 dòng để không mất thông tin.
+    function renderCountedAtTwoLine(s) {
+        if (!s) return '';
+        const m = /^(.*?),\s*(\d{2}\/\d{2}\/\d{4})\s+(\d{2}:\d{2})$/.exec(s);
+        if (!m) return `<div class="small">${s}</div>`;
+        const [, weekday, date, time] = m;
+        return `<div class="small fw-semibold">${weekday}, ${time}</div><div class="text-muted" style="font-size:0.72rem;">${date}</div>`;
+    }
+
     function renderLogRows() {
         document.getElementById('st-log-body').innerHTML = logRowsRaw.map(r => `
             <tr>
-                <td class="small">${r.counted_at}</td>
+                <td class="small">${renderCountedAtTwoLine(r.counted_at)}</td>
                 <td><span class="part-code">${r.part_code}</span></td>
                 <td class="small">${r.part_name || ''}</td>
                 <td class="text-end fw-semibold">${fmt(r.counted_quantity)}</td>
-                <td class="small">${r.area_note ? `<span class="area-chip">${r.area_note}</span>` : '-'}</td>
-                <td class="small">${r.prev_area_note ? areaChips(r.prev_area_note) : '<span class="text-muted">-</span>'}</td>
-                <td class="small">${r.imported_location ? r.imported_location.split(',').map(a => a.trim()).filter(Boolean).map(a => `<span class="loc-chip">${a}</span>`).join(' ') : '<span class="text-muted">-</span>'}</td>
-                <td class="text-end">${fmt(r.running_total)}</td>
+                <td class="text-end fw-semibold">${fmt(r.running_total)}</td>
+                <td class="text-end">${fmt(r.book_quantity)}</td>
                 <td>${r.vs_expected_status ? statusBadge(r.vs_expected_status) : '<span class="text-muted small">-</span>'}</td>
-                <td class="small">${r.counted_by || ''}</td>
+                <td class="small">
+                    <span class="loc-chip" style="cursor:pointer;" title="Bấm để sửa vị trí kho của riêng lượt đếm này" onclick="editLogLocation(${r.id}, '${(r.area_note || '').replace(/'/g, "\\'")}')">${r.area_note || '<span class="text-muted">- (chưa có vị trí import)</span>'}</span>
+                </td>
                 <td class="text-nowrap">
                     <button type="button" class="btn btn-outline-secondary btn-sm py-0 px-1" title="Sửa số lượng lượt này" onclick="editLogEntry(${r.id}, ${r.counted_quantity})"><i class="bi bi-pencil"></i></button>
                     <button type="button" class="btn btn-outline-danger btn-sm py-0 px-1" title="Xoá lượt đếm này" onclick="deleteLogEntry(${r.id}, '${r.part_code}')"><i class="bi bi-trash3"></i></button>
                 </td>
             </tr>
-        `).join('') || '<tr><td colspan="11" class="text-center text-muted py-3">Không có lượt đếm nào khớp bộ lọc.</td></tr>';
+        `).join('') || '<tr><td colspan="9" class="text-center text-muted py-3">Không có lượt đếm nào khớp bộ lọc.</td></tr>';
 
         const noteEl = document.getElementById('st-log-note');
         noteEl.textContent = logTotalMatching > logRowsRaw.length
             ? `Đang hiển thị ${logRowsRaw.length}/${logTotalMatching} lượt đếm gần nhất khớp bộ lọc - xem đầy đủ trong file Excel xuất ra (sheet "Nhat Ky Dem").`
             : '';
+    }
+
+    // Sửa tay "Vị Trí Kho" của ĐÚNG 1 lượt đếm (bấm trực tiếp vào ô vị trí
+    // trên dòng log) - dùng khi vị trí tự động điền lúc quét bị sai, hoặc
+    // muốn sửa riêng 1 dòng mà không cần đồng bộ hàng loạt.
+    async function editLogLocation(countId, currentArea) {
+        const newArea = prompt('Sửa vị trí kho cho lượt đếm này (để trống nếu muốn xoá):', currentArea || '');
+        if (newArea === null) return; // bấm Huỷ
+        const res = await fetch(`/api/stocktake/count/${countId}`, {
+            method: 'PUT', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ area_note: newArea })
+        });
+        const result = await res.json();
+        if (!result.success) { alert('Lỗi: ' + (result.error || `HTTP ${res.status}`)); return; }
+        loadLog();
+    }
+
+    // "Cập Nhật Vị Trí Kho" hàng loạt - đồng bộ lại area_note của TẤT CẢ
+    // các mã ĐÃ ĐẾM trong phiên theo đúng vị trí đang import (part_locations)
+    // hiện tại. Dùng khi kho vừa đổi/sắp xếp lại vị trí hàng loạt trong lúc
+    // cửa hàng đang kiểm kê, khiến vị trí ghi nhận lúc đếm không còn khớp.
+    async function syncLocations() {
+        if (!currentSession) return;
+        const msgEl = document.getElementById('st-sync-locations-msg');
+        if (!confirm('Đồng bộ lại Vị Trí Kho của TẤT CẢ các mã đã đếm trong phiên này theo đúng vị trí đang import mới nhất? Thao tác này sẽ GHI ĐÈ vị trí đang hiển thị (kể cả những dòng đã sửa tay riêng lẻ).')) return;
+        msgEl.innerHTML = '<span class="text-muted">Đang đồng bộ...</span>';
+        try {
+            const res = await fetch(`/api/stocktake/${currentSession.id}/sync-locations`, { method: 'POST' });
+            const result = await res.json();
+            if (!res.ok || !result.success) { msgEl.innerHTML = `<span class="text-danger">Lỗi: ${result.error || 'Không đồng bộ được.'}</span>`; return; }
+            msgEl.innerHTML = `<span class="text-success">Đã cập nhật vị trí cho ${result.updated_parts} mã (${result.updated_rows} lượt đếm).</span>`;
+            loadLog();
+        } catch (e) {
+            console.error(e);
+            msgEl.innerHTML = '<span class="text-danger">Không kết nối được tới máy chủ.</span>';
+        }
     }
 
     // Sửa/xoá NGAY TẠI DÒNG bất kỳ trong Nhật Ký Đếm - trước đây chỉ sửa/

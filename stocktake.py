@@ -475,8 +475,36 @@ def _resolve_part_code(cursor, session_id, raw_code):
     return rows[0]['part_code'], None
 
 
+def _lookup_imported_location(cursor, part_code, store_code):
+    """Trả về chuỗi vị trí kệ hàng ĐÃ IMPORT sẵn (part_locations.location_1/
+    2/3, xem app.py::import_locations_excel/save_location) cho 1 mã hàng
+    tại 1 cửa hàng - gộp các ô khác rỗng lại bằng ", ", hoặc None nếu mã
+    này chưa từng được gán vị trí. Dùng để TỰ ĐỘNG điền "Vị Trí Kho" khi
+    ghi nhận 1 lượt đếm (thay cho việc trước đây nhân viên phải tự gõ tay ô
+    "Vị trí") và để đồng bộ hàng loạt qua route /sync-locations bên dưới."""
+    cursor.execute(
+        "SELECT location_1, location_2, location_3 FROM part_locations "
+        "WHERE part_code = %s AND store_code = %s",
+        (part_code, store_code)
+    )
+    row = cursor.fetchone()
+    if not row:
+        return None
+    joined = ', '.join(
+        loc for loc in (row['location_1'], row['location_2'], row['location_3']) if loc
+    )
+    return joined or None
+
+
 @stocktake_bp.route('/api/stocktake/count', methods=['POST'])
 def stocktake_count():
+    """LƯU Ý (đổi theo yêu cầu người dùng): không còn nhận 'area_note' gõ
+    tay từ FE nữa - "Vị Trí Kho" của lượt đếm giờ LUÔN được hệ thống TỰ
+    ĐỘNG điền bằng vị trí đã import sẵn (part_locations) cho đúng mã hàng +
+    cửa hàng này tại THỜI ĐIỂM ghi nhận (xem _lookup_imported_location).
+    Nếu sau đó admin import/sửa lại vị trí kho, dùng route
+    /api/stocktake/<id>/sync-locations để đồng bộ lại các lượt đã đếm, hoặc
+    sửa tay từng dòng qua PUT /api/stocktake/count/<id>."""
     err = _require_admin()
     if err:
         return err
@@ -485,7 +513,6 @@ def stocktake_count():
     session_id = data.get('session_id')
     raw_part_code = (data.get('part_code') or '').strip()
     quantity = data.get('quantity')
-    area_note = (data.get('area_note') or '').strip() or None
 
     if not session_id or not raw_part_code or quantity is None:
         return jsonify({'error': 'Dữ liệu không hợp lệ.'}), 400
@@ -517,6 +544,10 @@ def stocktake_count():
     if not part_code:
         cursor.close()
         return jsonify({'error': f'Mã hàng "{raw_part_code}" không có trong tồn kho hệ thống của cửa hàng này.'}), 400
+
+    # "Vị Trí Kho" của lượt đếm này = vị trí ĐÃ IMPORT hiện tại cho đúng mã
+    # hàng + cửa hàng của phiên (không còn gõ tay) - xem docstring hàm trên.
+    area_note = _lookup_imported_location(cursor, part_code, row['store_code'])
 
     # counted_at truyền TƯỜNG MINH bằng vn_now() (giờ Việt Nam) thay vì để
     # cột tự lấy DEFAULT NOW() của Postgres - đây chính là cột "Thời Gian"
@@ -552,23 +583,41 @@ def stocktake_count():
 
 @stocktake_bp.route('/api/stocktake/count/<int:count_id>', methods=['PUT'])
 def stocktake_count_update(count_id):
-    """Sửa số lượng của ĐÚNG 1 lượt đếm vừa ghi nhận (khung "Mã Vừa Kiểm")
-    - route này được FE gọi (updateLastCount()) nhưng trước đây chưa từng
-    tồn tại ở BE nên luôn 404."""
+    """Sửa 1 lượt đếm - route này được FE gọi (updateLastCount(), và giờ
+    thêm editLogEntry()/editLogLocation() cho BẤT KỲ dòng nào trong Nhật Ký
+    Đếm, không chỉ lượt vừa quét).
+
+    Nhận 2 field ĐỘC LẬP, cho sửa riêng từng field hoặc cả 2 cùng lúc:
+      - 'quantity': số lượng đếm lại (Số Lượng).
+      - 'area_note': sửa tay "Vị Trí Kho" của ĐÚNG lượt đếm này - dùng khi
+        vị trí tự động điền lúc quét (xem stocktake_count()) bị sai, hoặc
+        khi cần chỉnh 1 dòng riêng lẻ mà không muốn đồng bộ lại hàng loạt
+        qua /sync-locations. Truyền chuỗi rỗng "" để xoá trắng vị trí; nếu
+        KHÔNG truyền field này (key vắng mặt trong JSON) thì giữ nguyên giá
+        trị cũ - phải phân biệt "" (muốn xoá) với "không gửi" (không đổi)."""
     err = _require_admin()
     if err:
         return err
 
     data = request.json or {}
-    quantity = data.get('quantity')
-    if quantity is None:
-        return jsonify({'error': 'Thiếu số lượng.'}), 400
-    try:
-        quantity = float(quantity)
-    except (TypeError, ValueError):
-        return jsonify({'error': 'Số lượng không hợp lệ.'}), 400
-    if quantity < 0:
-        return jsonify({'error': 'Số lượng không được âm.'}), 400
+    has_quantity = 'quantity' in data and data.get('quantity') is not None
+    has_area_note = 'area_note' in data
+
+    quantity = None
+    if has_quantity:
+        try:
+            quantity = float(data.get('quantity'))
+        except (TypeError, ValueError):
+            return jsonify({'error': 'Số lượng không hợp lệ.'}), 400
+        if quantity < 0:
+            return jsonify({'error': 'Số lượng không được âm.'}), 400
+
+    area_note = None
+    if has_area_note:
+        area_note = (data.get('area_note') or '').strip() or None
+
+    if not has_quantity and not has_area_note:
+        return jsonify({'error': 'Không có gì để cập nhật.'}), 400
 
     db = get_db()
     cursor = db.cursor()
@@ -585,10 +634,18 @@ def stocktake_count_update(count_id):
         cursor.close()
         return jsonify({'error': 'Phiên kiểm kê đã chốt, không thể sửa.'}), 400
 
-    cursor.execute("UPDATE stocktake_counts SET counted_quantity = %s WHERE id = %s", (quantity, count_id))
+    if has_quantity and has_area_note:
+        cursor.execute(
+            "UPDATE stocktake_counts SET counted_quantity = %s, area_note = %s WHERE id = %s",
+            (quantity, area_note, count_id)
+        )
+    elif has_quantity:
+        cursor.execute("UPDATE stocktake_counts SET counted_quantity = %s WHERE id = %s", (quantity, count_id))
+    else:
+        cursor.execute("UPDATE stocktake_counts SET area_note = %s WHERE id = %s", (area_note, count_id))
     db.commit()
     cursor.close()
-    return jsonify({'success': True})
+    return jsonify({'success': True, 'area_note': area_note if has_area_note else None})
 
 
 @stocktake_bp.route('/api/stocktake/count/<int:count_id>', methods=['DELETE'])
@@ -619,6 +676,62 @@ def stocktake_count_delete(count_id):
     db.commit()
     cursor.close()
     return jsonify({'success': True})
+
+
+@stocktake_bp.route('/api/stocktake/<int:session_id>/sync-locations', methods=['POST'])
+def stocktake_sync_locations(session_id):
+    """ĐỒNG BỘ HÀNG LOẠT cột "Vị Trí Kho" của TẤT CẢ các mã ĐÃ ĐẾM trong
+    phiên này, lấy theo đúng vị trí ĐANG import (part_locations) hiện tại -
+    dùng khi trong lúc cửa hàng đang kiểm kê, kho có thay đổi/import lại vị
+    trí hàng loạt (vd sắp xếp lại kệ) SAU KHI 1 số mã đã được đếm, khiến
+    "Vị Trí Kho" ghi nhận lúc đếm (chụp tại thời điểm đó - xem
+    stocktake_count()) không còn khớp vị trí mới nhất.
+
+    CHỈ áp dụng cho các mã hàng ĐÃ CÓ ít nhất 1 lượt đếm trong phiên (không
+    đụng tới các mã chưa đếm - chúng sẽ tự lấy đúng vị trí mới nhất khi được
+    đếm lần đầu). Ghi đè TOÀN BỘ area_note của các dòng log thuộc mã đó
+    trong phiên (kể cả những dòng đã được admin sửa tay riêng lẻ qua PUT
+    /api/stocktake/count/<id> trước đó) - vì mục đích của nút này chính là
+    "đặt lại theo đúng vị trí kho mới nhất", không phải merge."""
+    err = _require_admin()
+    if err:
+        return err
+
+    db = get_db()
+    cursor = db.cursor()
+    sess = _get_session_or_404(cursor, session_id)
+    if not sess:
+        cursor.close()
+        return jsonify({'error': 'Không tìm thấy phiên kiểm kê.'}), 404
+    if sess['status'] not in ('open', 'reopened'):
+        cursor.close()
+        return jsonify({'error': 'Phiên kiểm kê đã chốt, không thể đồng bộ vị trí.'}), 400
+
+    cursor.execute('''
+        WITH counted_parts AS (
+            SELECT DISTINCT part_code FROM stocktake_counts WHERE session_id = %(sid)s
+        ),
+        locs AS (
+            SELECT cp.part_code,
+                   NULLIF(CONCAT_WS(', ', pl.location_1, pl.location_2, pl.location_3), '') AS combined
+            FROM counted_parts cp
+            LEFT JOIN part_locations pl ON pl.part_code = cp.part_code AND pl.store_code = %(store)s
+        )
+        UPDATE stocktake_counts c
+        SET area_note = locs.combined
+        FROM locs
+        WHERE c.session_id = %(sid)s AND c.part_code = locs.part_code
+        RETURNING c.part_code
+    ''', {'sid': session_id, 'store': sess['store_code']})
+    updated_rows = cursor.fetchall()
+    db.commit()
+    cursor.close()
+
+    return jsonify({
+        'success': True,
+        'updated_rows': len(updated_rows),
+        'updated_parts': len({r['part_code'] for r in updated_rows}),
+    })
 
 
 @stocktake_bp.route('/api/stocktake/adjustment', methods=['POST'])
@@ -972,23 +1085,19 @@ def stocktake_log(session_id):
     dữ liệu này KHÔNG mất kể cả sau khi phiên đã chốt - khác với bảng đối
     chiếu (summary) vốn chỉ hiện số đã CỘNG DỒN theo mã.
 
-    Ngoài 6 cột gốc, FE (xem renderLogRows() trong stocktake.html) còn
-    render thêm 3 cột mà route này trước đây KHÔNG trả về, nên luôn hiện
-    "-": prev_area_note (TẤT CẢ các vị trí KHÁC đã dùng để đếm CÙNG mã này
-    ở những lượt trước đó, để phát hiện 1 mã bị đếm rải rác ở nhiều nơi -
-    có thể gồm nhiều vị trí, không chỉ 1), running_total (tổng số lượng đã
-    quét DỒN của RIÊNG mã hàng đó, tính tới đúng lượt này - KHÔNG phải tổng
-    của cả phiên), và vs_expected_status
-    (Thừa/Thiếu/Đủ của MÃ đó tính tới đúng lượt này, so với Tồn Kỳ Vọng).
+    running_total (tổng số lượng ĐÃ QUÉT dồn của RIÊNG mã hàng đó, tính tới
+    đúng lượt này - KHÔNG phải tổng của cả phiên - FE hiển thị dưới tên cột
+    "Thực Tế"), vs_expected_status (Thừa/Thiếu/Đủ của MÃ đó tính tới đúng
+    lượt này, so với Tồn Kỳ Vọng), và book_quantity (Tồn Sổ Sách của mã đó
+    CHỤP CỨNG lúc bắt đầu phiên - stocktake_snapshot_items.book_quantity -
+    không đổi dù part_locations/inventory sau đó có thay đổi).
 
-    THÊM 'imported_location': vị trí kệ hàng đã IMPORT sẵn cho mã này tại
-    cửa hàng đang kiểm kê (bảng part_locations - xem app.py::
-    import_locations_excel/save_location), để nhân viên đối chiếu ngay
-    trên dòng log giữa vị trí hệ thống ghi nhận và vị trí thực tế vừa đếm
-    (area_note). Đây là vị trí HIỆN TẠI của part_locations tại thời điểm
-    gọi API (không chụp cứng theo lúc đếm, vì part_locations không lưu
-    lịch sử) - nếu vị trí được sửa lại sau khi đếm, log sẽ hiện vị trí mới
-    nhất chứ không phải vị trí tại lúc đếm.
+    area_note (nay hiển thị ở FE là cột "Vị Trí Kho") KHÔNG còn do nhân
+    viên gõ tay nữa - được TỰ ĐỘNG điền bằng vị trí đã import sẵn tại đúng
+    THỜI ĐIỂM ghi nhận lượt đếm (xem stocktake_count()), và có thể sửa tay
+    lại sau đó qua PUT /api/stocktake/count/<id> hoặc đồng bộ hàng loạt qua
+    /api/stocktake/<id>/sync-locations nếu kho có đổi vị trí hàng loạt giữa
+    lúc đang kiểm kê.
 
     PHÂN TRANG/LỌC NGAY TỪ PHÍA SERVER (query params 'limit', 'q', 'area'):
     trước đây route này trả về TOÀN BỘ lịch sử đếm của phiên, và FE gọi lại
@@ -1027,46 +1136,25 @@ def stocktake_log(session_id):
     part_pattern = f'%{part_query}%' if part_query else None
     area_value = area_query or None
 
-    # 3 window function tính trong đúng 1 lượt quét DB, theo thứ tự thời
-    # gian THẬT (ASC) - PARTITION BY part_code cho cả phần cộng dồn riêng
-    # từng mã (part_running_qty, dùng để so Thừa/Thiếu/Đủ) LẪN phần vị trí
-    # trước đó (prev_areas_raw, chỉ nhìn lại CÙNG mã này) - còn
-    # running_total tính chung trên toàn bộ lượt quét của cả phiên. Các
-    # window function này CẦN nhìn thấy TOÀN BỘ lịch sử phiên để cộng dồn
-    # đúng, nên được tính trong CTE "counted" TRƯỚC khi lọc/cắt bớt - việc
-    # LỌC (q/area) và LIMIT chỉ áp dụng ở câu SELECT bên ngoài, KHÔNG làm
-    # sai số cộng dồn. COUNT(*) OVER() ở ngoài cho biết tổng số dòng KHỚP
-    # bộ lọc (trước khi bị LIMIT cắt bớt) để FE hiện đúng "Đang hiển thị
-    # x/y". prev_areas_raw dùng ARRAY_AGG với khung "mọi dòng TRƯỚC dòng
-    # hiện tại" (ROWS ... 1 PRECEDING, không tính chính dòng này) rồi
-    # Python lọc trùng/rỗng bên dưới - Postgres không có "ARRAY_AGG
-    # DISTINCT" đi kèm khung window nên phải khử trùng ở tầng ứng dụng.
+    # 2 window function tính trong đúng 1 lượt quét DB, theo thứ tự thời
+    # gian THẬT (ASC) - PARTITION BY part_code cho phần cộng dồn riêng từng
+    # mã (part_running_qty, dùng để hiển thị cột "Thực Tế" và so Thừa/
+    # Thiếu/Đủ). Các window function này CẦN nhìn thấy TOÀN BỘ lịch sử
+    # phiên để cộng dồn đúng, nên được tính trong CTE "counted" TRƯỚC khi
+    # lọc/cắt bớt - việc LỌC (q/area) và LIMIT chỉ áp dụng ở câu SELECT bên
+    # ngoài, KHÔNG làm sai số cộng dồn. COUNT(*) OVER() ở ngoài cho biết
+    # tổng số dòng KHỚP bộ lọc (trước khi bị LIMIT cắt bớt) để FE hiện đúng
+    # "Đang hiển thị x/y".
     cursor.execute('''
         WITH counted AS (
-            SELECT c.id, c.part_code, s.part_name, c.counted_quantity, c.area_note,
-                   c.counted_by, c.counted_at,
-                   pl.location_1, pl.location_2, pl.location_3,
-                   SUM(c.counted_quantity) OVER (
-                       ORDER BY c.counted_at ASC, c.id ASC
-                   ) AS running_total,
+            SELECT c.id, c.part_code, s.part_name, s.book_quantity,
+                   c.counted_quantity, c.area_note, c.counted_at,
                    SUM(c.counted_quantity) OVER (
                        PARTITION BY c.part_code ORDER BY c.counted_at ASC, c.id ASC
-                   ) AS part_running_qty,
-                   ARRAY_AGG(c.area_note) OVER (
-                       PARTITION BY c.part_code ORDER BY c.counted_at ASC, c.id ASC
-                       ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING
-                   ) AS prev_areas_raw
+                   ) AS part_running_qty
             FROM stocktake_counts c
             LEFT JOIN stocktake_snapshot_items s
                    ON s.session_id = c.session_id AND s.part_code = c.part_code
-            -- Vị trí kệ hàng ĐÃ IMPORT (bảng part_locations, xem
-            -- app.py::import_locations_excel) của mã này TẠI CỬA HÀNG đang
-            -- kiểm kê - để nhân viên đối chiếu ngay trong lúc đếm giữa vị
-            -- trí hệ thống ghi nhận và vị trí thực tế tìm thấy hàng
-            -- (area_note). Đây là vị trí HIỆN TẠI (không chụp cứng theo
-            -- thời điểm đếm) vì part_locations không lưu lịch sử.
-            LEFT JOIN part_locations pl
-                   ON pl.part_code = c.part_code AND pl.store_code = %(store)s
             WHERE c.session_id = %(sid)s
         )
         SELECT *, COUNT(*) OVER() AS total_matching
@@ -1098,39 +1186,22 @@ def stocktake_log(session_id):
         if expected is not None:
             diff = float(r['part_running_qty']) - float(expected)
             vs_status = 'matched' if diff == 0 else ('surplus' if diff > 0 else 'shortage')
-        # Khử trùng + bỏ rỗng, GIỮ NGUYÊN thứ tự xuất hiện lần đầu (dễ đọc
-        # hơn sắp xếp lại theo abc) - và bỏ luôn vị trí HIỆN TẠI nếu vị trí
-        # trước đó trùng đúng vị trí đang đếm (không cần nhắc lại info thừa).
-        seen = []
-        for a in (r['prev_areas_raw'] or []):
-            a = (a or '').strip()
-            if a and a not in seen and a != (r['area_note'] or '').strip():
-                seen.append(a)
-        prev_areas = ', '.join(seen)
-        # Vị trí đã IMPORT (location_1/2/3 của part_locations) - gộp lại
-        # thành 1 chuỗi hiển thị, bỏ ô trống, để FE đối chiếu với area_note
-        # (vị trí nhân viên tự ghi lúc đếm) ngay trên cùng 1 dòng log.
-        imported_location = ', '.join(
-            loc for loc in (r['location_1'], r['location_2'], r['location_3']) if loc
-        )
         out.append({
             'id': r['id'], 'part_code': r['part_code'], 'part_name': r['part_name'],
-            'counted_quantity': float(r['counted_quantity']), 'area_note': r['area_note'] or '',
-            'imported_location': imported_location,
-            'prev_area_note': prev_areas,
-            # ĐỔI Ý (theo yêu cầu người dùng): trước đây FE hiển thị
-            # 'running_total' (tổng CỘNG DỒN của TOÀN BỘ lượt quét trong cả
-            # phiên, không phân biệt mã hàng) ở cột "Tổng Đã Quét" - gây hiểu
-            # lầm vì số đó không nói lên gì về RIÊNG mã đang xem. Giờ trả về
-            # đúng 'part_running_qty' (tổng cộng dồn CỦA RIÊNG mã này tính
-            # tới đúng lượt này) - vốn ĐÃ được tính sẵn trong CTE phía trên
-            # (dùng để tính vs_expected_status) nhưng trước đây không được
-            # trả ra ngoài. Vẫn giữ nguyên tên field cũ 'running_total' để
-            # không phải sửa thêm chỗ khác gọi field này (nếu có), chỉ đổi
-            # GIÁ TRỊ được gán vào.
+            'counted_quantity': float(r['counted_quantity']),
+            # "Vị Trí Kho" - tự động điền lúc đếm (xem stocktake_count()),
+            # có thể sửa tay lại sau (PUT /api/stocktake/count/<id>) hoặc
+            # đồng bộ hàng loạt (POST /api/stocktake/<id>/sync-locations).
+            'area_note': r['area_note'] or '',
+            # 'running_total' = tổng CỘNG DỒN của RIÊNG mã này tính tới
+            # đúng lượt này (KHÔNG phải tổng của cả phiên) - FE hiển thị
+            # dưới tên cột "Thực Tế".
             'running_total': float(r['part_running_qty']),
             'vs_expected_status': vs_status,
-            'counted_by': r['counted_by'], 'counted_at': format_vi_datetime(r['counted_at']),
+            # "Tồn Sổ Sách" của mã này - chụp cứng lúc bắt đầu phiên, không
+            # đổi trong suốt phiên dù tồn kho hệ thống có được nạp lại.
+            'book_quantity': float(r['book_quantity'] or 0),
+            'counted_at': format_vi_datetime(r['counted_at']),
         })
 
     return jsonify({'success': True, 'log': out, 'total_matching': total_matching})

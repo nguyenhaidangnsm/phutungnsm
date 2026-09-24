@@ -547,14 +547,14 @@ def price_adjustment_list():
         ),
         latest AS (
             SELECT DISTINCT ON (part_code)
-                part_code, part_name AS proposal_part_name, thue, gia_de_xuat_hvn,
+                id, part_code, part_name AS proposal_part_name, thue, gia_de_xuat_hvn,
                 gia_ban, store_code, created_by, created_at
             FROM price_adjustment_proposals
             ORDER BY part_code, created_at DESC
         )
     '''
     base_cte = catalog_and_latest_cte + '''
-        SELECT c.part_code,
+        SELECT c.part_code, l.id AS proposal_id,
                COALESCE(l.proposal_part_name, c.part_name) AS part_name,
                l.thue, l.gia_de_xuat_hvn, l.gia_ban, l.store_code, l.created_by, l.created_at
         FROM catalog c
@@ -618,6 +618,7 @@ def price_adjustment_list():
     for r in rows:
         data.append({
             'part_code': r['part_code'],
+            'proposal_id': r['proposal_id'],
             'part_name': r['part_name'],
             'is_adjusted': r['created_at'] is not None,
             'thue': float(r['thue']) * 100 if r['thue'] is not None else None,
@@ -774,6 +775,86 @@ def price_adjustment_propose():
     except Exception as e:
         db.rollback()
         return jsonify({'error': f'Lỗi khi lưu đề xuất: {e}'}), 500
+    finally:
+        cursor.close()
+
+
+@price_adjustment_bp.route('/api/price-adjustment/proposals/<int:proposal_id>', methods=['PUT'])
+def price_adjustment_update_proposal(proposal_id):
+    """Cho phép BẤT KỲ user nào đã đăng nhập (cả admin lẫn store, giống hệt
+    quyền của propose() ở trên - KHÔNG giới hạn chỉ admin như delete() bên
+    dưới) SỬA LẠI 1 lần đề xuất đã lưu, dùng khi Giá cũ / % Tăng giá / Giá
+    bán bị nhập sai (gõ nhầm số, lệch % ...). Cho sửa trực tiếp cả 3 giá trị
+    (không bắt buộc phải đúng công thức 2 bước của propose()) để xử lý được
+    mọi trường hợp sai sót, kể cả những dòng import hàng loạt từ Excel. Vì
+    bảng danh sách (list_price_adjustments) luôn lấy 'latest' - lần đề xuất
+    gần nhất của mỗi mã - dòng vừa sửa sẽ lập tức phản ánh giá trị mới ngay
+    trên bảng, không cần thao tác gì thêm."""
+    if 'user' not in session:
+        return jsonify({'error': 'Unauthorized'}), 401
+
+    data = request.json or {}
+
+    try:
+        thue_percent = float(data.get('thue'))
+        if thue_percent < 0 or thue_percent > 1000:
+            raise ValueError()
+    except (TypeError, ValueError):
+        return jsonify({'error': '% Tăng giá không hợp lệ (phải là số từ 0 đến 1000).'}), 400
+
+    try:
+        gia_cu = float(data.get('gia_de_xuat_hvn'))
+        if gia_cu <= 0:
+            raise ValueError()
+    except (TypeError, ValueError):
+        return jsonify({'error': 'Giá cũ không hợp lệ.'}), 400
+
+    try:
+        gia_ban = float(data.get('gia_ban'))
+        if gia_ban <= 0:
+            raise ValueError()
+    except (TypeError, ValueError):
+        return jsonify({'error': 'Giá bán không hợp lệ.'}), 400
+
+    part_name = str(data.get('part_name', '') or '').strip() or None
+
+    db = get_db()
+    cursor = db.cursor()
+    try:
+        cursor.execute('SELECT part_code FROM price_adjustment_proposals WHERE id = %s', (proposal_id,))
+        row = cursor.fetchone()
+        if not row:
+            return jsonify({'error': 'Không tìm thấy đề xuất này (có thể đã bị xoá).'}), 404
+        part_code = row['part_code']
+
+        cursor.execute('''
+            UPDATE price_adjustment_proposals
+            SET part_name = COALESCE(%s, part_name),
+                thue = %s,
+                gia_de_xuat_hvn = %s,
+                gia_ban = %s
+            WHERE id = %s
+        ''', (part_name, thue_percent / 100.0, gia_cu, gia_ban, proposal_id))
+
+        # Đồng bộ lại Tên hàng trong "danh mục mã mới" (nếu mã này có ở đó)
+        # để lần đề xuất sau vẫn tự hiện đúng tên vừa sửa.
+        if part_name:
+            cursor.execute('''
+                UPDATE price_adjustment_new_codes SET part_name = %s WHERE part_code = %s
+            ''', (part_name, part_code))
+
+        db.commit()
+        return jsonify({
+            'success': True,
+            'part_code': part_code,
+            'part_name': part_name,
+            'thue': thue_percent,
+            'gia_de_xuat_hvn': gia_cu,
+            'gia_ban': gia_ban,
+        })
+    except Exception as e:
+        db.rollback()
+        return jsonify({'error': f'Lỗi khi sửa đề xuất: {e}'}), 500
     finally:
         cursor.close()
 

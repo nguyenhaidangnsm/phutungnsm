@@ -556,6 +556,25 @@ def get_body_kit_group(group_id):
         FROM body_kit_parts WHERE group_id = %s ORDER BY seq NULLS LAST, id
     ''', (group_id,))
     part_rows = cursor.fetchall()
+
+    # Giá Honda gốc DỰ PHÒNG cho bộ áo thủ công: nếu dòng đang xem không có
+    # honda_price (người thêm bỏ trống, không muốn gõ tay), tra xem MÃ HÀNG
+    # đó đã có honda_price ở bất kỳ bộ áo nào khác trong hệ thống chưa (ưu
+    # tiên nhóm nhập từ Excel - g.is_manual ASC - vì đáng tin hơn nhóm thủ
+    # công khác) - cùng CSDL/connection nên tận dụng luôn cursor này, không
+    # cần mở thêm kết nối. Nhờ vậy huy hiệu "Đã điều chỉnh +5%" tự động hoạt
+    # động cho bộ áo thủ công MÀ KHÔNG cần người dùng tự điền Giá Honda.
+    manual_codes = list({p['part_code'] for p in part_rows if p['part_code'] and p['honda_price'] is None})
+    fallback_honda_by_code = {}
+    if manual_codes:
+        cursor.execute('''
+            SELECT DISTINCT ON (bp.part_code) bp.part_code, bp.honda_price
+            FROM body_kit_parts bp
+            JOIN body_kit_groups g ON g.id = bp.group_id
+            WHERE bp.part_code = ANY(%s) AND bp.honda_price IS NOT NULL
+            ORDER BY bp.part_code, g.is_manual ASC, bp.id DESC
+        ''', (manual_codes,))
+        fallback_honda_by_code = {r['part_code']: float(r['honda_price']) for r in cursor.fetchall()}
     cursor.close()
 
     # Giá bán HIỆN TẠI (bảng part_prices) và tồn kho HIỆN TẠI (bảng
@@ -571,6 +590,7 @@ def get_body_kit_group(group_id):
     current_price_by_code = {}
     current_stock_by_code = {}
     fallback_name_by_code = {}
+    adjusted_flag_by_code = {}
     if part_codes:
         main_db = get_db()
         main_cursor = main_db.cursor()
@@ -592,17 +612,42 @@ def get_body_kit_group(group_id):
         # trường hợp mã đó đã có tên sẵn trong hệ thống (đã từng nhập tồn/
         # bán hàng) mà người nhập không biết/không gõ lại.
         main_cursor.execute(
-            '''SELECT DISTINCT ON (part_code) part_code, part_name
-               FROM inventory_items WHERE part_code = ANY(%s) AND part_name IS NOT NULL AND part_name <> ''
-               ORDER BY part_code, id DESC''',
-            (part_codes,)
+            '''SELECT DISTINCT ON (UPPER(part_code)) part_code, part_name
+               FROM inventory_items WHERE UPPER(part_code) = ANY(%s) AND part_name IS NOT NULL AND part_name <> ''
+               ORDER BY UPPER(part_code), id DESC''',
+            ([c.upper() for c in part_codes],)
         )
-        fallback_name_by_code = {r['part_code']: r['part_name'] for r in main_cursor.fetchall()}
+        # Khoá bằng chữ HOA - vì mã hàng nhập tay trong bộ áo thủ công có thể
+        # khác cách viết hoa/thường so với mã đã lưu trong tồn kho.
+        fallback_name_by_code = {r['part_code'].upper(): r['part_name'] for r in main_cursor.fetchall()}
+
+        # Nguồn dự phòng THỨ 2 (đáng tin hơn tồn kho, vì là chính nơi lưu Tên
+        # hàng + lịch sử tăng giá của mã đó): bảng price_adjustment_proposals
+        # của tính năng "Đề Xuất Tăng Giá" (price_adjustment.py) - cùng CSDL
+        # chính, tận dụng luôn main_cursor này. Lấy dòng đề xuất GẦN NHẤT của
+        # mỗi mã (created_at DESC) để có Tên hàng mới nhất, và sự TỒN TẠI của
+        # ít nhất 1 dòng cho biết mã đó ĐÃ từng được đề xuất tăng giá hay
+        # chưa - đây chính xác là cách tính năng Đề Xuất Tăng Giá đang định
+        # nghĩa "Đã điều chỉnh"/"Chưa điều chỉnh" cho TOÀN hệ thống, nên dùng
+        # lại luôn thay vì phải có Giá Honda gốc mới so sánh được (điều mà
+        # bộ áo thêm thủ công thường không có).
+        main_cursor.execute(
+            '''SELECT DISTINCT ON (UPPER(part_code)) part_code, part_name
+               FROM price_adjustment_proposals WHERE UPPER(part_code) = ANY(%s)
+               ORDER BY UPPER(part_code), created_at DESC''',
+            ([c.upper() for c in part_codes],)
+        )
+        proposal_rows = main_cursor.fetchall()
+        adjusted_flag_by_code = {r['part_code'].upper(): True for r in proposal_rows}
+        # Tên hàng từ đề xuất tăng giá ưu tiên CAO HƠN tồn kho (thường mới/
+        # sát thực tế hơn) - ghi đè lên fallback_name_by_code cho mã nào có.
+        fallback_name_by_code.update(
+            {r['part_code'].upper(): r['part_name'] for r in proposal_rows if r['part_name']})
         main_cursor.close()
 
     parts = []
     for p in part_rows:
-        honda_price = float(p['honda_price']) if p['honda_price'] is not None else None
+        honda_price = float(p['honda_price']) if p['honda_price'] is not None else fallback_honda_by_code.get(p['part_code'])
         current_price = current_price_by_code.get(p['part_code'])
         # So giá bán HIỆN TẠI với giá Honda GỐC (lúc lập file bảng giá bộ
         # áo) để biết mã hàng này đã tăng/giảm giá hay chưa. Thiếu 1 trong 2
@@ -628,18 +673,24 @@ def get_body_kit_group(group_id):
         if honda_price is not None and current_price is not None:
             expected_5pct = round(honda_price * 1.05 / 1000) * 1000
             is_adjusted_5pct = current_price >= expected_5pct - 0.5
+        elif current_price is not None and p['part_code']:
+            # Không đủ Giá Honda gốc để so 5% (mã thêm thủ công, hoàn toàn
+            # mới) -> dùng thẳng dữ liệu "Đề Xuất Tăng Giá": mã ĐÃ từng được
+            # đề xuất tăng giá ít nhất 1 lần thì coi là "Đã điều chỉnh", chưa
+            # từng đề xuất thì "Chưa điều chỉnh".
+            is_adjusted_5pct = adjusted_flag_by_code.get(p['part_code'].upper(), False)
 
         # Trước đây badge đã/chưa điều chỉnh +5% bị ẩn cho MỌI bộ áo thủ công
         # (kể cả khi dòng đó có đủ honda_price để so sánh), vì lo honda_price
-        # người nhập tay không đáng tin. Giờ chỉ ẩn khi honda_price THỰC SỰ
-        # thiếu (đã tự động = None ở 2 khối if phía trên) - còn dòng nào có
-        # honda_price thì vẫn tính bình thường như bộ áo nhập Excel.
+        # người nhập tay không đáng tin. Giờ chỉ ẩn khi hoàn toàn không có gì
+        # để kết luận (không có honda_price LẪN không có giá bán hiện tại) -
+        # còn lại luôn tính được nhờ 1 trong 2 nguồn ở trên.
 
         parts.append({
             'seq': p['seq'],
             'part_code': p['part_code'],
             'replacement_code': p['replacement_code'],
-            'part_name': p['part_name'] or fallback_name_by_code.get(p['part_code']),
+            'part_name': p['part_name'] or fallback_name_by_code.get((p['part_code'] or '').upper()),
             'honda_price': honda_price,
             'crm_price': float(p['crm_price']) if p['crm_price'] is not None else None,
             'stock_qty': float(p['stock_qty']) if p['stock_qty'] is not None else None,

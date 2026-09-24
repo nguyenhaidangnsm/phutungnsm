@@ -2590,10 +2590,11 @@
                                 <th>Người Đề Xuất</th>
                                 <th>Ngày Điều Chỉnh</th>
                                 <th>Trạng Thái</th>
+                                <th class="text-center">Thao Tác</th>
                             </tr>
                         </thead>
                         <tbody id="price-adj-body">
-                            <tr><td colspan="8" class="text-center py-4 text-muted">Đang tải dữ liệu...</td></tr>
+                            <tr><td colspan="9" class="text-center py-4 text-muted">Đang tải dữ liệu...</td></tr>
                         </tbody>
                     </table>
                 </div>
@@ -3446,6 +3447,49 @@
                 </div>
                 <button type="button" class="btn btn-primary w-100 fw-semibold" onclick="submitUserInfo()">Lưu Thông Tin</button>
             </div>
+        </div>
+    </div>
+</div>
+
+<!-- Modal Sửa Đề Xuất Tăng Giá - dùng chung cho MỌI vai trò (admin lẫn
+     store), để tự sửa lại % Tăng giá / Giá cũ / Giá bán nếu phát hiện nhập
+     sai, khác nút Xoá (chỉ admin) ở API /api/price-adjustment/proposals -
+     xem submitPriceAdjEdit() / openPriceAdjEditModal(). -->
+<div class="modal fade" id="priceAdjEditModal" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content border-0 shadow">
+            <div class="modal-header bg-primary text-white">
+                <h5 class="modal-title fw-bold fs-6">Sửa Giá: <span id="price-adj-edit-part-code"></span></h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <form onsubmit="return submitPriceAdjEdit(event)">
+                <div class="modal-body p-3 p-md-4">
+                    <input type="hidden" id="price-adj-edit-id">
+                    <div class="mb-3">
+                        <label class="form-label fw-semibold small">Tên hàng</label>
+                        <input type="text" id="price-adj-edit-part-name" class="form-control form-control-sm">
+                    </div>
+                    <div class="row g-2">
+                        <div class="col-6">
+                            <label class="form-label fw-semibold small">% Tăng giá</label>
+                            <input type="number" id="price-adj-edit-thue" class="form-control form-control-sm" min="0" max="1000" step="any" required oninput="recalcPriceAdjEditGiaBan()">
+                        </div>
+                        <div class="col-6">
+                            <label class="form-label fw-semibold small">Giá cũ</label>
+                            <input type="number" id="price-adj-edit-gia-cu" class="form-control form-control-sm" min="0" step="any" required oninput="recalcPriceAdjEditGiaBan()">
+                        </div>
+                        <div class="col-12">
+                            <label class="form-label fw-semibold small">Giá bán</label>
+                            <input type="number" id="price-adj-edit-gia-ban" class="form-control form-control-sm fw-bold text-success" min="0" step="any" required>
+                            <div class="form-text small">Tự tính lại theo Giá cũ và % Tăng giá - vẫn có thể tự gõ đè lại số khác nếu cần.</div>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">Huỷ</button>
+                    <button type="submit" class="btn btn-primary btn-sm fw-semibold"><i class="bi bi-save me-1"></i>Lưu Sửa Đổi</button>
+                </div>
+            </form>
         </div>
     </div>
 </div>
@@ -6479,7 +6523,7 @@ async function saveLocationRow(btn, partCode) {
             const res = await fetch('/api/price-adjustment/list?' + params.toString());
             const result = await res.json();
             if (!res.ok || !result.success) {
-                tbody.innerHTML = `<tr><td colspan="8" class="text-center py-4 text-danger">Lỗi: ${escapeHtmlAttr(result.error || 'Không tải được dữ liệu.')}</td></tr>`;
+                tbody.innerHTML = `<tr><td colspan="9" class="text-center py-4 text-danger">Lỗi: ${escapeHtmlAttr(result.error || 'Không tải được dữ liệu.')}</td></tr>`;
                 return;
             }
             renderPriceAdjustmentTable(result.data);
@@ -6489,16 +6533,23 @@ async function saveLocationRow(btn, partCode) {
             if (countAdjEl) countAdjEl.innerText = result.total_adjusted.toLocaleString();
             if (countNotAdjEl) countNotAdjEl.innerText = result.total_not_adjusted.toLocaleString();
         } catch (e) {
-            tbody.innerHTML = `<tr><td colspan="8" class="text-center py-4 text-danger">Lỗi kết nối server.</td></tr>`;
+            tbody.innerHTML = `<tr><td colspan="9" class="text-center py-4 text-danger">Lỗi kết nối server.</td></tr>`;
         }
     }
+
+    // Lưu lại dữ liệu của lần tải bảng gần nhất (theo proposal_id) để mở
+    // modal Sửa không cần gọi thêm API - bấm nút Sửa là có sẵn dữ liệu hiện
+    // đang hiển thị trên bảng để đổ vào form ngay.
+    let priceAdjRowsById = {};
 
     function renderPriceAdjustmentTable(data) {
         const tbody = document.getElementById('price-adj-body');
         if (data.length === 0) {
-            tbody.innerHTML = `<tr><td colspan="8" class="text-center py-4 text-muted">Không có mã hàng nào khớp.</td></tr>`;
+            tbody.innerHTML = `<tr><td colspan="9" class="text-center py-4 text-muted">Không có mã hàng nào khớp.</td></tr>`;
             return;
         }
+        priceAdjRowsById = {};
+        data.forEach(r => { if (r.proposal_id) priceAdjRowsById[r.proposal_id] = r; });
         tbody.innerHTML = data.map(r => `
             <tr>
                 <td class="fw-semibold">${escapeHtmlAttr(r.part_code)}</td>
@@ -6512,8 +6563,68 @@ async function saveLocationRow(btn, partCode) {
                     ? '<span class="badge bg-success">Đã điều chỉnh</span>'
                     : '<span class="badge bg-secondary">Chưa điều chỉnh</span>'}
                 </td>
+                <td class="text-center">${r.proposal_id
+                    ? `<button type="button" class="btn btn-outline-primary btn-sm" onclick="openPriceAdjEditModal(${r.proposal_id})"><i class="bi bi-pencil-square me-1"></i>Sửa</button>`
+                    : '-'}
+                </td>
             </tr>
         `).join('');
+    }
+
+    // Mở modal sửa 1 lần đề xuất đã lưu (Tên hàng / % Tăng giá / Giá cũ /
+    // Giá bán) - dùng chung cho mọi vai trò (admin lẫn store), để tự sửa
+    // được nếu nhập sai, KHÔNG cần quyền admin (khác nút Xoá vốn chỉ admin).
+    function openPriceAdjEditModal(proposalId) {
+        const r = priceAdjRowsById[proposalId];
+        if (!r) { showToast('Lỗi', 'Không tìm thấy dữ liệu dòng này, vui lòng tải lại danh sách.', 'danger'); return; }
+        document.getElementById('price-adj-edit-id').value = proposalId;
+        document.getElementById('price-adj-edit-part-code').innerText = r.part_code;
+        document.getElementById('price-adj-edit-part-name').value = r.part_name || '';
+        document.getElementById('price-adj-edit-thue').value = r.thue !== null && r.thue !== undefined ? r.thue : '';
+        document.getElementById('price-adj-edit-gia-cu').value = r.gia_de_xuat_hvn !== null && r.gia_de_xuat_hvn !== undefined ? r.gia_de_xuat_hvn : '';
+        document.getElementById('price-adj-edit-gia-ban').value = r.gia_ban !== null && r.gia_ban !== undefined ? r.gia_ban : '';
+        new bootstrap.Modal(document.getElementById('priceAdjEditModal')).show();
+    }
+
+    // Tính lại Giá bán = Giá cũ + (% Tăng giá) * Giá cũ, làm tròn đến hàng
+    // nghìn - giống hệt công thức Bước 2 ở server (_compute_gia_ban_tu_gia_cu),
+    // dùng để gợi ý nhanh trong modal sửa; người dùng vẫn có thể tự gõ đè lại
+    // Giá bán nếu muốn 1 con số khác (VD lệch làm tròn so với Excel gốc).
+    function recalcPriceAdjEditGiaBan() {
+        const thue = parseFloat(document.getElementById('price-adj-edit-thue').value);
+        const giaCu = parseFloat(document.getElementById('price-adj-edit-gia-cu').value);
+        if (isNaN(thue) || isNaN(giaCu)) return;
+        const raw = giaCu + (giaCu * thue / 100);
+        document.getElementById('price-adj-edit-gia-ban').value = Math.round(raw / 1000) * 1000;
+    }
+
+    async function submitPriceAdjEdit(event) {
+        event.preventDefault();
+        const proposalId = document.getElementById('price-adj-edit-id').value;
+        const payload = {
+            part_name: document.getElementById('price-adj-edit-part-name').value,
+            thue: document.getElementById('price-adj-edit-thue').value,
+            gia_de_xuat_hvn: document.getElementById('price-adj-edit-gia-cu').value,
+            gia_ban: document.getElementById('price-adj-edit-gia-ban').value,
+        };
+        try {
+            const res = await fetch('/api/price-adjustment/proposals/' + proposalId, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload),
+            });
+            const result = await res.json();
+            if (!res.ok || !result.success) {
+                showToast('Lỗi', result.error || 'Không thể lưu sửa đổi.', 'danger');
+                return false;
+            }
+            bootstrap.Modal.getInstance(document.getElementById('priceAdjEditModal')).hide();
+            showToast('Đã lưu', `Đã cập nhật lại giá cho mã ${result.part_code}.`, 'success');
+            loadPriceAdjustmentList();
+        } catch (e) {
+            showToast('Lỗi', 'Lỗi kết nối server.', 'danger');
+        }
+        return false;
     }
 
     // Gõ/rời khỏi ô Mã hàng: tự điền Tên hàng (ưu tiên tra nhanh trong
