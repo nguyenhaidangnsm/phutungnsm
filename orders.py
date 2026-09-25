@@ -55,6 +55,12 @@ from app import (
 # Xem chi tiết quy ước cột trong docstring đầu file bo_import.py.
 from bo_import import parse_bo_orders_excel
 
+# quote_import.py: đọc NHANH 1 file PDF "Phiếu thu đặt cọc/Báo giá" (không
+# ghi thẳng vào CSDL như bo_import - chỉ trả dữ liệu để điền vào form, xem
+# route /api/orders/import_quote bên dưới). Xem chi tiết trong docstring
+# đầu file quote_import.py.
+from quote_import import parse_quote_pdf
+
 orders_bp = Blueprint('orders', __name__)
 
 ORDERS_DATABASE_URL = os.environ.get('ORDERS_DATABASE_URL')
@@ -66,7 +72,7 @@ STATUS_OPTIONS = ['Chưa đặt', 'Đã đặt', 'Đang về', 'Đã về kho', 
 # Thông tin cấp "YÊU CẦU ĐẶT" - chung cho mọi mặt hàng của 1 khách (mỗi dòng
 # bo_orders đều lưu bản sao, nhưng luôn sửa đồng loạt qua /api/orders/save).
 HEADER_TEXT_FIELDS = ['customer_name', 'customer_phone', 'vehicle_type', 'frame_number',
-                      'vehicle_color', 'vehicle_year']
+                      'vehicle_color', 'vehicle_year', 'quote_no']
 HEADER_DATE_FIELDS = ['customer_request_date']
 # Giá trị đơn / Đặt cọc là số của CẢ ĐƠN (trong Excel gộp ô dọc qua mọi mặt hàng)
 HEADER_NUMBER_FIELDS = ['order_value', 'deposit_amount']
@@ -82,12 +88,13 @@ HEADER_BOOL_FIELDS = ['order_value_manual']  # True = người dùng tự sửa 
 FIELD_LIMITS = {
     'customer_name': 255, 'customer_phone': 30, 'vehicle_type': 100, 'frame_number': 50,
     'vehicle_color': 50, 'vehicle_year': 50, 'status': 50, 'part_code': 100,
-    'quantity': 50, 'order_type': 100, 'source': 30, 'source_store': 20,
+    'quantity': 50, 'order_type': 100, 'source': 30, 'source_store': 20, 'quote_no': 50,
 }
 FIELD_LABELS = {
     'customer_name': 'Tên khách hàng', 'customer_phone': 'SĐT', 'vehicle_type': 'Loại xe',
     'frame_number': 'Số khung', 'vehicle_color': 'Màu', 'vehicle_year': 'Đời xe',
     'status': 'Trạng thái', 'part_code': 'Mã hàng', 'quantity': 'SL', 'order_type': 'Loại đơn',
+    'quote_no': 'Số báo giá',
 }
 
 # Các cột đọc ra cho danh sách (không lấy created_by/created_at... cho nhẹ payload)
@@ -96,7 +103,8 @@ LIST_COLUMNS = (
     'vehicle_type, frame_number, vehicle_color, vehicle_year, part_code, part_name, '
     'quantity, order_value, deposit_amount, order_date, order_type, '
     'customer_request_date, expected_delivery_date, customer_call_date, '
-    'actual_delivery_date, call_note, unit_price, order_value_manual, source, source_store'
+    'actual_delivery_date, call_note, unit_price, order_value_manual, source, source_store, '
+    'quote_no'
 )
 
 
@@ -216,6 +224,7 @@ def init_orders_tables():
             'source VARCHAR(30)',       # NGUỒN HÀNG: 'Đặt hàng' | 'Xin nội bộ'
             'source_store VARCHAR(20)',  # chi nhánh được xin tồn (khi xin nội bộ)
             'order_value_manual BOOLEAN',
+            'quote_no VARCHAR(50)',     # SỐ BÁO GIÁ - "Số phiếu" trên Phiếu thu đặt cọc/Báo giá của khách (chung cho cả đơn)
         ):
             cursor.execute(f'ALTER TABLE bo_orders ADD COLUMN IF NOT EXISTS {col_def}')
 
@@ -397,7 +406,7 @@ def _rows_to_request(rid, items):
         'customer_name': items[0]['customer_name'],
         'customer_request_date': _iso(first('customer_request_date')),
     }
-    for f in ['customer_phone', 'vehicle_type', 'frame_number', 'vehicle_color', 'vehicle_year']:
+    for f in ['customer_phone', 'vehicle_type', 'frame_number', 'vehicle_color', 'vehicle_year', 'quote_no']:
         req[f] = first(f)
     req['order_value'] = _num(first('order_value'))
     req['deposit_amount'] = _num(first('deposit_amount'))
@@ -470,10 +479,10 @@ def list_orders():
     if search:
         conditions.append('''(
             customer_name ILIKE %s OR customer_phone ILIKE %s OR frame_number ILIKE %s OR
-            part_code ILIKE %s OR part_name ILIKE %s OR po_code ILIKE %s
+            part_code ILIKE %s OR part_name ILIKE %s OR po_code ILIKE %s OR quote_no ILIKE %s
         )''')
         like = f'%{search}%'
-        params.extend([like] * 6)
+        params.extend([like] * 7)
 
     where_clause = ('WHERE ' + ' AND '.join(conditions)) if conditions else ''
 
@@ -746,6 +755,86 @@ def import_orders_excel():
         'requests': len({r['request_id'] for r in rows}),
         'skipped': len(skipped),
         'skipped_rows_excel': [s['row'] for s in skipped][:100],
+    })
+
+
+@orders_bp.route('/api/orders/import_quote', methods=['POST'])
+def import_quote():
+    """Đọc NHANH 1 file PDF "Phiếu thu đặt cọc/Báo giá" để trả về dữ liệu
+    điền sẵn vào form Thêm/Sửa đơn (Số báo giá, Tên KH, SĐT, Tiền cọc, danh
+    sách mặt hàng). KHÔNG ghi vào CSDL ở bước này - người dùng vẫn phải rà
+    soát trên form rồi tự bấm "Lưu đơn" như bình thường (khác bo_import.py
+    vốn ghi thẳng CSDL, chỉ admin dùng). Vì đây là thao tác hàng ngày, cho
+    phép cả role 'store' lẫn 'admin' dùng.
+
+    Thử tra thêm tên/giá theo đúng danh mục hiện có (inventory_items +
+    part_prices) cho từng mã hàng đọc được - nếu khớp thì DÙNG GIÁ/TÊN
+    trong danh mục (đúng với giá bán hiện tại của cửa hàng) thay vì giá ghi
+    trên PDF cũ (có thể đã lỗi thời); mã không khớp danh mục vẫn giữ
+    nguyên tên/giá đọc từ PDF để không mất dữ liệu."""
+    if 'user' not in session:
+        return jsonify({'error': 'Unauthorized'}), 401
+    if session.get('role') not in ('store', 'admin'):
+        return jsonify({'error': 'Forbidden'}), 403
+
+    file = request.files.get('file')
+    if not file or not file.filename:
+        return jsonify({'error': 'Vui lòng chọn file PDF báo giá.'}), 400
+    if not file.filename.lower().endswith('.pdf'):
+        return jsonify({'error': 'Chỉ hỗ trợ file PDF.'}), 400
+
+    try:
+        data = parse_quote_pdf(file.stream)
+    except (ValueError, RuntimeError) as e:
+        return jsonify({'error': str(e)}), 400
+    except Exception as e:
+        return jsonify({'error': f'Không đọc được file: {e}'}), 400
+
+    # Đối chiếu mã hàng với danh mục hiện có để lấy đúng tên/giá hiện hành.
+    codes = [it['part_code'] for it in data['items']]
+    found = {}
+    if codes:
+        norm_codes = list(dict.fromkeys(re.sub(r'[^A-Za-z0-9]', '', c).upper() for c in codes))
+        try:
+            cur = get_main_db().cursor()
+            cur.execute(f'''
+                SELECT i.part_code AS code, MAX(i.part_name) AS name, MAX(pp.sale_price) AS price
+                FROM inventory_items i LEFT JOIN part_prices pp ON pp.part_code = i.part_code
+                WHERE {_NORM_SQL} = ANY(%s) GROUP BY i.part_code
+            ''', (norm_codes,))
+            for r in cur.fetchall():
+                found[re.sub(r'[^A-Za-z0-9]', '', r['code']).upper()] = r
+            cur.close()
+        except Exception:
+            try:
+                get_main_db().rollback()
+            except Exception:
+                pass
+
+    matched = 0
+    for it in data['items']:
+        hit = found.get(re.sub(r'[^A-Za-z0-9]', '', it['part_code']).upper())
+        if hit:
+            matched += 1
+            it['part_code'] = hit['code']  # dùng đúng mã trong danh mục (chuẩn hoá hoa/thường)
+            if hit['name']:
+                it['part_name'] = hit['name']
+            if hit['price'] is not None:
+                it['unit_price'] = _price_number(hit['price'])
+
+    return jsonify({
+        'success': True,
+        'data': {
+            'quote_no': data['quote_no'],
+            'customer_name': data['customer_name'],
+            'customer_phone': data['customer_phone'],
+            'deposit_amount': data['deposit_amount'],
+            'order_value': data['order_value'],
+            'items': data['items'],
+        },
+        'total_items': len(data['items']),
+        'matched_catalog': matched,
+        'unmatched_rows': data['unmatched'],
     })
 
 

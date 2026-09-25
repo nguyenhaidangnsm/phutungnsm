@@ -10,3 +10,4 @@ Flask-Limiter
 orjson
 certifi
 Pillow
+pdfplumber
