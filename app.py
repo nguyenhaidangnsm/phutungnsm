@@ -4048,7 +4048,18 @@ def order_check():
         store_qty = float(inv.get(store_code, 0)) if inv else 0
         total_qty = sum(float(inv.get(sc, 0)) for sc in _ORDER_CHECK_STORE_CODES) if inv else 0
 
+        # 'freq_system' (tính trên TỔNG tồn + TỔNG bán của CẢ HỆ THỐNG) chỉ
+        # còn dùng NỘI BỘ để quyết định có cần gợi ý mã con hậu tố hay không
+        # (mã hoàn toàn không có tồn/không được theo dõi ở đâu trong hệ
+        # thống). KHÔNG còn trả ra FE làm 'sales_freq' nữa - cột "Tình Hình
+        # Bán" trên màn hình giờ phải phản ánh ĐÚNG cửa hàng admin đang chọn
+        # để kiểm tra đơn (store_code), không phải gộp cả hệ thống, vì 1 mã
+        # có thể bán rất chạy ở cửa hàng này nhưng lại đang tồn đọng ở cửa
+        # hàng khác - gộp chung dễ khiến admin hiểu sai tình hình bán thực
+        # tế tại đúng cửa hàng cần đặt hàng.
         freq_system = classify_sales_frequency(total_qty, sold_by_part.get(part_code, 0.0), period_months) if inv else None
+        sold_map = sold_by_part_store.get(part_code, {})
+        freq_store = classify_sales_frequency(store_qty, sold_map.get(store_code, 0.0), period_months) if inv else None
 
         lock = lock_by_part.get(part_code)
         debt = debt_by_part.get(part_code)
@@ -4094,10 +4105,11 @@ def order_check():
         # đã trừ phần đề xuất chuyển đi) - ưu tiên kho có tồn nhiều nhất trước.
         transfer_suggestions = []
         still_needed = max(0.0, qty_order - store_qty)
-        sold_map = sold_by_part_store.get(part_code, {})
+        # sold_map đã tính ở trên (dùng chung cho freq_store).
         # Tần suất bán RIÊNG của từng cửa hàng cho đúng mã này (khác với
-        # 'sales_freq' ở dưới - đó là tần suất bán TÍNH TRÊN TỔNG TỒN + TỔNG
-        # BÁN CỦA CẢ HỆ THỐNG). Trả về cho FE để hiển thị cạnh mỗi cửa hàng
+        # 'sales_freq' ở dưới - giờ ĐÃ là tần suất bán của RIÊNG cửa hàng
+        # store_code đang kiểm tra, không còn là tổng cả hệ thống nữa).
+        # Trả về cho FE để hiển thị cạnh mỗi cửa hàng
         # trong "Tồn Hệ Thống", giúp admin tự thấy TẠI SAO 1 cửa hàng có tồn
         # nhưng KHÔNG được đề xuất chuyển (thường là do đang bán nhanh - TX -
         # ngay tại chính cửa hàng đó, nên không có "dư" để cho cửa hàng khác,
@@ -4162,8 +4174,11 @@ def order_check():
             # phía trên. Dùng để FE hiển thị lý do 1 cửa hàng không được đề
             # xuất chuyển dù đang có tồn > 0.
             'store_breakdown_freq': store_breakdown_freq,
-            'sales_freq': freq_system,
-            'qty_sold_period': round(sold_by_part.get(part_code, 0.0), 2),
+            # 'sales_freq' + 'qty_sold_period' hiển thị ở cột "Tình Hình Bán"
+            # trên FE: tính theo ĐÚNG cửa hàng đang kiểm tra đơn (store_code),
+            # KHÔNG PHẢI gộp cả hệ thống - xem giải thích ở chỗ tính freq_store.
+            'sales_freq': freq_store,
+            'qty_sold_period': round(sold_map.get(store_code, 0.0), 2),
             'period_months': period_months,
             'is_locked': bool(lock['is_locked']) if lock else False,
             'replacement_code': lock.get('replacement_code') if lock else None,
