@@ -3750,6 +3750,34 @@ def import_order_lock():
             return False
         return None
 
+    def _to_clean_code(val):
+        """Chuẩn hoá 1 Ô mã hàng/mã thay thế: trả về chuỗi đã strip, hoặc
+        None nếu ô trống/NaN/các dạng "không có" phổ biến (nan, none, n/a).
+
+        QUAN TRỌNG: hàm này PHẢI được gọi qua list comprehension thuần
+        (vd `[_to_clean_code(v) for v in df[col]]`), KHÔNG dùng .apply()
+        rồi gán kết quả trở lại 1 Series/cột pandas, và càng không dùng
+        .astype(str) + .where(cond, None) cho cả cột. Đã kiểm chứng thực
+        tế trên pandas bản mới (3.x): CẢ 3 CÁCH đó đều khiến pandas tự
+        suy luận kiểu dữ liệu Series kết quả là "str" (StringDtype) khi
+        cột có lẫn chuỗi + ô trống, và kiểu này ÉP None quay lại thành
+        NaN ngay khi gán vào Series - ngay cả khi hàm này trả về đúng
+        None cho từng ô. Hậu quả: ô trống (không có mã thay thế) bị lưu
+        nhầm là NaN thay vì NULL, Postgres trả ra đúng chữ "NaN" khi đọc
+        lại cột VARCHAR - hiện sai trên giao diện. CHỈ list Python thuần
+        (không đi qua Series) mới giữ đúng None."""
+        if val is None:
+            return None
+        try:
+            if pd.isna(val):
+                return None
+        except (TypeError, ValueError):
+            pass
+        s = str(val).strip()
+        if s == '' or s.lower() in ('nan', 'none', 'n/a'):
+            return None
+        return s
+
     # XỬ LÝ VECTOR HOÁ (thay cho iterrows()): với file lớn (vài chục nghìn
     # dòng trở lên), iterrows() duyệt từng dòng bằng Python thuần rất chậm
     # (có thể mất hàng chục giây). Dùng các phép toán theo CỘT của pandas
@@ -3758,24 +3786,22 @@ def import_order_lock():
     now = vn_now()
     actor = _current_actor_name()
 
-    # LƯU Ý: KHÔNG được chỉ dựa vào so sánh chuỗi ('nan') để phát hiện ô
-    # trống - với pandas bản đang dùng, .astype(str) trên CẢ CỘT (vector
-    # hoá) KHÔNG chuyển NaN thành chuỗi "nan" như nhiều người tưởng, nó GIỮ
-    # NGUYÊN là số thực NaN. Nếu chỉ lọc bằng .str.lower() != 'nan', NaN sẽ
-    # "lọt lưới" (so sánh chuỗi không bao giờ khớp NaN) và bị insert thẳng
-    # vào DB dưới dạng số NaN - Postgres trả text đó ra là chữ "NaN" (viết
-    # hoa), gây lỗi hiển thị/mã hàng rác. Phải gọi .notna() trên CỘT GỐC
-    # (trước khi ép kiểu string) mới bắt đúng được NaN thật.
-    part_codes_raw = df[part_col]
-    part_codes = part_codes_raw.astype(str).str.strip()
-    valid_mask = (
-        part_codes_raw.notna()
-        & (part_codes != '') & (part_codes.str.lower() != 'nan')
-    )
+    # QUAN TRỌNG: build ra LIST PYTHON THUẦN (KHÔNG gán ngược kết quả vào 1
+    # cột/Series pandas), rồi mới lọc theo list đó. Đã test thực tế và phát
+    # hiện: trên pandas bản mới, NGAY CẢ .apply(_to_clean_code) trả về đúng
+    # None cho từng ô riêng lẻ, nhưng pandas VẪN tự suy luận kiểu dữ liệu
+    # cho cả Series kết quả là "str" dtype (do đa số ô là chuỗi) - và kiểu
+    # này ÉP None quay lại thành NaN ngay khi gán vào Series/cột (dù dùng
+    # .apply(), .astype()+.where(), hay pd.Series([...]) đều dính như nhau
+    # - đã kiểm chứng cả 3 cách). NaN đó khi insert vào cột VARCHAR sẽ được
+    # Postgres lưu/trả về đúng chữ "NaN". List Python thuần (list/[]) không
+    # bị pandas suy luận kiểu dữ liệu nên None luôn giữ nguyên là None.
+    part_codes_list = [_to_clean_code(v) for v in df[part_col]]
+    valid_mask = pd.Series([c is not None for c in part_codes_list], index=df.index)
     skipped_rows = int((~valid_mask).sum())
 
     work = df.loc[valid_mask].copy()
-    part_codes = part_codes.loc[valid_mask]
+    part_codes = [c for c, keep in zip(part_codes_list, valid_mask) if keep]
 
     if lock_col:
         is_locked_s = work[lock_col].apply(_to_bool_locked)
@@ -3794,27 +3820,21 @@ def import_order_lock():
         index=work.index)
 
     if replace_col:
-        # Cùng lỗi NaN như phần part_codes ở trên (xem giải thích phía trên) -
-        # phải kiểm tra .isna() trên CỘT GỐC trước khi ép sang chuỗi, không
-        # được chỉ dựa vào .isin(['', 'nan']) sau khi đã .astype(str), vì NaN
-        # thật sẽ không khớp bất kỳ chuỗi nào trong danh sách đó và bị GIỮ
-        # NGUYÊN thay vì bị đổi thành None. Đây chính là nguyên nhân khiến
-        # các mã "Khoá đặt hàng" không có mã thay thế thật lại bị gán nhầm
-        # replacement_code = NaN, rồi bị hiểu lầm là "có mã thay thế hợp lệ"
-        # (chuỗi "NaN" không rỗng) ở _apply_order_lock_substitution() trong
-        # dashboard.py, gộp lung tung nhiều mã gốc khác nhau vào 1 dòng ảo
-        # "NaN" trong Gợi Ý Nhập Hàng.
-        replace_raw = work[replace_col]
-        replacement_s = replace_raw.astype(str).str.strip()
-        invalid_replace = (
-            replace_raw.isna()
-            | replacement_s.str.lower().isin(['', 'nan', 'none', 'n/a'])
-        )
-        replacement_s = replacement_s.where(~invalid_replace, None)
+        # List Python thuần - CHÍNH XÁC lý do gây ra lỗi hiển thị "NaN"
+        # trong Gợi Ý Nhập Hàng (xem giải thích chi tiết ở khối part_codes
+        # phía trên): mã "Khoá đặt hàng" không có mã thay thế thật (ô
+        # trống) từng bị lưu nhầm thành NaN thay vì NULL, khiến
+        # _apply_order_lock_substitution() trong dashboard.py hiểu lầm
+        # "NaN" là 1 mã thay thế hợp lệ (chuỗi khác rỗng) và gộp lung tung
+        # nhiều mã gốc khác nhau vào chung 1 dòng ảo "NaN". 2 bản vá TRƯỚC
+        # (.astype(str)+.where(), rồi .apply() gán vào Series) ĐỀU vẫn
+        # dính lỗi này vì pandas tự ép kiểu Series kết quả - chỉ list
+        # Python thuần mới tránh được hoàn toàn.
+        replacement_list = [_to_clean_code(v) for v in work[replace_col]]
     else:
-        replacement_s = pd.Series(None, index=work.index)
+        replacement_list = [None] * len(work)
 
-    rows = list(zip(part_codes, is_locked_s, replacement_s, qty_bac_s, qty_nam_s,
+    rows = list(zip(part_codes, is_locked_s, replacement_list, qty_bac_s, qty_nam_s,
                      has_stock_bac_s, has_stock_nam_s, [now] * len(work), [actor] * len(work)))
 
     if not rows:
