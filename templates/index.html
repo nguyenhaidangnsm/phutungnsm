@@ -4939,9 +4939,16 @@
             tbody.innerHTML = json.data.map(r => {
                 let noteHtml = '';
                 if (r.blocked_no_replacement) {
-                    noteHtml = `<div class="small text-danger mt-1"><i class="bi bi-exclamation-triangle-fill me-1"></i>Mã đang bị khoá đặt hàng, chưa có mã thay thế</div>`;
+                    noteHtml = `<div class="small text-danger mt-1" style="white-space:normal; max-width:260px;"><i class="bi bi-exclamation-triangle-fill me-1"></i>Mã đang bị khoá đặt hàng, chưa có mã thay thế</div>`;
                 } else if (r.superseded_from && r.superseded_from.length) {
-                    noteHtml = `<div class="small text-muted mt-1"><i class="bi bi-arrow-left-right me-1"></i>Thay cho mã bị khoá: ${r.superseded_from.map(escapeHtmlAttr).join(', ')}</div>`;
+                    // white-space:normal ghi đè text-nowrap của cả bảng CHỈ cho ô
+                    // này, và giới hạn max-width + rút gọn danh sách (nếu dài) để
+                    // cột "Mã Hàng" không bị kéo giãn bất thường khi 1 mã thay thế
+                    // gộp từ nhiều mã gốc bị khoá (xem title để xem đủ danh sách).
+                    const codes = r.superseded_from.map(escapeHtmlAttr);
+                    const shown = codes.slice(0, 3).join(', ');
+                    const extra = codes.length > 3 ? ` và ${codes.length - 3} mã khác` : '';
+                    noteHtml = `<div class="small text-muted mt-1" style="white-space:normal; max-width:260px;" title="${codes.join(', ')}"><i class="bi bi-arrow-left-right me-1"></i>Thay cho mã bị khoá: ${shown}${extra}</div>`;
                 }
                 return `
                 <tr>

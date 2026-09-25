@@ -3758,8 +3758,20 @@ def import_order_lock():
     now = vn_now()
     actor = _current_actor_name()
 
-    part_codes = df[part_col].astype(str).str.strip()
-    valid_mask = (part_codes != '') & (part_codes.str.lower() != 'nan')
+    # LƯU Ý: KHÔNG được chỉ dựa vào so sánh chuỗi ('nan') để phát hiện ô
+    # trống - với pandas bản đang dùng, .astype(str) trên CẢ CỘT (vector
+    # hoá) KHÔNG chuyển NaN thành chuỗi "nan" như nhiều người tưởng, nó GIỮ
+    # NGUYÊN là số thực NaN. Nếu chỉ lọc bằng .str.lower() != 'nan', NaN sẽ
+    # "lọt lưới" (so sánh chuỗi không bao giờ khớp NaN) và bị insert thẳng
+    # vào DB dưới dạng số NaN - Postgres trả text đó ra là chữ "NaN" (viết
+    # hoa), gây lỗi hiển thị/mã hàng rác. Phải gọi .notna() trên CỘT GỐC
+    # (trước khi ép kiểu string) mới bắt đúng được NaN thật.
+    part_codes_raw = df[part_col]
+    part_codes = part_codes_raw.astype(str).str.strip()
+    valid_mask = (
+        part_codes_raw.notna()
+        & (part_codes != '') & (part_codes.str.lower() != 'nan')
+    )
     skipped_rows = int((~valid_mask).sum())
 
     work = df.loc[valid_mask].copy()
@@ -3782,8 +3794,23 @@ def import_order_lock():
         index=work.index)
 
     if replace_col:
-        replacement_s = work[replace_col].astype(str).str.strip()
-        replacement_s = replacement_s.where(~replacement_s.str.lower().isin(['', 'nan']), None)
+        # Cùng lỗi NaN như phần part_codes ở trên (xem giải thích phía trên) -
+        # phải kiểm tra .isna() trên CỘT GỐC trước khi ép sang chuỗi, không
+        # được chỉ dựa vào .isin(['', 'nan']) sau khi đã .astype(str), vì NaN
+        # thật sẽ không khớp bất kỳ chuỗi nào trong danh sách đó và bị GIỮ
+        # NGUYÊN thay vì bị đổi thành None. Đây chính là nguyên nhân khiến
+        # các mã "Khoá đặt hàng" không có mã thay thế thật lại bị gán nhầm
+        # replacement_code = NaN, rồi bị hiểu lầm là "có mã thay thế hợp lệ"
+        # (chuỗi "NaN" không rỗng) ở _apply_order_lock_substitution() trong
+        # dashboard.py, gộp lung tung nhiều mã gốc khác nhau vào 1 dòng ảo
+        # "NaN" trong Gợi Ý Nhập Hàng.
+        replace_raw = work[replace_col]
+        replacement_s = replace_raw.astype(str).str.strip()
+        invalid_replace = (
+            replace_raw.isna()
+            | replacement_s.str.lower().isin(['', 'nan', 'none', 'n/a'])
+        )
+        replacement_s = replacement_s.where(~invalid_replace, None)
     else:
         replacement_s = pd.Series(None, index=work.index)
 
