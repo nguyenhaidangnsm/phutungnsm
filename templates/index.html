@@ -353,6 +353,65 @@
     .inv-name-col { max-width: 180px; overflow: hidden; text-overflow: ellipsis; }
     .store-badge-default { background: #f1efe8; color: #444441; }
 
+    /* Bảng "Kiểm Tra Đơn Hàng" (order-check) - cột "Tình Hình Bán": tô nền
+       nhạt theo tần suất bán (TX xanh / TB vàng / CB đỏ) để mắt nhận diện
+       ngay tình trạng bán của mã hàng thay vì phải đọc chữ nhỏ, badge tròn
+       đậm màu dễ thấy hơn hẳn chữ mã TX/TB/CB đơn thuần như trước. */
+    .oc-sales-cell { padding: 6px 8px; border-radius: 6px; min-width: 165px; }
+    .oc-sales-cell.oc-sales-tx { background: #f0fdf4; }
+    .oc-sales-cell.oc-sales-tb { background: #fffbeb; }
+    .oc-sales-cell.oc-sales-cb { background: #fef2f2; }
+    .oc-sales-badge {
+        display: inline-flex; align-items: center; justify-content: center;
+        min-width: 32px; padding: 3px 8px; border-radius: 6px; font-weight: 800;
+        font-size: 0.78rem; color: #fff; letter-spacing: .2px; flex-shrink: 0;
+    }
+    .oc-sales-badge-tx { background: #22c55e; }
+    .oc-sales-badge-tb { background: #f59e0b; }
+    .oc-sales-badge-cb { background: #ef4444; }
+    .oc-sales-badge-none { background: #94a3b8; }
+
+    /* Cột "Tồn Hệ Thống" của bảng order-check - chi tiết tồn theo từng cửa
+       hàng hiển thị bằng chip màu (dùng chung .store-badge-* đã có), thay vì
+       nhồi hết vào 1 dòng chữ nhỏ "(NS1: 1 | NS3: 3 | ...)" rất khó tách bạch
+       từng cửa hàng như trước. */
+    .oc-stock-total { font-size: 1rem; }
+    .oc-stock-chip { font-size: 0.72rem; padding: 2px 7px; }
+    .oc-stock-chip b { margin-left: 3px; }
+    /* Lưới 2 CỘT CỐ ĐỊNH cho các chip cửa hàng trong "Tồn Hệ Thống" - trước
+       đây dùng flex-wrap nên có dòng 2 chip, có dòng chỉ 1 chip tuỳ độ rộng
+       chữ, khiến các dòng trông lệch/không cân đối. Cố định 2 cột giúp MỌI
+       dòng luôn thẳng hàng nhau, dễ so sánh giữa các mã hàng. */
+    .oc-stock-chip-grid {
+        display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px 6px;
+    }
+    .oc-stock-chip-grid .oc-stock-chip { width: 100%; box-sizing: border-box; }
+    /* Nhãn TX/TB/CB siêu nhỏ cạnh số lượng trong mỗi chip cửa hàng - tần
+       suất bán RIÊNG của cửa hàng đó (khác cột "Tình Hình Bán" là tần suất
+       CẢ HỆ THỐNG) - giúp thấy ngay lý do 1 cửa hàng có tồn nhưng không được
+       đề xuất chuyển (đang tự bán nhanh tại đó = TX). */
+    .oc-chip-freq {
+        display: inline-block; margin-left: 4px; padding: 0 4px; border-radius: 4px;
+        font-size: 0.6rem; font-weight: 800; color: #fff; vertical-align: middle;
+        letter-spacing: 0.2px; cursor: help;
+    }
+    .oc-chip-freq-tx { background: #22c55e; }
+    .oc-chip-freq-tb { background: #f59e0b; }
+    .oc-chip-freq-cb { background: #ef4444; }
+
+    /* Khối "Kho HVN Bắc/Nam" trong cột "Khoá Đặt Hàng" - tách biệt rõ ràng
+       (viền trái + nhãn nhỏ "KHO HVN") với phần "Đề Xuất Luân Chuyển" ở cột
+       khác, vì đây là tồn kho của Honda Việt Nam, KHÔNG liên quan đến việc
+       chuyển hàng giữa các cửa hàng NS1-NS5/NSM1 - tránh gây hiểu nhầm 2 khái
+       niệm là một khi cả hai từng cùng tô đỏ cạnh nhau. */
+    .oc-hvn-block {
+        border-left: 3px solid #cbd5e1; padding-left: 7px; margin-top: 2px;
+    }
+    .oc-hvn-label {
+        display: block; font-size: 0.64rem; font-weight: 700; color: #94a3b8;
+        text-transform: uppercase; letter-spacing: 0.03em;
+    }
+
     /* Mã Hàng / Tên Hàng / Số Lượng của 1 phiếu luân chuyển - MỖI THÀNH
        PHẦN LÀ 1 CỘT <td> THẬT RIÊNG trong bảng (không gộp chung 1 ô như
        trước), nên các dòng tự động thẳng hàng với nhau VÀ thẳng với tiêu
@@ -1183,6 +1242,10 @@
         {% if role == 'admin' %}
         <div class="ns-sidebar-group">
             <div class="ns-sidebar-group-title"><span class="ns-label">Quản Trị Hệ Thống</span></div>
+            <button type="button" class="ns-sidebar-item" data-target-tab="order-check-tab" onclick="megaNavClick('order-check-tab', this)">
+                <span class="ns-sidebar-icon"><i class="bi bi-clipboard2-check-fill"></i></span>
+                <span class="ns-label">Duyệt Đơn Hàng</span>
+            </button>
             <button type="button" class="ns-sidebar-item" data-target-tab="admin-tab" onclick="megaNavClick('admin-tab', this)">
                 <span class="ns-sidebar-icon"><i class="bi bi-gear-fill"></i></span>
                 <span class="ns-label">User & Thông báo</span>
@@ -1279,6 +1342,11 @@
     </li>
     {% endif %}
     {% if role == 'admin' %}
+    <li class="nav-item" role="presentation">
+        <button class="nav-link" id="order-check-tab" data-bs-toggle="pill" data-bs-target="#order-check-pane"  >
+            <i class="bi bi-clipboard2-check-fill me-2"></i>Duyệt Đơn Hàng
+        </button>
+    </li>
     <li class="nav-item" role="presentation">
         <button class="nav-link" id="admin-tab" data-bs-toggle="pill" data-bs-target="#admin-pane" onclick="loadAdminUsers(); loadDbSize(); loadTransferArchives(); loadTruckAnnouncementsAdmin();">
             <i class="bi bi-gear-fill me-2"></i>Quản Lý User
@@ -1943,6 +2011,7 @@
             <table class="table table-hover align-middle mb-0 text-nowrap">
                 <thead>
                     <tr>
+                        <th>Kho</th>
                         <th>Mã Hàng</th>
                         <th>Tên Hàng</th>
                         <th>ĐVT</th>
@@ -1954,7 +2023,7 @@
                     </tr>
                 </thead>
                 <tbody id="reorder-body">
-                    <tr><td colspan="8" class="text-center py-4 text-muted">Đang tải dữ liệu...</td></tr>
+                    <tr><td colspan="9" class="text-center py-4 text-muted">Đang tải dữ liệu...</td></tr>
                 </tbody>
             </table>
         </div>
@@ -3217,6 +3286,121 @@
         {% endif %}
 
         {% if role == 'admin' %}
+        <!-- DUYỆT ĐƠN HÀNG PANE - admin dán danh sách (mã hàng, số lượng) rồi
+             hệ thống kiểm tra tần suất bán, khoá đặt hàng, tồn kho cửa hàng/hệ
+             thống, đang nợ hay không, và đề xuất luân chuyển thay vì đặt mới. -->
+        <div class="tab-pane fade" id="order-check-pane">
+            <div class="card card-custom p-3 mb-3 mb-md-4">
+                <h6 class="fw-bold mb-2"><i class="bi bi-file-earmark-arrow-up-fill me-2 text-primary"></i>Dữ Liệu Khoá Đặt Hàng</h6>
+                <div class="small text-muted mb-3">
+                    File Excel riêng (ngoài hệ thống), gồm các cột: Mã hàng, Khoá đặt hàng, Tồn kho Bắc, Tồn kho Nam, Mã thay thế.
+                    Mỗi lần nhập sẽ <strong>THAY THẾ TOÀN BỘ</strong> dữ liệu khoá đặt hàng cũ.
+                </div>
+                <div class="d-flex flex-wrap align-items-center gap-2">
+                    <input type="file" class="form-control form-control-sm" style="width:auto;" id="orderLockImportFile" accept=".xlsx,.xls,.csv">
+                    <button class="btn btn-primary btn-sm" onclick="importOrderLockExcel()" id="orderLockImportBtn">
+                        <i class="bi bi-upload me-1"></i>Nhập Dữ Liệu
+                    </button>
+                    <span class="small text-muted" id="orderLockImportStatus"></span>
+                </div>
+                <div class="small text-muted mt-2" id="orderLockLastImportInfo"></div>
+            </div>
+
+            <div class="card card-custom p-3 mb-3 mb-md-4">
+                <h5 class="mb-3"><i class="bi bi-clipboard2-check-fill me-2 text-primary"></i>Kiểm Tra Đơn Hàng</h5>
+                <div class="d-flex flex-wrap gap-2 align-items-center mb-2">
+                    <label class="small mb-0">Cửa hàng đặt hàng:</label>
+                    <select class="form-select form-select-sm" style="width:auto;" id="orderCheckStoreSelect">
+                        <option value="NS1">NS1</option>
+                        <option value="NS2">NS2</option>
+                        <option value="NS3">NS3</option>
+                        <option value="NS4">NS4</option>
+                        <option value="NS5">NS5</option>
+                        <option value="NSM1">NSM1</option>
+                    </select>
+                </div>
+                <div class="small text-muted mb-2">
+                    Dán danh sách gồm 2 cột "Mã hàng" và "Số lượng đặt" (copy trực tiếp từ Excel, mỗi dòng 1 mã hàng).
+                </div>
+                <div class="small text-muted mb-2">
+                    <i class="bi bi-info-circle me-1"></i>Lưu ý: <strong>Kho HVN Bắc/Nam</strong> (cột "Khoá Đặt Hàng") là tồn kho của <strong>Honda Việt Nam</strong>, khác hoàn toàn với <strong>"Đề Xuất Luân Chuyển"</strong> - vốn là chuyển hàng <strong>giữa các cửa hàng</strong> (NS1-NS5/NSM1) với nhau, không liên quan đến kho Honda.
+                </div>
+                <div class="small text-muted mb-2">
+                    <i class="bi bi-clock-history me-1"></i>Kết quả đang duyệt (số lượng đã sửa, ghi chú...) được lưu tạm trên trình duyệt này, không mất khi tải lại trang hay chuyển tab - chỉ mất khi bạn dán và <strong>Kiểm Tra</strong> 1 đơn hàng mới, hoặc bấm <strong>Xoá Phiên</strong>.
+                </div>
+                <textarea class="form-control form-control-sm mb-2" id="orderCheckInput" rows="6"
+                          placeholder="Ví dụ dán từ Excel:&#10;08P02-K35-M00J1&#10;5&#10;hoặc:&#10;08P02-K35-M00J1&#9;5"></textarea>
+                <div class="d-flex gap-2">
+                    <button class="btn btn-primary btn-sm" onclick="runOrderCheck()" id="orderCheckBtn">
+                        <i class="bi bi-search me-1"></i>Kiểm Tra
+                    </button>
+                    <span class="small text-muted align-self-center" id="orderCheckStatus"></span>
+                </div>
+            </div>
+
+            <div class="card card-custom p-3 mb-3 mb-md-4 d-none" id="orderCheckResultCard">
+                <div class="d-flex flex-wrap gap-2 align-items-center mb-3" id="orderCheckFilterBar">
+                    <label class="small mb-0 fw-semibold">Lọc:</label>
+                    <select class="form-select form-select-sm" style="width:auto;" id="ocFilterLock" onchange="renderOrderCheckTable()">
+                        <option value="all">Khoá đặt hàng: Tất cả</option>
+                        <option value="locked">Đã khoá</option>
+                        <option value="unlocked">Không khoá</option>
+                    </select>
+                    <select class="form-select form-select-sm" style="width:auto;" id="ocFilterDebt" onchange="renderOrderCheckTable()">
+                        <option value="all">Nợ/Vận chuyển: Tất cả</option>
+                        <option value="debt">Đang nợ</option>
+                        <option value="shipping">Đang vận chuyển</option>
+                        <option value="none">Không nợ</option>
+                    </select>
+                    <select class="form-select form-select-sm" style="width:auto;" id="ocFilterFreq" onchange="renderOrderCheckTable()">
+                        <option value="all">Tình hình bán: Tất cả</option>
+                        <option value="TX">Thường xuyên (TX)</option>
+                        <option value="TB">Trung bình (TB)</option>
+                        <option value="CB">Chậm bán (CB)</option>
+                        <option value="none">Chưa phân loại</option>
+                    </select>
+                    <select class="form-select form-select-sm" style="width:auto;" id="ocFilterChild" onchange="renderOrderCheckTable()">
+                        <option value="all">Mã con gợi ý: Tất cả</option>
+                        <option value="yes">Có mã con gợi ý</option>
+                    </select>
+                    <select class="form-select form-select-sm" style="width:auto;" id="ocFilterFound" onchange="renderOrderCheckTable()">
+                        <option value="all">Tồn kho hệ thống: Tất cả</option>
+                        <option value="found">Có trong hệ thống</option>
+                        <option value="notfound">Không tìm thấy</option>
+                    </select>
+                    <button class="btn btn-outline-secondary btn-sm" onclick="resetOrderCheckFilters()">
+                        <i class="bi bi-x-circle me-1"></i>Xoá lọc
+                    </button>
+                    <button class="btn btn-success btn-sm" onclick="exportOrderCheckExcel()">
+                        <i class="bi bi-file-earmark-excel me-1"></i>Xuất Excel
+                    </button>
+                    <button class="btn btn-outline-danger btn-sm" onclick="if(confirm('Xoá phiên đang duyệt hiện tại? Kết quả đang xem sẽ mất (chưa lưu lên hệ thống).')) clearOrderCheckSession()">
+                        <i class="bi bi-trash me-1"></i>Xoá Phiên
+                    </button>
+                    <span class="small text-muted ms-auto" id="orderCheckFilterCount"></span>
+                </div>
+                <div class="table-responsive" style="max-height:70vh;">
+                    <table class="table table-hover align-middle mb-0 text-nowrap">
+                        <thead>
+                            <tr>
+                                <th>Mã Hàng</th>
+                                <th class="text-end">SL Đặt</th>
+                                <th>Tình Hình Bán</th>
+                                <th class="text-end">Tồn CH</th>
+                                <th>Tồn Hệ Thống</th>
+                                <th>Khoá Đặt Hàng</th>
+                                <th>Đang Nợ / Vận Chuyển</th>
+                                <th>Đề Xuất Luân Chuyển</th>
+                                <th class="text-end">SL Duyệt Đề Xuất</th>
+                                <th style="min-width:180px;">Ghi Chú</th>
+                            </tr>
+                        </thead>
+                        <tbody id="order-check-body"></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
         <!-- ADMIN PANE -->
         <div class="tab-pane fade" id="admin-pane">
             <div class="card card-custom p-3 p-md-4" style="border-top: 3px solid #dc3545;">
@@ -3865,6 +4049,7 @@
         loadTransfers(); // tải sớm để hiển thị số lượng badge yêu cầu đang chờ
         loadInventory(); // tải sớm để trang "Tổng Quan" có ngay mốc cập nhật tồn kho/giá
         loadOverviewDashboard(); // trang "Tổng Quan" active sẵn từ đầu, không qua sự kiện click tab nên gọi tay ở đây
+        restoreOrderCheckSession(); // khôi phục phiên "Kiểm Tra Đơn Hàng" đang duyệt dở (nếu có), xem NHỚ PHIÊN ở trên
         setupDragZones();
         startVersionPolling();
         setupQuickLookupFabDrag();
@@ -4713,39 +4898,53 @@
             const res = await fetch('/api/admin/reorder-suggestions?' + _buildReorderQuery());
             const json = await res.json();
             if (!json.success) {
-                tbody.innerHTML = `<tr><td colspan="8" class="text-center py-4 text-danger">${json.error || 'Lỗi tải dữ liệu.'}</td></tr>`;
+                tbody.innerHTML = `<tr><td colspan="9" class="text-center py-4 text-danger">${json.error || 'Lỗi tải dữ liệu.'}</td></tr>`;
                 return;
             }
 
-            document.getElementById('reorderVisibleCount').innerText = `${json.total.toLocaleString()} mã hàng cần đặt thêm`;
+            document.getElementById('reorderVisibleCount').innerText = `${json.total.toLocaleString()} dòng cần đặt thêm`;
             const metaInfo = document.getElementById('reorderMetaInfo');
             if (metaInfo) {
                 metaInfo.innerHTML = `Chỉ hiện mã "Thường xuyên (TX)" hoặc "Trung bình (TB)" có tồn dưới <strong>${json.min_months} tháng</strong> bán` +
-                    (json.store ? ` — đang xem gợi ý của kho <strong>${json.store}</strong>` : ' — tổng hợp toàn hệ thống') +
+                    (json.store ? ` — đang xem gợi ý của kho <strong>${json.store}</strong>` : ' — tính riêng cho từng cửa hàng (không gộp toàn hệ thống)') +
                     ` (kỳ số liệu xuất bán: ${json.period_months} tháng gần nhất).`;
             }
 
             if (!json.data || json.data.length === 0) {
-                tbody.innerHTML = `<tr><td colspan="8" class="text-center py-4 text-muted">Không có mã hàng nào cần đặt thêm.</td></tr>`;
+                tbody.innerHTML = `<tr><td colspan="9" class="text-center py-4 text-muted">Không có mã hàng nào cần đặt thêm.</td></tr>`;
                 return;
             }
 
+            // Số nguyên khi hiển thị trong bảng Gợi Ý Nhập Hàng (không hiện số lẻ),
+            // dù dữ liệu gốc từ server có thể có phần thập phân - làm tròn CHỈ để
+            // hiển thị, không đổi số liệu dùng để tính toán ở nơi khác.
+            const fmtReorderQty = (v) => (v === null || v === undefined) ? '-' : Math.round(v).toLocaleString();
+
             const groupBadgeClass = { TX: 'bg-success', TB: 'bg-warning text-dark' };
-            tbody.innerHTML = json.data.map(r => `
+            tbody.innerHTML = json.data.map(r => {
+                let noteHtml = '';
+                if (r.blocked_no_replacement) {
+                    noteHtml = `<div class="small text-danger mt-1"><i class="bi bi-exclamation-triangle-fill me-1"></i>Mã đang bị khoá đặt hàng, chưa có mã thay thế</div>`;
+                } else if (r.superseded_from && r.superseded_from.length) {
+                    noteHtml = `<div class="small text-muted mt-1"><i class="bi bi-arrow-left-right me-1"></i>Thay cho mã bị khoá: ${r.superseded_from.map(escapeHtmlAttr).join(', ')}</div>`;
+                }
+                return `
                 <tr>
-                    <td><span class="part-code">${escapeHtmlAttr(r.part_code)}</span></td>
+                    <td><span class="badge bg-secondary">${escapeHtmlAttr(r.store_code || '')}</span></td>
+                    <td><span class="part-code">${escapeHtmlAttr(r.part_code)}</span>${noteHtml}</td>
                     <td class="inv-name-col" title="${escapeHtmlAttr(r.part_name || '')}">${r.part_name || ''}</td>
                     <td class="text-muted small">${r.unit || ''}</td>
-                    <td class="text-end">${fmtInvQty(r.qty_on_hand)}</td>
-                    <td class="text-end">${r.avg_month}</td>
+                    <td class="text-end">${fmtReorderQty(r.qty_on_hand)}</td>
+                    <td class="text-end">${fmtReorderQty(r.avg_month)}</td>
                     <td class="text-end text-danger fw-semibold">${r.months_of_stock}</td>
                     <td><span class="badge ${groupBadgeClass[r.group] || 'bg-secondary'}">${r.group}</span></td>
-                    <td class="text-end fw-bold text-primary">${fmtInvQty(r.suggested_qty)}</td>
+                    <td class="text-end fw-bold text-primary">${fmtReorderQty(r.suggested_qty)}</td>
                 </tr>
-            `).join('');
+            `;
+            }).join('');
         } catch (err) {
             console.error('Lỗi loadReorderSuggestions:', err);
-            tbody.innerHTML = `<tr><td colspan="8" class="text-center py-4 text-danger">Lỗi kết nối máy chủ.</td></tr>`;
+            tbody.innerHTML = `<tr><td colspan="9" class="text-center py-4 text-danger">Lỗi kết nối máy chủ.</td></tr>`;
         }
     }
 
@@ -5485,6 +5684,500 @@
         } finally {
             btn.disabled = false;
         }
+    }
+
+    // ---- Duyệt Đơn Hàng: import "Khoá đặt hàng" + kiểm tra đơn hàng -------
+    async function importOrderLockExcel() {
+        const input = document.getElementById('orderLockImportFile');
+        const btn = document.getElementById('orderLockImportBtn');
+        const status = document.getElementById('orderLockImportStatus');
+        if (!input.files || input.files.length === 0) {
+            alert('Vui lòng chọn 1 file trước.');
+            return;
+        }
+        if (!confirm('Nhập dữ liệu mới sẽ THAY THẾ TOÀN BỘ dữ liệu khoá đặt hàng hiện có. Tiếp tục?')) return;
+
+        const formData = new FormData();
+        formData.append('lock_file', input.files[0]);
+
+        btn.disabled = true;
+        if (status) status.innerText = 'Đang nhập dữ liệu...';
+        try {
+            const res = await fetch('/api/admin/import-order-lock', { method: 'POST', body: formData });
+            const json = await res.json();
+            if (!json.success) {
+                if (status) status.innerText = '';
+                alert(json.error || 'Nhập dữ liệu thất bại.');
+                return;
+            }
+            if (status) {
+                status.innerText = `Đã nhập ${json.total_parts.toLocaleString()} mã hàng` +
+                    (json.skipped_rows > 0 ? ` (bỏ qua ${json.skipped_rows} dòng thiếu mã hàng).` : '.');
+            }
+            input.value = '';
+        } catch (err) {
+            if (status) status.innerText = '';
+            console.error('Lỗi importOrderLockExcel:', err);
+            alert('Lỗi kết nối máy chủ khi nhập dữ liệu.');
+        } finally {
+            btn.disabled = false;
+        }
+    }
+
+    // Chú thích cho nhãn TX/TB/CB nhỏ cạnh mỗi cửa hàng trong "Tồn Hệ Thống" -
+    // giải thích RÕ vì sao cửa hàng đó được/không được xét làm nguồn chuyển.
+    function _ocFreqTip(code) {
+        if (code === 'TX') return 'Đang bán nhanh TẠI CHÍNH cửa hàng này - không có dư để chuyển đi';
+        if (code === 'TB') return 'Bán trung bình tại cửa hàng này - có thể được đề xuất chuyển nếu còn dư sau khi giữ đủ dùng';
+        if (code === 'CB') return 'Bán chậm tại cửa hàng này - ưu tiên được đề xuất chuyển nếu còn dư sau khi giữ đủ dùng';
+        return '';
+    }
+
+    function _orderCheckFreqBadgeHtml(freq) {
+        if (!freq || !freq.code) return '<span class="text-muted small">-</span>';
+        const cls = 'freq-' + freq.code.toLowerCase();
+        const tip = `Tồn đủ bán: ${_fmtMonthsText(freq.months_of_stock)} | TB bán/tháng: ${freq.avg_month}`;
+        return `<span class="freq-badge ${cls}" data-tip="${escapeHtmlAttr(tip)}">${freq.code}</span>`;
+    }
+
+    function parseOrderCheckInput(raw) {
+        // Chấp nhận dán 2 cột (mã hàng \t số lượng) trên CÙNG 1 dòng, HOẶC
+        // dán kiểu "mỗi giá trị 1 dòng" (Excel đôi khi dán xuống dòng thay vì
+        // tab khi chỉ chọn 2 cột hẹp) - trong trường hợp đó, dòng lẻ là mã
+        // hàng (không phải số), dòng chẵn theo sau là số lượng.
+        const lines = raw.split(/\r?\n/).map(l => l.trim()).filter(l => l !== '');
+        const items = [];
+        let i = 0;
+        while (i < lines.length) {
+            const parts = lines[i].split(/\t|,|;/).map(s => s.trim()).filter(s => s !== '');
+            if (parts.length >= 2 && !isNaN(parseFloat(parts[1].replace(',', '.')))) {
+                items.push({ part_code: parts[0], qty: parseFloat(parts[1].replace(',', '.')) });
+                i += 1;
+            } else if (!isNaN(parseFloat(lines[i].replace(',', '.'))) && items.length > 0 && items[items.length - 1].qty === null) {
+                items[items.length - 1].qty = parseFloat(lines[i].replace(',', '.'));
+                i += 1;
+            } else {
+                items.push({ part_code: lines[i], qty: null });
+                i += 1;
+            }
+        }
+        return items.map(it => ({ part_code: it.part_code, qty: it.qty || 0 })).filter(it => it.part_code);
+    }
+
+    async function runOrderCheck() {
+        const storeCode = document.getElementById('orderCheckStoreSelect').value;
+        const raw = document.getElementById('orderCheckInput').value;
+        const items = parseOrderCheckInput(raw);
+        const btn = document.getElementById('orderCheckBtn');
+        const status = document.getElementById('orderCheckStatus');
+        const resultCard = document.getElementById('orderCheckResultCard');
+        const body = document.getElementById('order-check-body');
+
+        if (items.length === 0) {
+            alert('Vui lòng dán danh sách mã hàng + số lượng trước.');
+            return;
+        }
+
+        btn.disabled = true;
+        if (status) status.innerText = `Đang kiểm tra ${items.length} mã hàng...`;
+        try {
+            const res = await fetch('/api/admin/order-check', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ store_code: storeCode, items })
+            });
+            const json = await res.json();
+            if (!json.success) {
+                if (status) status.innerText = '';
+                alert(json.error || 'Kiểm tra thất bại.');
+                return;
+            }
+            if (status) status.innerText = `Đã kiểm tra ${json.data.length} mã hàng.`;
+            if (json.lock_meta && json.lock_meta.upload_time) {
+                const lockInfo = document.getElementById('orderLockLastImportInfo');
+                if (lockInfo) lockInfo.innerText = `Dữ liệu khoá đặt hàng cập nhật lần cuối: ${json.lock_meta.upload_time} (${json.lock_meta.filename || ''}, bởi ${json.lock_meta.uploaded_by || ''})`;
+            }
+
+            resultCard.classList.remove('d-none');
+            _orderCheckData = json.data || [];
+            _orderCheckCurrentStore = storeCode;
+            resetOrderCheckFilters();
+            saveOrderCheckSession();
+        } catch (err) {
+            if (status) status.innerText = '';
+            console.error('Lỗi runOrderCheck:', err);
+            alert('Lỗi kết nối máy chủ khi kiểm tra đơn hàng.');
+        } finally {
+            btn.disabled = false;
+        }
+    }
+
+    // Dữ liệu gốc (chưa lọc) của lần Kiểm Tra Đơn Hàng gần nhất - dùng lại
+    // để lọc/render lại bảng nhiều lần mà KHÔNG cần gọi lại API mỗi khi đổi
+    // bộ lọc (dữ liệu không đổi, chỉ hiển thị đổi).
+    let _orderCheckData = [];
+    // Cửa hàng đang được tra ở lần kiểm tra gần nhất - dùng để loại trừ
+    // chính cửa hàng đó ra khỏi phần chi tiết "Tồn Hệ Thống" (đã hiển thị
+    // riêng ở cột "Tồn CH" rồi, không cần lặp lại).
+    let _orderCheckCurrentStore = '';
+
+    // ---------------------------------------------------------------------
+    // NHỚ PHIÊN ĐANG DUYỆT - lưu lại (cửa hàng đang chọn, danh sách đã dán,
+    // kết quả kiểm tra, số lượng duyệt/ghi chú đang sửa dở) vào localStorage,
+    // để rời tab/tải lại trang KHÔNG bị mất kết quả đang xem dở. Phiên lưu
+    // CHỈ mất đi khi admin chủ động dán + chạy 1 đơn hàng MỚI (ghi đè lên
+    // đúng key này), hoặc bấm nút "Xoá Phiên" thủ công - không tự xoá theo
+    // thời gian hay khi rời trang.
+    // ---------------------------------------------------------------------
+    const ORDER_CHECK_SESSION_KEY = 'orderCheckSession_v1';
+    let _orderCheckSessionSaveTimer = null;
+
+    function saveOrderCheckSession() {
+        // Debounce nhẹ vì hàm này được gọi liên tục khi gõ số lượng duyệt -
+        // tránh ghi localStorage dồn dập theo từng phím gõ.
+        clearTimeout(_orderCheckSessionSaveTimer);
+        _orderCheckSessionSaveTimer = setTimeout(() => {
+            if (!_orderCheckData || !_orderCheckData.length) return;
+            try {
+                const raw = document.getElementById('orderCheckInput');
+                const storeSelect = document.getElementById('orderCheckStoreSelect');
+                localStorage.setItem(ORDER_CHECK_SESSION_KEY, JSON.stringify({
+                    storeCode: storeSelect ? storeSelect.value : _orderCheckCurrentStore,
+                    rawInput: raw ? raw.value : '',
+                    data: _orderCheckData,
+                    savedAt: Date.now(),
+                }));
+            } catch (err) { /* localStorage đầy/không dùng được - bỏ qua, không chặn thao tác chính */ }
+        }, 300);
+    }
+
+    function clearOrderCheckSession(opts) {
+        try { localStorage.removeItem(ORDER_CHECK_SESSION_KEY); } catch (err) { /* bỏ qua */ }
+        if (!opts || !opts.silent) {
+            _orderCheckData = [];
+            _orderCheckCurrentStore = '';
+            const resultCard = document.getElementById('orderCheckResultCard');
+            if (resultCard) resultCard.classList.add('d-none');
+            const status = document.getElementById('orderCheckStatus');
+            if (status) status.innerText = 'Đã xoá phiên đang duyệt.';
+        }
+    }
+
+    function restoreOrderCheckSession() {
+        let saved = null;
+        try { saved = JSON.parse(localStorage.getItem(ORDER_CHECK_SESSION_KEY) || 'null'); } catch (err) { saved = null; }
+        if (!saved || !saved.data || !saved.data.length) return;
+
+        const raw = document.getElementById('orderCheckInput');
+        const storeSelect = document.getElementById('orderCheckStoreSelect');
+        const resultCard = document.getElementById('orderCheckResultCard');
+        const status = document.getElementById('orderCheckStatus');
+        if (raw && saved.rawInput) raw.value = saved.rawInput;
+        if (storeSelect && saved.storeCode) storeSelect.value = saved.storeCode;
+        _orderCheckData = saved.data;
+        _orderCheckCurrentStore = saved.storeCode || '';
+        if (resultCard) resultCard.classList.remove('d-none');
+        if (status) status.innerText = `Đã khôi phục phiên đang duyệt trước đó (${saved.data.length} mã hàng).`;
+        resetOrderCheckFilters();
+    }
+
+    // Đồng bộ số lượng duyệt (gõ tay, có thể khác số đề xuất ban đầu) và
+    // ghi chú vào lại _orderCheckData NGAY khi sửa - trước đây chỉ lưu trong
+    // ô input trên màn hình nên: (1) xuất Excel luôn lấy số ĐỀ XUẤT ban đầu
+    // dù đã sửa tay, và (2) đổi bộ lọc (render lại bảng) làm mất số đã sửa.
+    // Cũng là nơi kích hoạt lưu phiên mỗi khi có thay đổi.
+    document.addEventListener('input', (e) => {
+        if (!e.target.classList || !e.target.classList.contains('order-check-approve-input')) return;
+        const partCode = e.target.dataset.partCode;
+        const row = _orderCheckData.find(r => r.part_code === partCode);
+        if (!row) return;
+        const val = parseInt(e.target.value, 10);
+        row.suggested_approve_qty = isNaN(val) ? 0 : val;
+        saveOrderCheckSession();
+    });
+
+    function resetOrderCheckFilters() {
+        ['ocFilterLock', 'ocFilterDebt', 'ocFilterFreq', 'ocFilterChild', 'ocFilterFound'].forEach(id => {
+            const el = document.getElementById(id);
+            if (el) el.value = 'all';
+        });
+        renderOrderCheckTable();
+    }
+
+    function _orderCheckRowMatchesFilters(row) {
+        const fLock = document.getElementById('ocFilterLock').value;
+        if (fLock === 'locked' && !row.is_locked) return false;
+        if (fLock === 'unlocked' && row.is_locked) return false;
+
+        const fDebt = document.getElementById('ocFilterDebt').value;
+        if (fDebt === 'debt' && !(row.debt_qty > 0)) return false;
+        if (fDebt === 'shipping' && !(row.shipping_qty > 0)) return false;
+        if (fDebt === 'none' && (row.debt_qty > 0 || row.shipping_qty > 0)) return false;
+
+        const fFreq = document.getElementById('ocFilterFreq').value;
+        if (fFreq !== 'all') {
+            const code = row.sales_freq && row.sales_freq.code;
+            if (fFreq === 'none' && code) return false;
+            if (fFreq !== 'none' && code !== fFreq) return false;
+        }
+
+        const fChild = document.getElementById('ocFilterChild').value;
+        if (fChild === 'yes' && !(row.related_child_codes && row.related_child_codes.length)) return false;
+
+        const fFound = document.getElementById('ocFilterFound').value;
+        if (fFound === 'found' && !row.found) return false;
+        if (fFound === 'notfound' && row.found) return false;
+
+        return true;
+    }
+
+    function renderOrderCheckTable() {
+        const body = document.getElementById('order-check-body');
+        const countEl = document.getElementById('orderCheckFilterCount');
+        const filtered = _orderCheckData.filter(_orderCheckRowMatchesFilters);
+        if (countEl) countEl.innerText = `Hiển thị ${filtered.length}/${_orderCheckData.length} mã hàng`;
+        body.innerHTML = filtered.map(_orderCheckRowHtml).join('');
+    }
+
+    function _bacNamText(qtyBac, qtyNam, hasStockBac, hasStockNam) {
+        // Ưu tiên số lượng cụ thể (file kiểu cũ); nếu không có thì dùng cờ
+        // Y/N còn hàng (file kiểu mới, xem _to_stock_flag ở backend).
+        const fmt = (qty, hasStock) => {
+            if (qty !== null && qty !== undefined) return String(qty);
+            if (hasStock !== null && hasStock !== undefined) return hasStock ? 'Có' : 'Không';
+            return null;
+        };
+        const bac = fmt(qtyBac, hasStockBac);
+        const nam = fmt(qtyNam, hasStockNam);
+        if (bac === null && nam === null) return null;
+        return { bac, nam, noneAvailable: (bac === 'Không' || bac === '0') && (nam === 'Không' || nam === '0') };
+    }
+
+    function _orderCheckRowHtml(row) {
+                const notFound = !row.found;
+                const bacNam = _bacNamText(row.lock_qty_bac, row.lock_qty_nam, row.lock_has_stock_bac, row.lock_has_stock_nam);
+                // Bắc/Nam: đây là tồn kho của HONDA VIỆT NAM (từ file Excel
+                // "Khoá Đặt Hàng" riêng), KHÔNG PHẢI kho của cửa hàng và
+                // KHÔNG liên quan gì đến việc luân chuyển hàng giữa các cửa
+                // hàng NS1-NS5/NSM1 ở cột "Đề Xuất Luân Chuyển" bên cạnh - gắn
+                // nhãn "KHO HVN" + viền tách riêng để không bị hiểu nhầm là
+                // cùng 1 việc. Vẫn highlight ĐỎ khi CẢ 2 miền đều không còn
+                // hàng (cảnh báo rủi ro thật sự), giữ màu trung tính (muted)
+                // khi còn ít nhất 1 miền có hàng.
+                const bacNamHtml = bacNam
+                    ? `<div class="oc-hvn-block" title="Tồn kho Bắc/Nam của Honda Việt Nam (HVN) - không phải kho cửa hàng, không liên quan đến luân chuyển giữa các cửa hàng">` +
+                        `<span class="oc-hvn-label">Kho HVN</span>` +
+                        `<span class="small ${bacNam.noneAvailable ? 'text-danger fw-semibold' : 'text-muted'}">Bắc: ${bacNam.bac ?? '-'} | Nam: ${bacNam.nam ?? '-'}</span>` +
+                      `</div>`
+                    : '';
+                const lockHtml =
+                    `<div class="d-flex align-items-center flex-wrap gap-2" style="max-width:260px; white-space:normal;">` +
+                      (row.is_locked
+                          ? `<span class="badge bg-danger">Đã khoá</span>`
+                          : `<span class="badge bg-secondary-subtle text-secondary">Không khoá</span>`) +
+                      bacNamHtml +
+                    `</div>` +
+                    (row.replacement_code ? `<div class="small text-muted" style="max-width:260px; white-space:normal;">Thay thế: <strong>${escapeHtmlText(row.replacement_code)}</strong></div>` : '') +
+                    ((row.related_child_codes && row.related_child_codes.length)
+                        ? `<div class="small text-success" style="max-width:260px; white-space:normal;">` +
+                          `<div><i class="bi bi-arrow-return-right"></i> Mã con khả dụng:</div>` +
+                          row.related_child_codes.map(c => {
+                              const cBreakdown = c.store_breakdown || {};
+                              const cFreq = c.store_breakdown_freq || {};
+                              const chips = Object.keys(cBreakdown)
+                                  .filter(sc => cBreakdown[sc] > 0)
+                                  .map(sc => {
+                                      const fcode = cFreq[sc];
+                                      const fTag = fcode ? `<span class="oc-chip-freq oc-chip-freq-${fcode.toLowerCase()}" title="${escapeHtmlAttr(_ocFreqTip(fcode))}">${fcode}</span>` : '';
+                                      return `<span class="store-badge oc-stock-chip store-badge-${sc}">${sc}<b>${cBreakdown[sc]}</b>${fTag}</span>`;
+                                  }).join('');
+                              return `<div class="mt-1">` +
+                                  `<strong>${escapeHtmlText(c.part_code)}</strong>` +
+                                  (c.is_locked ? ` <span class="text-danger">(khoá)</span>` : '') +
+                                  ` — tổng ${c.total_qty}` +
+                                  (chips ? `<div class="oc-stock-chip-grid mt-1">${chips}</div>` : '<div class="small text-muted">Không còn tồn ở cửa hàng nào</div>') +
+                                  `</div>`;
+                          }).join('') +
+                          `</div>` : '');
+
+                const debtParts = [];
+                if (row.debt_qty > 0) debtParts.push(`<span class="badge bg-danger">Nợ: ${row.debt_qty}</span>`);
+                if (row.shipping_qty > 0) debtParts.push(`<span class="badge bg-warning text-dark">Đang v/c: ${row.shipping_qty}</span>`);
+                const debtHtml = debtParts.length ? debtParts.join(' ') : `<span class="badge bg-success-subtle text-success">Không nợ</span>`;
+
+                // Đề xuất luân chuyển: LUÔN nói rõ "cửa hàng" (không dùng chữ
+                // "kho" chung chung) - "kho" trong hệ thống này còn được dùng
+                // để chỉ kho Bắc/Nam của Honda Việt Nam ở cột "Khoá Đặt Hàng"
+                // bên cạnh, là 2 việc HOÀN TOÀN KHÁC NHAU. Nói rõ "cửa hàng"
+                // giúp phân biệt ngay: đây là chuyển hàng giữa các cửa hàng
+                // NS1-NS5/NSM1 với nhau, không phải xin thêm từ Honda.
+                const transferHtml = row.transfer_suggestions && row.transfer_suggestions.length
+                    ? row.transfer_suggestions.map(t =>
+                        `<div class="small">Lấy <strong>${t.qty}</strong> từ cửa hàng <strong>${t.store_code}</strong> (đang dư ${t.store_available_qty}, ${t.sales_freq.code})</div>`
+                      ).join('') + (row.still_needed_after_transfer > 0
+                        ? `<div class="small text-danger fw-semibold">Vẫn thiếu ${row.still_needed_after_transfer} sau khi chuyển</div>` : '')
+                    : (row.qty_order > row.store_qty
+                        ? `<span class="small text-danger">Không có cửa hàng nào khác dư để chuyển</span>` +
+                          `<div class="small text-muted mt-1">Xem nhãn TX/TB/CB cạnh mỗi cửa hàng ở cột "Tồn Hệ Thống" - cửa hàng đang có nhãn TX (bán nhanh tại đó) sẽ không được xét, dù có tồn.</div>`
+                        : `<span class="small text-success">Đủ tồn tại chỗ, không cần chuyển</span>`);
+
+                // Tình hình bán: tô nền cả ô theo màu tần suất bán (TX xanh /
+                // TB vàng / CB đỏ) thay vì chỉ có 1 chấm badge nhỏ trên chữ
+                // như trước - giúp mắt quét cả cột và bắt ngay dòng "Chậm
+                // bán" (CB, dễ tồn đọng) mà không cần đọc kỹ từng ô.
+                const freq = row.sales_freq;
+                const freqCode = freq && freq.code ? freq.code.toLowerCase() : 'none';
+                const salesHtml = `<div class="oc-sales-cell oc-sales-${freqCode}">` +
+                        `<div class="d-flex align-items-center gap-2">` +
+                            `<span class="oc-sales-badge oc-sales-badge-${freqCode}">${freq && freq.code ? freq.code : '-'}</span>` +
+                            `<span class="small fw-semibold">${freq ? freq.label : 'Chưa phân loại'}</span>` +
+                        `</div>` +
+                        `<div class="small text-muted mt-1">Đã bán <strong>${row.qty_sold_period ?? 0}</strong> / ${row.period_months} tháng` +
+                        (freq && freq.avg_month !== undefined ? ` <span class="text-muted">(TB ${freq.avg_month}/tháng)</span>` : '') +
+                        `</div>` +
+                    `</div>`;
+
+                // Tồn hệ thống: LOẠI TRỪ cửa hàng đang tra đơn (đã hiển thị
+                // riêng ở cột "Tồn CH" ngay bên cạnh) - tránh hiện trùng 1
+                // cửa hàng 2 lần và tránh hiểu nhầm là "còn dư nhiều" trong
+                // khi phần lớn số đó lại chính là tồn của cửa hàng đang đặt.
+                // Số tổng vì vậy chỉ còn tính CÁC CỬA HÀNG KHÁC (nơi có thể
+                // luân chuyển về). Chi tiết theo từng cửa hàng dùng chip màu,
+                // xếp lưới 2 CỘT CỐ ĐỊNH (thay vì flex-wrap trước đây khiến
+                // dòng có 2 chip, dòng chỉ 1 chip tuỳ độ dài chữ, nhìn lệch/
+                // không cân đối) để mọi dòng luôn thẳng hàng nhau.
+                const breakdown = row.store_breakdown || {};
+                const breakdownFreq = row.store_breakdown_freq || {};
+                const ownStoreQty = _orderCheckCurrentStore ? (breakdown[_orderCheckCurrentStore] || 0) : 0;
+                // Nhãn TX/TB/CB nhỏ cạnh mỗi cửa hàng = tần suất bán RIÊNG
+                // của CHÍNH cửa hàng đó cho mã này (không phải tần suất bán
+                // hệ thống ở cột "Tình Hình Bán") - cho biết ngay lý do 1 cửa
+                // hàng có tồn nhưng KHÔNG được đề xuất chuyển: TX nghĩa là
+                // đang bán nhanh tại chính cửa hàng đó nên không có dư,
+                // ngược lại chỉ TB/CB (bán chậm) VÀ còn dư sau khi giữ lại
+                // đủ dùng mới được đề xuất chuyển. Hoàn toàn không dùng tồn
+                // kho Bắc/Nam của Honda ở đây.
+                const breakdownParts = Object.keys(breakdown)
+                    .filter(sc => sc !== _orderCheckCurrentStore && breakdown[sc] > 0)
+                    .map(sc => {
+                        const fcode = breakdownFreq[sc];
+                        const fTag = fcode ? `<span class="oc-chip-freq oc-chip-freq-${fcode.toLowerCase()}" title="${escapeHtmlAttr(_ocFreqTip(fcode))}">${fcode}</span>` : '';
+                        return `<span class="store-badge oc-stock-chip store-badge-${sc}">${sc}<b>${breakdown[sc]}</b>${fTag}</span>`;
+                    });
+                const otherTotal = row.total_qty - ownStoreQty;
+                const totalQtyCls = otherTotal > 0 ? 'fw-bold' : 'fw-bold text-danger';
+                const totalTitle = _orderCheckCurrentStore
+                    ? `Tổng tồn các cửa hàng khác (đã trừ tồn tại ${_orderCheckCurrentStore} - xem cột "Tồn CH")`
+                    : 'Tổng tồn toàn hệ thống';
+                const storeBreakdownHtml = `<div style="max-width:240px; white-space:normal;">` +
+                    `<div class="oc-stock-total ${totalQtyCls}" title="${escapeHtmlAttr(totalTitle)}"><span class="small text-muted fw-normal">Tổng tồn:</span> ${otherTotal}</div>` +
+                    (breakdownParts.length
+                        ? `<div class="oc-stock-chip-grid mt-1">${breakdownParts.join('')}</div>`
+                        : `<div class="small text-muted mt-1">Không còn tồn ở cửa hàng nào khác</div>`) +
+                    `</div>`;
+
+                return `<tr${notFound ? ' class="table-warning"' : ''}>
+                    <td>${escapeHtmlText(row.part_code)}${notFound ? '<div class="small text-danger">Không tìm thấy trong tồn kho hệ thống</div>' : ''}</td>
+                    <td class="text-end">${row.qty_order}</td>
+                    <td>${salesHtml}</td>
+                    <td class="text-end${row.store_qty > 0 ? '' : ' text-danger fw-semibold'}">${row.store_qty}</td>
+                    <td>${storeBreakdownHtml}</td>
+                    <td>${lockHtml}</td>
+                    <td>${debtHtml}</td>
+                    <td style="max-width:220px; white-space:normal;">${transferHtml}</td>
+                    <td class="text-end">
+                        <input type="number" step="1" min="0" class="form-control form-control-sm text-end order-check-approve-input"
+                               style="width:90px; display:inline-block;" data-part-code="${escapeHtmlAttr(row.part_code)}"
+                               value="${row.suggested_approve_qty}">
+                    </td>
+                    <td>
+                        <input type="text" class="form-control form-control-sm order-check-note-input"
+                               style="min-width:170px;" data-part-code="${escapeHtmlAttr(row.part_code)}"
+                               placeholder="Ghi chú..." value="${escapeHtmlAttr(row.note || '')}"
+                               onchange="saveOrderCheckNote(this)">
+                    </td>
+                </tr>`;
+    }
+
+    // Lưu ghi chú của 1 mã hàng ngay khi rời khỏi ô (onchange) - UPSERT
+    // theo part_code, dùng lại cho MỌI lần kiểm tra sau này có mã đó.
+    async function saveOrderCheckNote(inputEl) {
+        const partCode = inputEl.dataset.partCode;
+        const note = inputEl.value;
+        inputEl.disabled = true;
+        try {
+            const res = await fetch('/api/admin/order-check/note', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ part_code: partCode, note })
+            });
+            const json = await res.json();
+            if (!json.success) {
+                alert(json.error || 'Lưu ghi chú thất bại.');
+                return;
+            }
+            // Cập nhật lại dữ liệu gốc trong bộ nhớ để lọc/xuất Excel sau
+            // đó vẫn thấy đúng ghi chú mới nhất mà không cần gọi lại API.
+            const row = _orderCheckData.find(r => r.part_code === partCode);
+            if (row) row.note = note;
+            saveOrderCheckSession();
+        } catch (err) {
+            console.error('Lỗi saveOrderCheckNote:', err);
+            alert('Lỗi kết nối máy chủ khi lưu ghi chú.');
+        } finally {
+            inputEl.disabled = false;
+        }
+    }
+
+    // Xuất bảng kết quả Kiểm Tra Đơn Hàng ra file Excel bằng SheetJS - CHỈ
+    // xuất đúng các dòng đang hiển thị theo bộ lọc hiện tại (không xuất cả
+    // danh sách gốc nếu đang lọc bớt), để file xuất khớp với những gì admin
+    // đang nhìn thấy trên màn hình.
+    function exportOrderCheckExcel() {
+        if (!_orderCheckData || !_orderCheckData.length) {
+            alert('Chưa có dữ liệu để xuất. Vui lòng Kiểm Tra trước.');
+            return;
+        }
+        const rows = _orderCheckData.filter(_orderCheckRowMatchesFilters);
+        if (!rows.length) {
+            alert('Không có dòng nào khớp bộ lọc hiện tại để xuất.');
+            return;
+        }
+
+        const sheetData = rows.map(row => {
+            const transferText = (row.transfer_suggestions && row.transfer_suggestions.length)
+                ? row.transfer_suggestions.map(t => `Lấy ${t.qty} từ ${t.store_code} (đang dư ${t.store_available_qty}, ${t.sales_freq.code})`).join('; ')
+                : '';
+            const childText = (row.related_child_codes && row.related_child_codes.length)
+                ? row.related_child_codes.map(c => `${c.part_code} (tồn ${c.total_qty})`).join('; ')
+                : '';
+            return {
+                'Mã Hàng': row.part_code,
+                'SL Đặt': row.qty_order,
+                'Tình Hình Bán': row.sales_freq ? row.sales_freq.label : '',
+                'Đã Bán/Kỳ': row.qty_sold_period ?? 0,
+                'Tồn CH': row.store_qty,
+                'Tồn Hệ Thống': row.total_qty,
+                'Khoá Đặt Hàng': row.is_locked ? 'Đã khoá' : 'Không khoá',
+                'Mã Thay Thế': row.replacement_code || '',
+                'Mã Con Khả Dụng': childText,
+                'Đang Nợ': row.debt_qty || 0,
+                'Đang Vận Chuyển': row.shipping_qty || 0,
+                'Đề Xuất Luân Chuyển': transferText,
+                'Vẫn Thiếu Sau Luân Chuyển': row.still_needed_after_transfer || 0,
+                'SL Duyệt Đề Xuất': row.suggested_approve_qty,
+                'Ghi Chú': row.note || '',
+                'Không Tìm Thấy': row.found ? '' : 'Không có trong hệ thống',
+            };
+        });
+
+        const ws = XLSX.utils.json_to_sheet(sheetData);
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, ws, 'Duyệt Đơn Hàng');
+        const storeCode = document.getElementById('orderCheckStoreSelect').value;
+        const now = new Date();
+        const stamp = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}_${String(now.getHours()).padStart(2, '0')}${String(now.getMinutes()).padStart(2, '0')}`;
+        XLSX.writeFile(wb, `DuyetDonHang_${storeCode}_${stamp}.xlsx`);
     }
 
     async function importBodyKitModelCategories() {

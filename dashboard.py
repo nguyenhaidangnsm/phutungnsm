@@ -129,6 +129,70 @@ REORDER_EXCLUDED_PART_PREFIX = '50100'
 REORDER_INCLUDED_GROUPS = ('TX', 'TB')
 
 
+def _load_order_lock_map(cursor):
+    """Trả về {part_code: {'replacement_code': ..., 'is_locked': ...}} cho
+    TOÀN BỘ mã đang bị khoá đặt hàng (order_lock_items, import ở
+    /api/admin/import-order-lock) - dùng để tự động thay mã khi tính gợi ý
+    nhập hàng (xem _apply_order_lock_substitution). Bảng này nhỏ (1 dòng/mã
+    hàng, không nhân theo cửa hàng) nên đọc trọn 1 lần rồi dùng lại cho mọi
+    cửa hàng trong 1 lượt tính, thay vì query lặp lại nhiều lần."""
+    cursor.execute('SELECT part_code, is_locked, replacement_code FROM order_lock_items WHERE is_locked = TRUE')
+    return {r['part_code']: r for r in cursor.fetchall()}
+
+
+def _apply_order_lock_substitution(suggestions, lock_map):
+    """Mã đang bị "Khoá đặt hàng" (Block for Order = Y) không đặt trực tiếp
+    được nữa - nếu có mã thay thế (Superseeded Part), tự động đổi sang mã đó
+    trong gợi ý (số lượng giữ nguyên, tính theo nhu cầu bán thực tế của mã
+    gốc). Nếu bị khoá mà KHÔNG có mã thay thế, vẫn giữ lại dòng gợi ý (để
+    không giấu nhu cầu thực tế) nhưng đánh dấu blocked_no_replacement=True
+    để FE cảnh báo, không tự ý gộp/xoá.
+
+    Sau khi đổi mã, nhiều dòng gốc có thể trùng ra CÙNG 1 mã thay thế (hoặc
+    trùng với 1 mã vốn đã có sẵn trong danh sách) - gộp lại bằng cách CỘNG
+    dồn suggested_qty, giữ months_of_stock nhỏ nhất (cấp bách nhất) để sắp
+    xếp đúng, và liệt kê lại các mã gốc đã gộp vào 'superseded_from'."""
+    merged = {}
+    for s in suggestions:
+        lock = lock_map.get(s['part_code'])
+        key_store = s.get('store_code')
+        final_code = s['part_code']
+        original_code = None
+        blocked_no_replacement = False
+
+        if lock:
+            replacement = lock.get('replacement_code')
+            if replacement:
+                original_code = s['part_code']
+                final_code = replacement
+            else:
+                blocked_no_replacement = True
+
+        key = (key_store, final_code)
+        if key not in merged:
+            row = dict(s)
+            row['part_code'] = final_code
+            row['blocked_no_replacement'] = blocked_no_replacement
+            row['superseded_from'] = [original_code] if original_code else []
+            merged[key] = row
+        else:
+            row = merged[key]
+            row['suggested_qty'] += s['suggested_qty']
+            row['qty_on_hand'] = (row.get('qty_on_hand') or 0) + (s.get('qty_on_hand') or 0)
+            row['avg_month'] = round((row.get('avg_month') or 0) + (s.get('avg_month') or 0), 2)
+            row['months_of_stock'] = min(row['months_of_stock'], s['months_of_stock'])
+            row['blocked_no_replacement'] = row['blocked_no_replacement'] or blocked_no_replacement
+            if original_code:
+                row['superseded_from'].append(original_code)
+            elif not lock:
+                # Dòng thứ 2 trở đi không bị khoá cũng trùng mã (vd chính mã
+                # thay thế đó cũng tự nằm trong nhóm TX/TB) - giữ tên hàng
+                # gốc, không cần thêm vào superseded_from.
+                pass
+
+    return list(merged.values())
+
+
 def compute_reorder_suggestions(cursor, store_code, buffer_months):
     """Trả về (suggestions, period_months). Xét các mã đang phân loại TX
     (bán nhanh) hoặc TB (bán trung bình) - KHÔNG gồm mã khung xe (tiền tố
@@ -137,33 +201,49 @@ def compute_reorder_suggestions(cursor, store_code, buffer_months):
     classify_sales_frequency). Mã chỉ được đưa vào danh sách nếu tồn hiện
     tại THẤP HƠN mức mục tiêu đó (suggested_qty > 0) - tự nhiên phù hợp cho
     cả 2 nhóm: TX thường xuyên lọt vào vì tồn vốn chỉ đủ dùng ngắn hạn, còn
-    TB chỉ lọt vào khi tồn thực sự thấp so với buffer_months đã chọn."""
-    rows, period_months = _compute_sales_frequency_rows_cached(cursor, store_code)
+    TB chỉ lọt vào khi tồn thực sự thấp so với buffer_months đã chọn.
 
-    suggestions = []
-    for r in rows:
-        if r['group'] not in REORDER_INCLUDED_GROUPS:
-            continue
-        if r['part_code'].upper().startswith(REORDER_EXCLUDED_PART_PREFIX):
-            continue
-        mos = r['months_of_stock']
-        if mos is None:
-            continue
-        target_qty = (r['avg_month'] or 0) * buffer_months
-        suggested_qty = target_qty - (r['qty_on_hand'] or 0)
-        suggested_qty = math.ceil(suggested_qty) if suggested_qty > 0 else 0
-        if suggested_qty <= 0:
-            continue
-        suggestions.append({
-            'part_code': r['part_code'],
-            'part_name': r['part_name'],
-            'unit': r['unit'],
-            'qty_on_hand': r['qty_on_hand'],
-            'avg_month': r['avg_month'],
-            'months_of_stock': mos,
-            'group': r['group'],
-            'suggested_qty': suggested_qty,
-        })
+    QUAN TRỌNG: tần suất bán/tồn LUÔN được tính RIÊNG cho TỪNG CỬA HÀNG
+    (giống hệt cách check_and_notify_low_stock đang làm), KHÔNG gộp số liệu
+    bán của mọi cửa hàng lại rồi tính 1 lần - vì 1 mã có thể bán chạy (TX) ở
+    kho này nhưng lại chậm bán (CB) ở kho khác, gộp chung sẽ ra gợi ý sai
+    thực tế cho từng nơi. Nếu store_code=None (xem "toàn hệ thống"), lặp
+    qua TỪNG cửa hàng hợp lệ và tính riêng, mỗi dòng kết quả có kèm
+    'store_code' để phân biệt; nếu store_code cụ thể, chỉ tính đúng 1 cửa
+    hàng đó (mỗi dòng vẫn có 'store_code' = store_code cho nhất quán)."""
+    stores = [store_code] if store_code else sorted(_valid_store_codes(cursor))
+    lock_map = _load_order_lock_map(cursor)
+
+    all_suggestions = []
+    period_months = 3
+    for sc in stores:
+        rows, period_months = _compute_sales_frequency_rows_cached(cursor, sc)
+        for r in rows:
+            if r['group'] not in REORDER_INCLUDED_GROUPS:
+                continue
+            if r['part_code'].upper().startswith(REORDER_EXCLUDED_PART_PREFIX):
+                continue
+            mos = r['months_of_stock']
+            if mos is None:
+                continue
+            target_qty = (r['avg_month'] or 0) * buffer_months
+            suggested_qty = target_qty - (r['qty_on_hand'] or 0)
+            suggested_qty = math.ceil(suggested_qty) if suggested_qty > 0 else 0
+            if suggested_qty <= 0:
+                continue
+            all_suggestions.append({
+                'part_code': r['part_code'],
+                'part_name': r['part_name'],
+                'unit': r['unit'],
+                'store_code': sc,
+                'qty_on_hand': r['qty_on_hand'],
+                'avg_month': r['avg_month'],
+                'months_of_stock': mos,
+                'group': r['group'],
+                'suggested_qty': suggested_qty,
+            })
+
+    suggestions = _apply_order_lock_substitution(all_suggestions, lock_map)
 
     # Ưu tiên hiển thị mã SẮP HẾT NHẤT (số tháng tồn còn lại thấp nhất) lên đầu.
     suggestions.sort(key=lambda x: x['months_of_stock'])
@@ -231,14 +311,17 @@ def reorder_suggestions_export():
     cursor.close()
 
     df = pd.DataFrame([{
+        'Kho/Cửa hàng': r.get('store_code') or '',
         'Mã hàng': r['part_code'],
         'Tên hàng': r['part_name'],
         'ĐVT': r['unit'],
         'Phân loại': r['group'],
-        'Tồn hiện tại': r['qty_on_hand'],
-        'TB bán/tháng': r['avg_month'],
+        'Tồn hiện tại': round(r['qty_on_hand'] or 0),
+        'TB bán/tháng': round(r['avg_month'] or 0),
         'Số tháng tồn còn lại': r['months_of_stock'],
         f'Gợi ý đặt thêm (đủ bán {buffer_months} tháng)': r['suggested_qty'],
+        'Mã gốc bị khoá (đã thay bằng mã thay thế)': ', '.join(r.get('superseded_from') or []),
+        'Đang bị khoá, chưa có mã thay thế': 'Có' if r.get('blocked_no_replacement') else '',
     } for r in suggestions])
 
     output = io.BytesIO()

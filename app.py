@@ -4,6 +4,7 @@ import io
 import time
 import json
 import math
+import re
 import orjson
 import traceback
 from datetime import datetime, timedelta, date
@@ -980,6 +981,57 @@ def init_db():
                 upload_time TIMESTAMP,
                 total_parts INTEGER,
                 skipped_rows INTEGER
+            )
+        ''')
+
+        # 6a-2. Bảng lưu dữ liệu "Khoá đặt hàng" do admin import RIÊNG từ 1
+        #     file Excel ngoài (không sinh ra từ trong hệ thống): mã hàng
+        #     nào đang bị KHOÁ không cho đặt hàng mới nữa (is_locked), mã
+        #     thay thế nếu có, và tồn kho 2 miền Bắc/Nam (dữ liệu ngoài hệ
+        #     thống NSM, phục vụ riêng chức năng "Duyệt Đơn Hàng"). Ghi đè
+        #     TOÀN BỘ mỗi lần import, giống part_prices/price_meta.
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS order_lock_items (
+                part_code VARCHAR(100) PRIMARY KEY,
+                is_locked BOOLEAN DEFAULT FALSE,
+                replacement_code VARCHAR(100),
+                qty_bac NUMERIC,
+                qty_nam NUMERIC,
+                updated_at TIMESTAMP,
+                updated_by VARCHAR(50)
+            )
+        ''')
+        # Cột cờ "có/không tồn" (Y/N) ở 2 miền - dùng cho file nguồn KIỂU MỚI
+        # (cột "Part #" / "Block for Order" / "Stock Available in South|North
+        # Warehouse" / "Superseeded Part" - chỉ ghi Y/N chứ KHÔNG có số
+        # lượng cụ thể, khác với file kiểu CŨ đang dùng qty_bac/qty_nam ở
+        # trên). Tách cột riêng thay vì gán tạm 1/0 vào qty_bac/qty_nam, để
+        # không làm sai lệch ý nghĩa "số lượng thật" mà trang Duyệt Đơn Hàng
+        # đang hiển thị cho admin khi file nguồn là kiểu số lượng cụ thể.
+        cursor.execute('ALTER TABLE order_lock_items ADD COLUMN IF NOT EXISTS has_stock_bac BOOLEAN')
+        cursor.execute('ALTER TABLE order_lock_items ADD COLUMN IF NOT EXISTS has_stock_nam BOOLEAN')
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS order_lock_meta (
+                id INTEGER PRIMARY KEY DEFAULT 1,
+                filename TEXT,
+                uploaded_by VARCHAR(50),
+                upload_time TIMESTAMP,
+                total_parts INTEGER,
+                skipped_rows INTEGER
+            )
+        ''')
+
+        # 6a-3. Bảng lưu GHI CHÚ theo mã hàng cho màn "Duyệt Đơn Hàng" - mỗi
+        # mã hàng 1 ghi chú duy nhất (UPSERT), KHÔNG gắn theo lượt kiểm tra
+        # cụ thể nào, để admin ghi chú 1 lần (vd "hàng lâu về", "chờ mã
+        # thay thế mới") và thấy lại ở MỌI lần kiểm tra sau có mã đó, không
+        # phân biệt cửa hàng/thời điểm dán danh sách.
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS order_check_notes (
+                part_code VARCHAR(100) PRIMARY KEY,
+                note TEXT,
+                updated_at TIMESTAMP,
+                updated_by VARCHAR(50)
             )
         ''')
 
@@ -3561,7 +3613,7 @@ def import_prices():
     except Exception as e:
         return jsonify({'error': f'Không đọc được file: {e}'}), 400
 
-    part_col = find_col(df.columns, ['mã phụ tùng', 'mã hàng', 'part code', 'part#', 'part #', 'part number', 'part'])
+    part_col = find_col(df.columns, ['mã phụ tùng', 'mã hàng', 'part code', 'part #', 'part number', 'part#', 'part'])
     price_col = find_col(df.columns, ['giá bán', 'đơn giá bán', 'đơn giá', 'giá', 'sale price', 'unit price', 'price'])
     if not part_col or not price_col:
         return jsonify({'error': 'Không tìm thấy cột "Mã hàng" và "Giá bán" trong file. Vui lòng kiểm tra lại file Excel.'}), 400
@@ -3621,6 +3673,566 @@ def import_prices():
     except Exception as e:
         db.rollback()
         app.logger.error("Lỗi /api/admin/import-prices: %s\n%s", e, traceback.format_exc())
+        return jsonify({'error': str(e)}), 500
+    finally:
+        cursor.close()
+
+
+@app.route('/api/admin/import-order-lock', methods=['POST'])
+def import_order_lock():
+    """Admin import dữ liệu "Khoá đặt hàng" từ 1 file Excel/CSV RIÊNG (ngoài
+    hệ thống): mỗi mã hàng có cột Khoá đặt hàng (có/không), Tồn kho Bắc, Tồn
+    kho Nam, Mã thay thế (nếu mã hiện tại đã bị khoá). Ghi đè TOÀN BỘ mỗi
+    lần import - giống hệt import_prices(). Nhận CẢ 2 kiểu file: file cũ
+    (cột tiếng Việt, Tồn kho Bắc/Nam là SỐ LƯỢNG cụ thể) LẪN file kiểu mới
+    dạng "Part #/Block for Order/Stock Available in South|North Warehouse/
+    Superseeded Part" (cột tồn kho chỉ ghi Y/N - xem _to_stock_flag)."""
+    if 'user' not in session or session['role'] != 'admin':
+        return jsonify({'error': 'Forbidden'}), 403
+
+    lock_file = request.files.get('lock_file')
+    if not lock_file:
+        return jsonify({'error': 'Vui lòng chọn file khoá đặt hàng để tải lên.'}), 400
+
+    try:
+        df = read_any(lock_file)
+    except Exception as e:
+        return jsonify({'error': f'Không đọc được file: {e}'}), 400
+
+    # part_col/lock_col/replace_col: nhận cả tên cột tiếng Việt (file kiểu cũ)
+    # part_col: LƯU Ý thứ tự pattern - 'part #' (có dấu cách) phải đứng
+    # TRƯỚC 'part#' (liền, không cách): file kiểu mới ("output11") có CẢ 2
+    # cột "Part #" (mã ĐÚNG định dạng hệ thống đang dùng, không gạch ngang,
+    # vd "34908GA7701") LẪN "Edit Part#" (mã hiển thị CÓ gạch ngang, vd
+    # "34908-GA7-701" - chỉ để người đọc dễ nhìn, KHÔNG khớp với part_code
+    # trong inventory_items). find_col so khớp kiểu "chuỗi con" - nếu để
+    # pattern 'part#' lên trước, nó khớp NHẦM vào "Edit Part#" (vì "edit
+    # part#" cũng chứa "part#") TRƯỚC KHI kịp thử pattern 'part #' đúng,
+    # khiến mã hàng bị lưu sai định dạng (có gạch ngang) và tra cứu không
+    # bao giờ khớp được mã thật trong hệ thống (lỗi đã gặp thực tế với mã
+    # 34908GA7701 - "khoá bán nhưng kết quả ra không khoá").
+    # LẪN tên cột tiếng Anh "Part #"/"Block for Order"/"Superseeded Part"
+    # (file kiểu mới, vd export "output11" - xem find_col: so khớp CHỨA
+    # chuỗi, không phân biệt hoa/thường). bac_col/nam_col cũng nhận thêm
+    # "Stock Available in North/South Warehouse" (file kiểu mới - cột này
+    # chỉ ghi Y/N chứ không có số lượng, xem _to_stock_flag bên dưới).
+    part_col = find_col(df.columns, ['mã phụ tùng', 'mã hàng', 'part code', 'part #', 'part number', 'part#', 'part'])
+    lock_col = find_col(df.columns, ['khoá đặt hàng', 'khóa đặt hàng', 'khoá', 'khóa', 'block for order', 'lock'])
+    bac_col = find_col(df.columns, ['tồn kho bắc', 'tồn bắc', 'tồn kho miền bắc', 'north warehouse', 'bắc'])
+    nam_col = find_col(df.columns, ['tồn kho nam', 'tồn nam', 'tồn kho miền nam', 'south warehouse', 'nam'])
+    replace_col = find_col(df.columns, ['mã thay thế', 'mã hàng thay thế', 'thay thế', 'superseeded part', 'superseded part', 'replacement'])
+
+    if not part_col:
+        return jsonify({'error': 'Không tìm thấy cột "Mã hàng" trong file. Vui lòng kiểm tra lại file Excel.'}), 400
+
+    def _to_bool_locked(val):
+        s = str(val or '').strip().lower()
+        return s in ('1', 'true', 'x', 'có', 'co', 'khoá', 'khóa', 'yes', 'y', 'đã khoá', 'đã khóa')
+
+    def _to_qty(val):
+        try:
+            q = float(val)
+            if math.isnan(q):
+                return None
+            return q
+        except (TypeError, ValueError):
+            return None
+
+    def _to_stock_flag(val):
+        """File kiểu mới chỉ ghi Y/N (có/không tồn), không phải số lượng cụ
+        thể - trả về True/False, hoặc None nếu ô trống/không đọc được."""
+        s = str(val or '').strip().lower()
+        if s in ('', 'nan', 'none'):
+            return None
+        if s in ('y', 'yes', 'có', 'co', '1', 'true'):
+            return True
+        if s in ('n', 'no', 'không', 'khong', '0', 'false'):
+            return False
+        return None
+
+    # XỬ LÝ VECTOR HOÁ (thay cho iterrows()): với file lớn (vài chục nghìn
+    # dòng trở lên), iterrows() duyệt từng dòng bằng Python thuần rất chậm
+    # (có thể mất hàng chục giây). Dùng các phép toán theo CỘT của pandas
+    # (.str, .apply theo cột, numpy) nhanh hơn rất nhiều vì chạy bằng code C
+    # bên dưới thay vì lặp Python cho từng ô/từng dòng.
+    now = vn_now()
+    actor = _current_actor_name()
+
+    part_codes = df[part_col].astype(str).str.strip()
+    valid_mask = (part_codes != '') & (part_codes.str.lower() != 'nan')
+    skipped_rows = int((~valid_mask).sum())
+
+    work = df.loc[valid_mask].copy()
+    part_codes = part_codes.loc[valid_mask]
+
+    if lock_col:
+        is_locked_s = work[lock_col].apply(_to_bool_locked)
+    else:
+        is_locked_s = pd.Series(False, index=work.index)
+
+    raw_bac_s = work[bac_col] if bac_col else pd.Series(None, index=work.index)
+    raw_nam_s = work[nam_col] if nam_col else pd.Series(None, index=work.index)
+    qty_bac_s = raw_bac_s.apply(_to_qty)
+    qty_nam_s = raw_nam_s.apply(_to_qty)
+    has_stock_bac_s = pd.Series(
+        [(_to_stock_flag(v) if q is None else None) for v, q in zip(raw_bac_s, qty_bac_s)],
+        index=work.index)
+    has_stock_nam_s = pd.Series(
+        [(_to_stock_flag(v) if q is None else None) for v, q in zip(raw_nam_s, qty_nam_s)],
+        index=work.index)
+
+    if replace_col:
+        replacement_s = work[replace_col].astype(str).str.strip()
+        replacement_s = replacement_s.where(~replacement_s.str.lower().isin(['', 'nan']), None)
+    else:
+        replacement_s = pd.Series(None, index=work.index)
+
+    rows = list(zip(part_codes, is_locked_s, replacement_s, qty_bac_s, qty_nam_s,
+                     has_stock_bac_s, has_stock_nam_s, [now] * len(work), [actor] * len(work)))
+
+    if not rows:
+        skipped_rows = len(df)
+        return jsonify({'error': 'File không có dòng dữ liệu hợp lệ nào (thiếu mã hàng).'}), 400
+
+    db = get_db()
+    cursor = db.cursor()
+    try:
+        dedup = {r[0]: r for r in rows}
+        rows = list(dedup.values())
+
+        cursor.execute('TRUNCATE TABLE order_lock_items')
+        # page_size=1000 (mặc định của execute_values chỉ là 100): gộp nhiều
+        # dòng hơn vào MỖI câu lệnh INSERT gửi đi, giảm số lượt round-trip
+        # tới database - với ~79.000 dòng, mặc định cần ~790 lượt gọi DB,
+        # tăng page_size giảm còn ~79 lượt, nhanh hơn đáng kể nhất là khi kết
+        # nối tới DB ở xa (Neon/Supabase) có độ trễ mạng.
+        execute_values(
+            cursor,
+            '''INSERT INTO order_lock_items
+               (part_code, is_locked, replacement_code, qty_bac, qty_nam, has_stock_bac, has_stock_nam, updated_at, updated_by)
+               VALUES %s''',
+            rows,
+            page_size=1000
+        )
+
+        cursor.execute('''
+            INSERT INTO order_lock_meta (id, filename, uploaded_by, upload_time, total_parts, skipped_rows)
+            VALUES (1, %s, %s, %s, %s, %s)
+            ON CONFLICT (id) DO UPDATE SET
+                filename = EXCLUDED.filename,
+                uploaded_by = EXCLUDED.uploaded_by,
+                upload_time = EXCLUDED.upload_time,
+                total_parts = EXCLUDED.total_parts,
+                skipped_rows = EXCLUDED.skipped_rows
+        ''', (lock_file.filename, _current_actor_name(), now, len(rows), skipped_rows))
+
+        db.commit()
+        return jsonify({'success': True, 'total_parts': len(rows), 'skipped_rows': skipped_rows})
+    except Exception as e:
+        db.rollback()
+        app.logger.error("Lỗi /api/admin/import-order-lock: %s\n%s", e, traceback.format_exc())
+        return jsonify({'error': str(e)}), 500
+    finally:
+        cursor.close()
+
+
+# Ngưỡng "số tháng tồn còn lại" để coi 1 mã hàng ở 1 kho khác là "dư, luân
+# chuyển được" khi đề xuất luân chuyển thay vì đặt hàng mới trong Duyệt Đơn
+# Hàng (kho đó phải bán chậm - TB/CB - VÀ còn đủ dùng q khá lâu sau khi trừ
+# phần luân chuyển đi, không đề xuất rút cạn kho người ta).
+ORDER_CHECK_TRANSFER_MIN_MONTHS_OF_STOCK = 4.0
+_ORDER_CHECK_STORE_CODES = ('NS1', 'NS2', 'NS3', 'NS4', 'NS5', 'NSM1')
+
+
+@app.route('/api/admin/order-check', methods=['POST'])
+def order_check():
+    """"Duyệt Đơn Hàng" (admin): nhận 1 danh sách (mã hàng, số lượng đặt) do
+    admin dán vào, trả về cho MỖI mã hàng: tần suất bán, khoá đặt hàng (nếu
+    có, kèm mã thay thế + tồn Bắc/Nam), tồn tại cửa hàng đang xét, tồn toàn
+    hệ thống, đang nợ/đang vận chuyển hay không (từ bảng đối soát PO của
+    đúng cửa hàng đó), và đề xuất luân chuyển từ cửa hàng khác đang dư/bán
+    chậm thay vì đặt hàng mới."""
+    if 'user' not in session or session['role'] != 'admin':
+        return jsonify({'error': 'Forbidden'}), 403
+
+    data = request.json or {}
+    store_code = str(data.get('store_code', '') or '').strip()
+    items = data.get('items') or []
+    if store_code not in _ORDER_CHECK_STORE_CODES:
+        return jsonify({'error': 'Vui lòng chọn đúng 1 cửa hàng để kiểm tra.'}), 400
+    if not items:
+        return jsonify({'error': 'Danh sách mã hàng trống.'}), 400
+
+    # Chuẩn hoá + gộp số lượng nếu 1 mã hàng bị dán trùng nhiều dòng.
+    qty_by_part = {}
+    order_list = []
+    for it in items:
+        part_code = str(it.get('part_code', '') or '').strip()
+        if not part_code:
+            continue
+        try:
+            qty = float(it.get('qty', 0) or 0)
+        except (TypeError, ValueError):
+            qty = 0
+        if part_code not in qty_by_part:
+            order_list.append(part_code)
+        qty_by_part[part_code] = qty_by_part.get(part_code, 0) + qty
+
+    if not order_list:
+        return jsonify({'error': 'Không đọc được mã hàng hợp lệ nào từ dữ liệu đã dán.'}), 400
+
+    db = get_db()
+    cursor = db.cursor()
+
+    # ---- 1) Tồn kho hệ thống (pivot theo cửa hàng) cho đúng các mã hàng đã dán ----
+    cursor.execute(
+        'SELECT part_code, part_name, unit, store_code, quantity FROM inventory_items WHERE part_code = ANY(%s)',
+        (order_list,)
+    )
+    inv_pivot = {}
+    for it in cursor.fetchall():
+        p = inv_pivot.setdefault(it['part_code'], {
+            'part_name': it['part_name'], 'unit': it['unit'],
+            'NS1': 0, 'NS2': 0, 'NS3': 0, 'NS4': 0, 'NS5': 0, 'NSM1': 0, 'CB': 0,
+        })
+        p[it['store_code']] = float(it['quantity']) if it['quantity'] is not None else 0
+
+    # ---- 2) Tần suất bán (hệ thống + theo từng kho) - giống get_inventory() ----
+    cursor.execute('SELECT COUNT(*) AS c FROM sales_export_items')
+    has_sales_data = (cursor.fetchone() or {}).get('c', 0) > 0
+    period_months = 3
+    sold_by_part = {}
+    sold_by_part_store = {}
+    if has_sales_data:
+        cursor.execute('SELECT period_months FROM sales_export_meta WHERE id = 1')
+        meta_row = cursor.fetchone()
+        period_months = (meta_row['period_months'] if meta_row and meta_row.get('period_months') else 3) or 3
+        cursor.execute(
+            'SELECT part_code, SUM(qty_sold) AS qty_sold FROM sales_export_items WHERE part_code = ANY(%s) GROUP BY part_code',
+            (order_list,)
+        )
+        sold_by_part = {r['part_code']: float(r['qty_sold'] or 0) for r in cursor.fetchall()}
+        cursor.execute(
+            'SELECT part_code, store_code, SUM(qty_sold) AS qty_sold FROM sales_export_items WHERE part_code = ANY(%s) GROUP BY part_code, store_code',
+            (order_list,)
+        )
+        for r in cursor.fetchall():
+            sold_by_part_store.setdefault(r['part_code'], {})[r['store_code']] = float(r['qty_sold'] or 0)
+
+    # ---- 3) Khoá đặt hàng ----
+    cursor.execute(
+        'SELECT part_code, is_locked, replacement_code, qty_bac, qty_nam, has_stock_bac, has_stock_nam '
+        'FROM order_lock_items WHERE part_code = ANY(%s)',
+        (order_list,)
+    )
+    lock_by_part = {r['part_code']: r for r in cursor.fetchall()}
+
+    # ---- 3b) Mã cùng "họ" hậu tố chữ cái với mã đã dán - vd mã gốc
+    # "40545001000", biến thể "40545001000SS": biến thể = mã gốc + hậu tố
+    # CHỮ CÁI (1-3 ký tự) ngay sau phần số. NGƯỜI DÙNG CÓ THỂ DÁN VÀO CẢ 2
+    # CHIỀU: hoặc dán mã gốc (cần gợi ý biến thể có hậu tố), hoặc dán chính
+    # mã có hậu tố (cần gợi ý ngược lại về mã gốc/biến thể khác) - nên với
+    # MỖI mã đã dán: trước tiên tách ra "mã gốc" của nó (bỏ hậu tố chữ cái
+    # cuối nếu CHÍNH mã đó đã có hậu tố), rồi tìm TẤT CẢ mã (mã gốc trần +
+    # mọi biến thể hậu tố khác) đang có trong CẢ inventory_items (để biết
+    # tồn) LẪN order_lock_items (để biết có bị khoá không) cùng chung gốc
+    # đó, dùng LIKE + lọc lại bằng regex Python để khớp CHÍNH XÁC "mã gốc +
+    # 0-3 chữ cái" (không khớp nhầm 1 mã SỐ dài hơn khác, vì bắt buộc phần
+    # đuôi phải rỗng hoặc là chữ cái).
+    # Lưu ý: dùng escape đúng cú pháp SQL LIKE (chỉ cần escape \, %, _),
+    # KHÔNG dùng re.escape (đó là escape cho regex, sai cú pháp với LIKE và
+    # sẽ escape sai/dư ký tự với mã hàng có dấu gạch ngang "-" v.v.).
+    def _sql_like_escape(s):
+        return s.replace('\\', '\\\\').replace('%', '\\%').replace('_', '\\_')
+
+    _suffix_strip_re = re.compile(r'^(.*\d)([A-Za-z]{1,3})$')
+
+    def _root_of(code):
+        m = _suffix_strip_re.match(code)
+        return m.group(1) if m else code
+
+    root_by_pasted = {pc: _root_of(pc) for pc in order_list}
+    all_roots = sorted(set(root_by_pasted.values()))
+
+    root_prefix_patterns = [_sql_like_escape(r) + '%' for r in all_roots]
+    cursor.execute(
+        '''SELECT DISTINCT part_code FROM (
+               SELECT part_code FROM inventory_items WHERE part_code LIKE ANY(%s)
+               UNION
+               SELECT part_code FROM order_lock_items WHERE part_code LIKE ANY(%s)
+           ) t''',
+        (root_prefix_patterns, root_prefix_patterns)
+    )
+    _variant_suffix_re = re.compile(r'^[A-Za-z]{0,3}$')  # rỗng = chính mã gốc, 1-3 chữ = biến thể
+    codes_by_root = {}
+    for row in cursor.fetchall():
+        code = row['part_code']
+        for root in all_roots:
+            if code.startswith(root) and _variant_suffix_re.match(code[len(root):]):
+                codes_by_root.setdefault(root, []).append(code)
+
+    child_codes_by_parent = {}
+    for pc in order_list:
+        root = root_by_pasted[pc]
+        child_codes_by_parent[pc] = sorted({c for c in codes_by_root.get(root, []) if c != pc})
+
+    all_child_codes = sorted({c for lst in child_codes_by_parent.values() for c in lst})
+    child_inv_by_code = {}
+    child_lock_by_code = {}
+    if all_child_codes:
+        cursor.execute(
+            'SELECT part_code, SUM(quantity) AS total_qty FROM inventory_items WHERE part_code = ANY(%s) GROUP BY part_code',
+            (all_child_codes,)
+        )
+        child_inv_by_code = {r['part_code']: float(r['total_qty'] or 0) for r in cursor.fetchall()}
+        cursor.execute(
+            'SELECT part_code, is_locked, qty_bac, qty_nam, has_stock_bac, has_stock_nam '
+            'FROM order_lock_items WHERE part_code = ANY(%s)',
+            (all_child_codes,)
+        )
+        child_lock_by_code = {r['part_code']: r for r in cursor.fetchall()}
+
+    # ---- 3b-2) Tồn kho + số bán theo TỪNG CỬA HÀNG của các mã con - để FE
+    # hiển thị chi tiết (giống cột "Tồn Hệ Thống" của mã cha) thay vì chỉ 1
+    # con số tổng, giúp admin biết mã con còn hàng ở cửa hàng nào và tần
+    # suất bán ra sao trước khi quyết định dùng mã con thay cho mã cha.
+    child_store_breakdown = {}
+    child_sold_by_store = {}
+    if all_child_codes:
+        cursor.execute(
+            'SELECT part_code, store_code, quantity FROM inventory_items WHERE part_code = ANY(%s)',
+            (all_child_codes,)
+        )
+        for it in cursor.fetchall():
+            sc = it['store_code']
+            if sc not in _ORDER_CHECK_STORE_CODES:
+                continue
+            d = child_store_breakdown.setdefault(it['part_code'], {})
+            d[sc] = float(it['quantity']) if it['quantity'] is not None else 0
+        if has_sales_data:
+            cursor.execute(
+                'SELECT part_code, store_code, SUM(qty_sold) AS qty_sold FROM sales_export_items '
+                'WHERE part_code = ANY(%s) GROUP BY part_code, store_code',
+                (all_child_codes,)
+            )
+            for r in cursor.fetchall():
+                child_sold_by_store.setdefault(r['part_code'], {})[r['store_code']] = float(r['qty_sold'] or 0)
+
+    # ---- 3c) Ghi chú đã lưu trước đó cho các mã hàng đang kiểm tra ----
+    cursor.execute('SELECT part_code, note FROM order_check_notes WHERE part_code = ANY(%s)', (order_list,))
+    note_by_part = {r['part_code']: r['note'] for r in cursor.fetchall()}
+
+    # ---- 4) Đang nợ / đang vận chuyển (bảng đối soát PO của đúng cửa hàng đang xét) ----
+    version = get_store_data_version(cursor, store_code)
+    debt_rows = compute_result_for_store_cached(cursor, store_code, version)
+    debt_by_part = {}
+    for r in debt_rows:
+        pc = r.get('part_code')
+        if pc not in order_list:
+            continue
+        d = debt_by_part.setdefault(pc, {'debt_qty': 0, 'shipping_qty': 0, 'po_codes': []})
+        if r.get('status') == 'Nợ':
+            d['debt_qty'] += float(r.get('qty_debt') or 0)
+            d['po_codes'].append(r.get('po_code'))
+        elif r.get('status') == 'Đang vận chuyển':
+            d['shipping_qty'] += float(r.get('qty_debt') or 0)
+            d['po_codes'].append(r.get('po_code'))
+
+    cursor.close()
+
+    # ---- 5) Ghép kết quả từng dòng + đề xuất luân chuyển ----
+    result = []
+    for part_code in order_list:
+        qty_order = qty_by_part.get(part_code, 0)
+        inv = inv_pivot.get(part_code)
+        store_qty = float(inv.get(store_code, 0)) if inv else 0
+        total_qty = sum(float(inv.get(sc, 0)) for sc in _ORDER_CHECK_STORE_CODES) if inv else 0
+
+        freq_system = classify_sales_frequency(total_qty, sold_by_part.get(part_code, 0.0), period_months) if inv else None
+
+        lock = lock_by_part.get(part_code)
+        debt = debt_by_part.get(part_code)
+
+        # Mã cùng họ (mã gốc <-> biến thể hậu tố chữ cái, xem bước 3b ở
+        # trên): CHỈ tìm/hiển thị khi chính mã đã dán KHÔNG có tần suất bán
+        # riêng của nó (freq_system is None, tức không có tồn/không được hệ
+        # thống theo dõi độc lập) - trường hợp đó nhiều khả năng mã dán vào
+        # chỉ là "mã gốc" tham chiếu chung, cần gợi ý các biến thể hậu tố
+        # thực tế đang tồn tại. Ngược lại, nếu mã đã dán ĐÃ CÓ tần suất bán
+        # riêng (có tồn + được phân loại TX/TB/CB) thì đó là 1 mã ĐỘC LẬP,
+        # tự nó đã đủ dữ liệu bán riêng - không coi các biến thể hậu tố khác
+        # là "mã con" của nó nữa, nên không gợi ý.
+        related_child_codes = []
+        if freq_system is None:
+            for child_code in child_codes_by_parent.get(part_code, []):
+                child_lock = child_lock_by_code.get(child_code)
+                child_locked = bool(child_lock['is_locked']) if child_lock else False
+                child_qty = child_inv_by_code.get(child_code, 0.0)
+                child_has_stock = child_qty > 0 or (child_lock and (child_lock.get('has_stock_bac') or child_lock.get('has_stock_nam')))
+                if child_has_stock:
+                    c_breakdown = child_store_breakdown.get(child_code, {})
+                    c_sold_map = child_sold_by_store.get(child_code, {})
+                    c_breakdown_freq = {}
+                    for sc in _ORDER_CHECK_STORE_CODES:
+                        cls_sc = classify_sales_frequency(c_breakdown.get(sc, 0.0), c_sold_map.get(sc, 0.0), period_months)
+                        c_breakdown_freq[sc] = cls_sc['code'] if cls_sc else None
+                    related_child_codes.append({
+                        'part_code': child_code,
+                        'is_locked': child_locked,
+                        'total_qty': child_qty,
+                        'store_breakdown': {sc: c_breakdown.get(sc, 0.0) for sc in _ORDER_CHECK_STORE_CODES},
+                        'store_breakdown_freq': c_breakdown_freq,
+                        'lock_qty_bac': float(child_lock['qty_bac']) if child_lock and child_lock.get('qty_bac') is not None else None,
+                        'lock_qty_nam': float(child_lock['qty_nam']) if child_lock and child_lock.get('qty_nam') is not None else None,
+                        'lock_has_stock_bac': child_lock.get('has_stock_bac') if child_lock else None,
+                        'lock_has_stock_nam': child_lock.get('has_stock_nam') if child_lock else None,
+                    })
+
+        # Đề xuất luân chuyển: chỉ xét khi tồn của cửa hàng đang đặt < số
+        # lượng cần, và có kho khác đang bán chậm (TB/CB) VÀ dư nhiều (còn
+        # đủ dùng >= ORDER_CHECK_TRANSFER_MIN_MONTHS_OF_STOCK tháng SAU KHI
+        # đã trừ phần đề xuất chuyển đi) - ưu tiên kho có tồn nhiều nhất trước.
+        transfer_suggestions = []
+        still_needed = max(0.0, qty_order - store_qty)
+        sold_map = sold_by_part_store.get(part_code, {})
+        # Tần suất bán RIÊNG của từng cửa hàng cho đúng mã này (khác với
+        # 'sales_freq' ở dưới - đó là tần suất bán TÍNH TRÊN TỔNG TỒN + TỔNG
+        # BÁN CỦA CẢ HỆ THỐNG). Trả về cho FE để hiển thị cạnh mỗi cửa hàng
+        # trong "Tồn Hệ Thống", giúp admin tự thấy TẠI SAO 1 cửa hàng có tồn
+        # nhưng KHÔNG được đề xuất chuyển (thường là do đang bán nhanh - TX -
+        # ngay tại chính cửa hàng đó, nên không có "dư" để cho cửa hàng khác,
+        # dù có hàng thật). Hoàn toàn KHÔNG dùng tồn kho Bắc/Nam của Honda ở
+        # bất kỳ đâu trong việc tính đề xuất luân chuyển - Bắc/Nam chỉ để
+        # tham khảo riêng (xem lock_qty_bac/lock_qty_nam).
+        store_breakdown_freq = {}
+        if inv:
+            for sc in _ORDER_CHECK_STORE_CODES:
+                sc_qty_f = float(inv.get(sc, 0))
+                cls_sc = classify_sales_frequency(sc_qty_f, sold_map.get(sc, 0.0), period_months)
+                store_breakdown_freq[sc] = cls_sc['code'] if cls_sc else None
+        if inv and still_needed > 0:
+            candidates = []
+            for sc in _ORDER_CHECK_STORE_CODES:
+                if sc == store_code:
+                    continue
+                sc_qty = float(inv.get(sc, 0))
+                if sc_qty <= 0:
+                    continue
+                cls = classify_sales_frequency(sc_qty, sold_map.get(sc, 0.0), period_months)
+                if cls is None or cls['code'] not in ('TB', 'CB'):
+                    continue
+                candidates.append((sc, sc_qty, cls))
+            candidates.sort(key=lambda x: x[1], reverse=True)
+            for sc, sc_qty, cls in candidates:
+                if still_needed <= 0:
+                    break
+                avg_month = cls.get('avg_month') or 0
+                # Số lượng tối đa có thể lấy mà kho đó vẫn còn đủ dùng
+                # ORDER_CHECK_TRANSFER_MIN_MONTHS_OF_STOCK tháng sau khi chuyển.
+                # LÀM TRÒN XUỐNG (floor) thành số NGUYÊN: phụ tùng là đơn vị
+                # đếm được (cái/bộ...), không có khái niệm "lấy 3.68 cái" -
+                # nếu không floor ở đây, phần thập phân từ avg_month (số
+                # lượng bán TRUNG BÌNH/tháng, vốn luôn là số lẻ) sẽ lan
+                # sang can_give/take/still_needed, khiến các số trên giao
+                # diện đều bị lẻ dù các số lượng gốc trong kho là số nguyên.
+                keep_min = avg_month * ORDER_CHECK_TRANSFER_MIN_MONTHS_OF_STOCK
+                can_give = math.floor(max(0.0, sc_qty - keep_min))
+                if can_give <= 0:
+                    continue
+                take = min(still_needed, can_give)
+                if take <= 0:
+                    continue
+                transfer_suggestions.append({
+                    'store_code': sc, 'qty': take,
+                    'store_available_qty': sc_qty, 'sales_freq': cls,
+                })
+                still_needed -= take
+
+        result.append({
+            'part_code': part_code,
+            'qty_order': qty_order,
+            'part_name': inv.get('part_name') if inv else None,
+            'unit': inv.get('unit') if inv else None,
+            'found': inv is not None,
+            'store_qty': store_qty,
+            'total_qty': total_qty,
+            'store_breakdown': {sc: float(inv.get(sc, 0)) for sc in _ORDER_CHECK_STORE_CODES} if inv else {},
+            # Tần suất bán riêng từng cửa hàng cho mã này (TX/TB/CB hoặc null
+            # nếu tồn = 0) - xem giải thích chi tiết ở khối tính transfer_suggestions
+            # phía trên. Dùng để FE hiển thị lý do 1 cửa hàng không được đề
+            # xuất chuyển dù đang có tồn > 0.
+            'store_breakdown_freq': store_breakdown_freq,
+            'sales_freq': freq_system,
+            'qty_sold_period': round(sold_by_part.get(part_code, 0.0), 2),
+            'period_months': period_months,
+            'is_locked': bool(lock['is_locked']) if lock else False,
+            'replacement_code': lock.get('replacement_code') if lock else None,
+            'lock_qty_bac': float(lock['qty_bac']) if lock and lock.get('qty_bac') is not None else None,
+            'lock_qty_nam': float(lock['qty_nam']) if lock and lock.get('qty_nam') is not None else None,
+            # Cờ có/không tồn (Y/N) - chỉ có giá trị khi file nguồn là kiểu
+            # mới (không có số lượng cụ thể, xem _to_stock_flag ở
+            # import_order_lock()); None nếu chưa import hoặc file kiểu cũ.
+            'lock_has_stock_bac': lock.get('has_stock_bac') if lock else None,
+            'lock_has_stock_nam': lock.get('has_stock_nam') if lock else None,
+            'debt_qty': debt['debt_qty'] if debt else 0,
+            'shipping_qty': debt['shipping_qty'] if debt else 0,
+            'debt_po_codes': debt['po_codes'] if debt else [],
+            'still_needed_after_transfer': round(max(0.0, still_needed), 2),
+            'transfer_suggestions': transfer_suggestions,
+            'related_child_codes': related_child_codes,
+            'note': note_by_part.get(part_code) or '',
+            # Số lượng đề xuất để admin DUYỆT (có thể sửa tay ở FE trước khi
+            # chốt): mã đang bị khoá đặt hàng -> đề xuất 0 (không đặt được,
+            # chờ admin tự quyết định dùng mã thay thế/luân chuyển); còn lại
+            # -> đúng bằng phần CÒN THIẾU sau khi đã trừ đề xuất luân chuyển.
+            'suggested_approve_qty': 0 if (lock and lock['is_locked']) else round(max(0.0, still_needed), 2),
+        })
+
+    cursor2 = db.cursor()
+    cursor2.execute('SELECT filename, uploaded_by, upload_time FROM order_lock_meta WHERE id = 1')
+    lock_meta_row = cursor2.fetchone()
+    lock_meta = dict(lock_meta_row) if lock_meta_row else None
+    if lock_meta and lock_meta.get('upload_time'):
+        lock_meta['upload_time'] = lock_meta['upload_time'].strftime('%d/%m/%Y %H:%M')
+    cursor2.close()
+
+    return jsonify({'success': True, 'data': result, 'lock_meta': lock_meta})
+
+
+@app.route('/api/admin/order-check/note', methods=['POST'])
+def order_check_save_note():
+    """Lưu (hoặc xoá nếu để trống) ghi chú của admin cho 1 mã hàng ở màn
+    "Duyệt Đơn Hàng" - UPSERT theo part_code, dùng CHUNG cho mọi lần kiểm
+    tra sau này có mã hàng đó (xem bảng order_check_notes)."""
+    if 'user' not in session or session['role'] != 'admin':
+        return jsonify({'error': 'Forbidden'}), 403
+
+    data = request.json or {}
+    part_code = str(data.get('part_code', '') or '').strip()
+    note = str(data.get('note', '') or '').strip()
+    if not part_code:
+        return jsonify({'error': 'Thiếu mã hàng.'}), 400
+
+    db = get_db()
+    cursor = db.cursor()
+    try:
+        if note:
+            cursor.execute('''
+                INSERT INTO order_check_notes (part_code, note, updated_at, updated_by)
+                VALUES (%s, %s, %s, %s)
+                ON CONFLICT (part_code) DO UPDATE SET
+                    note = EXCLUDED.note,
+                    updated_at = EXCLUDED.updated_at,
+                    updated_by = EXCLUDED.updated_by
+            ''', (part_code, note, vn_now(), _current_actor_name()))
+        else:
+            # Ghi chú rỗng -> xoá hẳn dòng, không lưu ghi chú rỗng vô nghĩa.
+            cursor.execute('DELETE FROM order_check_notes WHERE part_code = %s', (part_code,))
+        db.commit()
+        return jsonify({'success': True})
+    except Exception as e:
+        db.rollback()
+        app.logger.error("Lỗi /api/admin/order-check/note: %s\n%s", e, traceback.format_exc())
         return jsonify({'error': str(e)}), 500
     finally:
         cursor.close()
@@ -6446,7 +7058,7 @@ def admin_transfer_import_excel():
     except Exception as e:
         return jsonify({'error': f'Không đọc được file Excel: {e}'}), 400
 
-    part_col = find_col(df.columns, ['mã phụ tùng', 'mã hàng', 'part code', 'part#', 'part #', 'part number', 'part'])
+    part_col = find_col(df.columns, ['mã phụ tùng', 'mã hàng', 'part code', 'part #', 'part number', 'part#', 'part'])
     qty_col = find_col(df.columns, ['số lượng yêu cầu', 'số lượng', 'sl', 'quantity'])
     name_col = find_col(df.columns, ['tên hàng', 'tên phụ tùng', 'part name', 'description', 'tên'])
 
@@ -6527,7 +7139,7 @@ def transfer_import_excel():
     except Exception as e:
         return jsonify({'error': f'Không đọc được file Excel: {e}'}), 400
 
-    part_col = find_col(df.columns, ['mã phụ tùng', 'mã hàng', 'part code', 'part#', 'part #', 'part number', 'part'])
+    part_col = find_col(df.columns, ['mã phụ tùng', 'mã hàng', 'part code', 'part #', 'part number', 'part#', 'part'])
     qty_col = find_col(df.columns, ['số lượng yêu cầu', 'số lượng', 'sl', 'quantity'])
     name_col = find_col(df.columns, ['tên hàng', 'tên phụ tùng', 'part name', 'description', 'tên'])
 
