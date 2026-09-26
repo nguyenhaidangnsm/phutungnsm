@@ -4085,6 +4085,39 @@ def order_check():
             d['shipping_qty'] += float(r.get('qty_debt') or 0)
             d['po_codes'].append(r.get('po_code'))
 
+    # ---- 4b) Khách hàng đang chờ mã hàng này (đơn đặt hàng khách - bảng
+    # bo_orders, CSDL Supabase RIÊNG BIỆT với CSDL Neon chính, xem orders.py)
+    # - CHỈ tính đơn THẬT SỰ cần đặt hàng nhà cung cấp: bỏ qua đơn "Xin nội
+    # bộ" (được giải quyết bằng luân chuyển nội bộ giữa các cửa hàng, không
+    # cần đặt hàng ngoài) và bỏ qua đơn đã xong (Đã giao/Đã huỷ) - còn lại
+    # (Chưa đặt/Đã đặt/Đang về/Đã về kho/Đã gọi) coi là "còn đang chờ".
+    pending_customers_by_part = {}
+    try:
+        from orders import get_orders_db
+        odb = get_orders_db()
+        ocur = odb.cursor()
+        ocur.execute(
+            '''SELECT part_code, quote_no, customer_name, order_date, frame_number
+               FROM bo_orders
+               WHERE store_code = %s AND part_code = ANY(%s)
+                 AND status NOT IN ('Đã giao', 'Đã huỷ')
+                 AND source IS DISTINCT FROM 'Xin nội bộ' ''',
+            (store_code, order_list)
+        )
+        for r in ocur.fetchall():
+            pending_customers_by_part.setdefault(r['part_code'], []).append({
+                'quote_no': r.get('quote_no'),
+                'customer_name': r.get('customer_name'),
+                'order_date': r['order_date'].strftime('%d/%m/%Y') if r.get('order_date') else None,
+                'frame_number': r.get('frame_number'),
+            })
+        ocur.close()
+    except Exception as e:
+        # CSDL đặt hàng khách là tính năng PHỤ (Supabase riêng) - lỗi ở đây
+        # (vd chưa cấu hình ORDERS_DATABASE_URL) KHÔNG được làm hỏng cả kết
+        # quả Kiểm Tra Đơn Hàng chính (CSDL Neon) - chỉ bỏ qua phần này.
+        print(f'[order_check] Bỏ qua tra cứu khách đang chờ (bo_orders): {e}')
+
     cursor.close()
 
     # ---- 5) Ghép kết quả từng dòng + đề xuất luân chuyển ----
@@ -4256,6 +4289,7 @@ def order_check():
             'still_needed_after_transfer': round(max(0.0, still_needed), 2),
             'transfer_suggestions': transfer_suggestions,
             'related_child_codes': related_child_codes,
+            'pending_customers': pending_customers_by_part.get(part_code, []),
             'note': note_by_part.get(part_code) or '',
             # Số lượng đề xuất để admin DUYỆT (có thể sửa tay ở FE trước khi
             # chốt): mã đang bị khoá đặt hàng -> đề xuất 0 (không đặt được,

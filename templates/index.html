@@ -409,6 +409,12 @@
     .oc-stock-freq-text.tb { color: #d97706; }
     .oc-stock-freq-text.cb { color: #dc2626; }
 
+    /* Cột "Khách Đang Chờ" (bo_orders) - mỗi khách đang chờ mã hàng này 1
+       khối nhỏ, cách nhau bằng đường kẻ mảnh khi có NHIỀU khách cùng chờ 1
+       mã (VD 2 khách cùng đặt 1 phụ tùng hiếm). */
+    .oc-pending-item { font-size: 0.78rem; line-height: 1.35; }
+    .oc-pending-sep { margin: 6px 0; border: none; border-top: 1px dashed #cbd5e1; }
+
     /* Khối "Kho HVN Bắc/Nam" trong cột "Khoá Đặt Hàng" - tách biệt rõ ràng
        (viền trái + nhãn nhỏ "KHO HVN") với phần "Đề Xuất Luân Chuyển" ở cột
        khác, vì đây là tồn kho của Honda Việt Nam, KHÔNG liên quan đến việc
@@ -3400,6 +3406,7 @@
                                 <th class="text-end">Tồn CH</th>
                                 <th>Tồn Hệ Thống</th>
                                 <th>Khoá Đặt Hàng</th>
+                                <th>Khách Đang Chờ</th>
                                 <th>Đang Nợ / Vận Chuyển</th>
                                 <th>Đề Xuất Luân Chuyển</th>
                                 <th class="text-end">SL Duyệt Đề Xuất</th>
@@ -6018,6 +6025,21 @@
                           }).join('') +
                           `</div>` : '');
 
+                // Khách hàng đang chờ mã này (đơn đặt hàng khách - bo_orders,
+                // xem order_check() trong app.py: đã lọc sẵn CHỈ đơn thật sự
+                // cần đặt hàng ngoài - bỏ "Xin nội bộ" và đơn đã xong/đã huỷ).
+                const pendingCustomers = row.pending_customers || [];
+                const pendingHtml = pendingCustomers.length
+                    ? pendingCustomers.map(c =>
+                        `<div class="oc-pending-item">` +
+                          (c.quote_no ? `<div>Số BG: <strong>${escapeHtmlText(c.quote_no)}</strong></div>` : '') +
+                          (c.customer_name ? `<div>KH: <strong>${escapeHtmlText(c.customer_name)}</strong></div>` : '') +
+                          (c.order_date ? `<div>Ngày đặt: ${escapeHtmlText(c.order_date)}</div>` : '') +
+                          (c.frame_number ? `<div>Số khung: ${escapeHtmlText(c.frame_number)}</div>` : '') +
+                        `</div>`
+                      ).join('<hr class="oc-pending-sep">')
+                    : `<span class="small text-muted">Không có khách chờ</span>`;
+
                 const debtParts = [];
                 if (row.debt_qty > 0) debtParts.push(`<span class="badge bg-danger">Nợ: ${row.debt_qty}</span>`);
                 if (row.shipping_qty > 0) debtParts.push(`<span class="badge bg-warning text-dark">Đang v/c: ${row.shipping_qty}</span>`);
@@ -6102,6 +6124,7 @@
                     <td class="text-end${row.store_qty > 0 ? '' : ' text-danger fw-semibold'}">${row.store_qty}</td>
                     <td>${storeBreakdownHtml}</td>
                     <td>${lockHtml}</td>
+                    <td style="max-width:220px; white-space:normal;">${pendingHtml}</td>
                     <td>${debtHtml}</td>
                     <td style="max-width:220px; white-space:normal;">${transferHtml}</td>
                     <td class="text-end">
@@ -6170,9 +6193,20 @@
             const childText = (row.related_child_codes && row.related_child_codes.length)
                 ? row.related_child_codes.map(c => `${c.part_code} (tồn ${c.total_qty})`).join('; ')
                 : '';
+            const pendingText = (row.pending_customers && row.pending_customers.length)
+                ? row.pending_customers.map(c => {
+                    const parts = [];
+                    if (c.quote_no) parts.push(`BG ${c.quote_no}`);
+                    if (c.customer_name) parts.push(c.customer_name);
+                    if (c.order_date) parts.push(`ngày ${c.order_date}`);
+                    if (c.frame_number) parts.push(`khung ${c.frame_number}`);
+                    return parts.join(', ');
+                  }).join(' | ')
+                : '';
             return {
                 'Mã Hàng': row.part_code,
                 'SL Đặt': row.qty_order,
+                'Tên Hàng': row.part_name || '',
                 'Tình Hình Bán': row.sales_freq ? row.sales_freq.label : '',
                 'Đã Bán/Kỳ': row.qty_sold_period ?? 0,
                 'Tồn CH': row.store_qty,
@@ -6180,6 +6214,7 @@
                 'Khoá Đặt Hàng': row.is_locked ? 'Đã khoá' : 'Không khoá',
                 'Mã Thay Thế': row.replacement_code || '',
                 'Mã Con Khả Dụng': childText,
+                'Khách Đang Chờ': pendingText,
                 'Đang Nợ': row.debt_qty || 0,
                 'Đang Vận Chuyển': row.shipping_qty || 0,
                 'Đề Xuất Luân Chuyển': transferText,
