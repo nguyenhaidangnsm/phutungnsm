@@ -40,6 +40,7 @@ là ảnh sẽ được tạo lại từ đầu.
 """
 import json
 import os
+import re
 import shutil
 import time
 import traceback
@@ -488,17 +489,26 @@ def list_body_kit_groups():
     # đúng kỳ vọng thông thường của người dùng khi gõ vào ô tìm kiếm.
     if q:
         like = f'%{q}%'
+        # Với các trường MÃ (model_code/part_code), bỏ dấu "-" và khoảng trắng ở
+        # cả 2 phía trước khi so khớp, để gõ "53012-K12-900", "53012 k12 900"
+        # hay "53012K12900" đều ra cùng 1 kết quả (ILIKE đã tự bỏ qua hoa/thường
+        # sẵn). KHÔNG áp dụng cho group_label/part_name vì đó là tên/nhãn tự do,
+        # cần giữ nguyên khoảng trắng giữa các từ để so khớp đúng nghĩa.
+        q_code = re.sub(r'[\s-]+', '', q)
+        like_code = f'%{q_code}%'
         cursor.execute('''
             SELECT DISTINCT g.id, g.group_label, g.model_code, g.vehicle_family, g.sub_model, g.year,
                    g.image_filename, g.total_honda_price, g.total_crm_price, g.part_count,
                    g.is_manual, g.created_by, g.updated_at, (g.image_data IS NOT NULL) AS has_db_image
             FROM body_kit_groups g
             LEFT JOIN body_kit_parts p ON p.group_id = g.id
-            WHERE g.group_label ILIKE %s OR g.model_code ILIKE %s
-               OR p.part_code ILIKE %s OR p.part_name ILIKE %s
+            WHERE g.group_label ILIKE %s
+               OR REGEXP_REPLACE(g.model_code, '[\\s-]+', '', 'g') ILIKE %s
+               OR REGEXP_REPLACE(p.part_code, '[\\s-]+', '', 'g') ILIKE %s
+               OR p.part_name ILIKE %s
             ORDER BY g.vehicle_family, g.year ASC NULLS LAST, g.group_label
             LIMIT 500
-        ''', (like, like, like, like))
+        ''', (like, like_code, like_code, like))
     else:
         conditions = []
         params = []
