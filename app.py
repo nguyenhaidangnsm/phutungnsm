@@ -4121,13 +4121,27 @@ def order_check():
         # tự nó đã đủ dữ liệu bán riêng - không coi các biến thể hậu tố khác
         # là "mã con" của nó nữa, nên không gợi ý.
         related_child_codes = []
-        if freq_system is None:
-            for child_code in child_codes_by_parent.get(part_code, []):
+        # Gia đình mã (mã gốc <-> biến thể hậu tố) chỉ được coi là THẬT SỰ có
+        # quan hệ mã cha/mã con khi có ÍT NHẤT 1 mã trong gia đình đó (mã đã
+        # dán HOẶC 1 trong các mã cùng gốc) đang bị khoá đặt hàng - đây là
+        # tín hiệu duy nhất đáng tin xác nhận quan hệ này có thật (admin HVN
+        # đã chính thức khoá 1 mã để bắt buộc dùng mã khác thay thế). Nếu
+        # KHÔNG mã nào trong gia đình bị khoá, coi như trùng gốc số ngẫu
+        # nhiên, không liên quan gì - không gợi ý.
+        child_list = child_codes_by_parent.get(part_code, [])
+        family_confirmed_by_lock = bool(lock and lock['is_locked']) or any(
+            (child_lock_by_code.get(cc) or {}).get('is_locked') for cc in child_list
+        )
+        if freq_system is None and family_confirmed_by_lock:
+            for child_code in child_list:
                 child_lock = child_lock_by_code.get(child_code)
                 child_locked = bool(child_lock['is_locked']) if child_lock else False
                 child_qty = child_inv_by_code.get(child_code, 0.0)
                 child_has_stock = child_qty > 0 or (child_lock and (child_lock.get('has_stock_bac') or child_lock.get('has_stock_nam')))
-                if child_has_stock:
+                # Hiện mã con nếu CÓ TỒN hoặc ĐANG BỊ KHOÁ (dù tồn = 0) - 1 mã
+                # con đang khoá vẫn là thông tin quan trọng cần biết (không
+                # dùng được để đặt), không nên ẩn đi chỉ vì hết hàng.
+                if child_has_stock or child_locked:
                     c_breakdown = child_store_breakdown.get(child_code, {})
                     c_sold_map = child_sold_by_store.get(child_code, {})
                     c_breakdown_freq = {}

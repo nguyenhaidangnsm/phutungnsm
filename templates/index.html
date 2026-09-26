@@ -353,11 +353,29 @@
     .inv-name-col { max-width: 180px; overflow: hidden; text-overflow: ellipsis; }
     .store-badge-default { background: #f1efe8; color: #444441; }
 
-    /* Bảng "Kiểm Tra Đơn Hàng" (order-check) - cột "Tình Hình Bán": tô nền
+    /* Bảng "Kiểm Tra Đơn Hàng" (order-check): CĂN TẤT CẢ các ô lên ĐẦU dòng
+       (không dùng align-middle mặc định của Bootstrap nữa) - vì các cột có
+       độ cao nội dung rất khác nhau (VD "Tồn Hệ Thống" cao do nhiều chip,
+       "Khoá Đặt Hàng" ngắn) nên nếu căn giữa, thông tin ngắn sẽ trôi xuống
+       giữa dòng, không thẳng hàng với Mã Hàng/SL Đặt ở đầu dòng -> khó quét
+       nhanh theo chiều ngang khi duyệt. Thêm viền ngăn cách + đệm rõ ràng
+       giữa các dòng để mắt không bị lẫn dữ liệu của dòng trên/dưới.
+       DÙNG !important vì .align-middle của Bootstrap set trực tiếp trên
+       thẻ <td>/<th> (độ ưu tiên ngang selector thường), cần thắng nó. */
+    .oc-result-table > tbody > tr > td,
+    .oc-result-table > tbody > tr > th {
+        vertical-align: top !important;
+        padding-top: 12px;
+        padding-bottom: 12px;
+        border-bottom: 2px solid #dee2e6;
+    }
+    .oc-result-table > tbody > tr:last-child > td { border-bottom: none; }
+
+
        nhạt theo tần suất bán (TX xanh / TB vàng / CB đỏ) để mắt nhận diện
        ngay tình trạng bán của mã hàng thay vì phải đọc chữ nhỏ, badge tròn
        đậm màu dễ thấy hơn hẳn chữ mã TX/TB/CB đơn thuần như trước. */
-    .oc-sales-cell { padding: 6px 8px; border-radius: 6px; min-width: 165px; }
+    .oc-sales-cell { padding: 6px 8px; border-radius: 6px; min-width: 90px; }
     .oc-sales-cell.oc-sales-tx { background: #f0fdf4; }
     .oc-sales-cell.oc-sales-tb { background: #fffbeb; }
     .oc-sales-cell.oc-sales-cb { background: #fef2f2; }
@@ -371,48 +389,25 @@
     .oc-sales-badge-cb { background: #ef4444; }
     .oc-sales-badge-none { background: #94a3b8; }
 
-    /* Cột "Tồn Hệ Thống" của bảng order-check - chi tiết tồn theo từng cửa
-       hàng hiển thị bằng chip màu (dùng chung .store-badge-* đã có), thay vì
-       nhồi hết vào 1 dòng chữ nhỏ "(NS1: 1 | NS3: 3 | ...)" rất khó tách bạch
-       từng cửa hàng như trước. */
+    /* Cột "Tồn Hệ Thống" của bảng order-check - trước đây mỗi cửa hàng là 1
+       khối chip to, tô nền màu riêng theo cửa hàng (.store-badge-*) xếp
+       lưới 2 cột - nhiều màu nền cạnh nhau (màu cửa hàng + màu nhãn TX/TB/
+       CB) gây rối mắt khi có nhiều cửa hàng cùng còn tồn. Đổi sang DANH
+       SÁCH DÒNG ĐƠN GIẢN, không tô nền, chỉ có SỐ và chữ TX/TB/CB tô màu
+       (không phải khối màu) - mắt chỉ cần quét thẳng xuống từng dòng.
+    */
     .oc-stock-total { font-size: 1rem; }
-    .oc-stock-chip { font-size: 0.72rem; padding: 3px 7px; }
-    .oc-stock-chip b { margin-left: 3px; }
-    /* Lưới 2 CỘT CỐ ĐỊNH cho các chip cửa hàng trong "Tồn Hệ Thống" - trước
-       đây dùng flex-wrap nên có dòng 2 chip, có dòng chỉ 1 chip tuỳ độ rộng
-       chữ, khiến các dòng trông lệch/không cân đối. Cố định 2 cột giúp MỌI
-       dòng luôn thẳng hàng nhau, dễ so sánh giữa các mã hàng. */
-    .oc-stock-chip-grid {
-        display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px 8px;
-        align-items: start;
+    .oc-stock-list { display: flex; flex-direction: column; gap: 3px; }
+    .oc-stock-row {
+        display: flex; align-items: baseline; gap: 6px; font-size: 0.82rem;
+        line-height: 1.3;
     }
-    /* FIX: mỗi chip trước đây là 1 khối inline-block (kế thừa từ
-       .store-badge) nên khi nội dung bên trong (mã cửa hàng + số lượng +
-       badge TX/TB/CB) dài hơn bề rộng cột lưới, nó KHÔNG tự xuống dòng mà
-       tràn đè lên chip bên cạnh/hàng dưới, gây cảm giác "dính chùm", chữ số
-       chồng lên nhau rất khó đọc (đặc biệt khi có thêm nhãn TX/TB/CB nhỏ).
-       Chuyển mỗi chip thành 1 flex container riêng, cho phép các phần bên
-       trong (mã kho / số lượng / nhãn tần suất) tự xuống dòng bên trong
-       đúng khung của chip đó - không còn tràn ra ngoài đè lên chip khác. */
-    .oc-stock-chip-grid .oc-stock-chip {
-        width: 100%; box-sizing: border-box;
-        display: flex; flex-wrap: wrap; align-items: center;
-        row-gap: 2px; column-gap: 4px; line-height: 1.3;
-    }
-    .oc-stock-chip-grid .oc-stock-chip b { margin-left: 0; }
-    .oc-stock-chip-grid .oc-stock-chip .oc-chip-freq { margin-left: 0; }
-    /* Nhãn TX/TB/CB siêu nhỏ cạnh số lượng trong mỗi chip cửa hàng - tần
-       suất bán RIÊNG của cửa hàng đó (khác cột "Tình Hình Bán" là tần suất
-       CẢ HỆ THỐNG) - giúp thấy ngay lý do 1 cửa hàng có tồn nhưng không được
-       đề xuất chuyển (đang tự bán nhanh tại đó = TX). */
-    .oc-chip-freq {
-        display: inline-block; margin-left: 4px; padding: 0 4px; border-radius: 4px;
-        font-size: 0.6rem; font-weight: 800; color: #fff; vertical-align: middle;
-        letter-spacing: 0.2px; cursor: help;
-    }
-    .oc-chip-freq-tx { background: #22c55e; }
-    .oc-chip-freq-tb { background: #f59e0b; }
-    .oc-chip-freq-cb { background: #ef4444; }
+    .oc-stock-row .oc-stock-store { font-weight: 700; color: #475569; min-width: 40px; }
+    .oc-stock-row .oc-stock-qty { font-weight: 700; min-width: 1.5em; text-align: right; }
+    .oc-stock-freq-text { font-weight: 800; font-size: 0.72rem; letter-spacing: .2px; cursor: help; }
+    .oc-stock-freq-text.tx { color: #16a34a; }
+    .oc-stock-freq-text.tb { color: #d97706; }
+    .oc-stock-freq-text.cb { color: #dc2626; }
 
     /* Khối "Kho HVN Bắc/Nam" trong cột "Khoá Đặt Hàng" - tách biệt rõ ràng
        (viền trái + nhãn nhỏ "KHO HVN") với phần "Đề Xuất Luân Chuyển" ở cột
@@ -3395,11 +3390,12 @@
                     <span class="small text-muted ms-auto" id="orderCheckFilterCount"></span>
                 </div>
                 <div class="table-responsive" style="max-height:70vh;">
-                    <table class="table table-hover align-middle mb-0 text-nowrap">
+                    <table class="table table-hover align-middle mb-0 text-nowrap oc-result-table">
                         <thead>
                             <tr>
                                 <th>Mã Hàng</th>
                                 <th class="text-end">SL Đặt</th>
+                                <th>Tên Hàng</th>
                                 <th>Tình Hình Bán</th>
                                 <th class="text-end">Tồn CH</th>
                                 <th>Tồn Hệ Thống</th>
@@ -6010,14 +6006,14 @@
                                   .filter(sc => cBreakdown[sc] > 0)
                                   .map(sc => {
                                       const fcode = cFreq[sc];
-                                      const fTag = fcode ? `<span class="oc-chip-freq oc-chip-freq-${fcode.toLowerCase()}" title="${escapeHtmlAttr(_ocFreqTip(fcode))}">${fcode}</span>` : '';
-                                      return `<span class="store-badge oc-stock-chip store-badge-${sc}">${sc}<b>${cBreakdown[sc]}</b>${fTag}</span>`;
+                                      const fTag = fcode ? `<span class="oc-stock-freq-text ${fcode.toLowerCase()}" title="${escapeHtmlAttr(_ocFreqTip(fcode))}">${fcode}</span>` : '';
+                                      return `<div class="oc-stock-row"><span class="oc-stock-store">${sc}</span><span class="oc-stock-qty">${cBreakdown[sc]}</span>${fTag}</div>`;
                                   }).join('');
                               return `<div class="mt-1">` +
                                   `<strong>${escapeHtmlText(c.part_code)}</strong>` +
                                   (c.is_locked ? ` <span class="text-danger">(khoá)</span>` : '') +
                                   ` — tổng ${c.total_qty}` +
-                                  (chips ? `<div class="oc-stock-chip-grid mt-1">${chips}</div>` : '<div class="small text-muted">Không còn tồn ở cửa hàng nào</div>') +
+                                  (chips ? `<div class="oc-stock-list mt-1">${chips}</div>` : '<div class="small text-muted">Không còn tồn ở cửa hàng nào</div>') +
                                   `</div>`;
                           }).join('') +
                           `</div>` : '');
@@ -6035,12 +6031,11 @@
                 // NS1-NS5/NSM1 với nhau, không phải xin thêm từ Honda.
                 const transferHtml = row.transfer_suggestions && row.transfer_suggestions.length
                     ? row.transfer_suggestions.map(t =>
-                        `<div class="small">Lấy <strong>${t.qty}</strong> từ cửa hàng <strong>${t.store_code}</strong> (đang dư ${t.store_available_qty}, ${t.sales_freq.code})</div>`
+                        `<div class="small"><strong>${t.store_code}</strong>: ${t.qty} (${t.sales_freq.code})</div>`
                       ).join('') + (row.still_needed_after_transfer > 0
                         ? `<div class="small text-danger fw-semibold">Vẫn thiếu ${row.still_needed_after_transfer} sau khi chuyển</div>` : '')
                     : (row.qty_order > row.store_qty
-                        ? `<span class="small text-danger">Không có cửa hàng nào khác dư để chuyển</span>` +
-                          `<div class="small text-muted mt-1">Xem nhãn TX/TB/CB cạnh mỗi cửa hàng ở cột "Tồn Hệ Thống" - cửa hàng đang có nhãn TX (bán nhanh tại đó) sẽ không được xét, dù có tồn.</div>`
+                        ? `<span class="small text-danger">Không có cửa hàng nào dư</span>`
                         : `<span class="small text-success">Đủ tồn tại chỗ, không cần chuyển</span>`);
 
                 // Tình hình bán: tô nền cả ô theo màu tần suất bán (TX xanh /
@@ -6054,13 +6049,9 @@
                 const freq = row.sales_freq;
                 const freqCode = freq && freq.code ? freq.code.toLowerCase() : 'none';
                 const salesHtml = `<div class="oc-sales-cell oc-sales-${freqCode}">` +
-                        `<div class="d-flex align-items-center gap-2">` +
-                            `<span class="oc-sales-badge oc-sales-badge-${freqCode}">${freq && freq.code ? freq.code : '-'}</span>` +
-                            `<span class="small fw-semibold">${freq ? freq.label : 'Chưa phân loại'}</span>` +
-                        `</div>` +
-                        `<div class="small text-muted mt-1">Đã bán <strong>${row.qty_sold_period ?? 0}</strong> / ${row.period_months} tháng` +
-                        (freq && freq.avg_month !== undefined ? ` <span class="text-muted">(TB ${freq.avg_month}/tháng)</span>` : '') +
-                        `</div>` +
+                        `<span class="oc-sales-badge oc-sales-badge-${freqCode}">${freq && freq.code ? freq.code : '-'}</span>` +
+                        `<div class="small text-muted mt-1">${row.period_months} tháng: ${row.qty_sold_period ?? 0}</div>` +
+                        (freq && freq.avg_month !== undefined ? `<div class="small text-muted">1 tháng: ${freq.avg_month}</div>` : '') +
                     `</div>`;
 
                 // Tồn hệ thống: LOẠI TRỪ cửa hàng đang tra đơn (đã hiển thị
@@ -6088,8 +6079,8 @@
                     .filter(sc => sc !== _orderCheckCurrentStore && breakdown[sc] > 0)
                     .map(sc => {
                         const fcode = breakdownFreq[sc];
-                        const fTag = fcode ? `<span class="oc-chip-freq oc-chip-freq-${fcode.toLowerCase()}" title="${escapeHtmlAttr(_ocFreqTip(fcode))}">${fcode}</span>` : '';
-                        return `<span class="store-badge oc-stock-chip store-badge-${sc}">${sc}<b>${breakdown[sc]}</b>${fTag}</span>`;
+                        const fTag = fcode ? `<span class="oc-stock-freq-text ${fcode.toLowerCase()}" title="${escapeHtmlAttr(_ocFreqTip(fcode))}">${fcode}</span>` : '';
+                        return `<div class="oc-stock-row"><span class="oc-stock-store">${sc}</span><span class="oc-stock-qty">${breakdown[sc]}</span>${fTag}</div>`;
                     });
                 const otherTotal = row.total_qty - ownStoreQty;
                 const totalQtyCls = otherTotal > 0 ? 'fw-bold' : 'fw-bold text-danger';
@@ -6099,13 +6090,14 @@
                 const storeBreakdownHtml = `<div style="max-width:240px; white-space:normal;">` +
                     `<div class="oc-stock-total ${totalQtyCls}" title="${escapeHtmlAttr(totalTitle)}"><span class="small text-muted fw-normal">Tổng tồn:</span> ${otherTotal}</div>` +
                     (breakdownParts.length
-                        ? `<div class="oc-stock-chip-grid mt-1">${breakdownParts.join('')}</div>`
+                        ? `<div class="oc-stock-list mt-1">${breakdownParts.join('')}</div>`
                         : `<div class="small text-muted mt-1">Không còn tồn ở cửa hàng nào khác</div>`) +
                     `</div>`;
 
                 return `<tr${notFound ? ' class="table-warning"' : ''}>
                     <td>${escapeHtmlText(row.part_code)}${notFound ? '<div class="small text-danger">Không tìm thấy trong tồn kho hệ thống</div>' : ''}</td>
                     <td class="text-end">${row.qty_order}</td>
+                    <td>${escapeHtmlText(row.part_name || '')}</td>
                     <td>${salesHtml}</td>
                     <td class="text-end${row.store_qty > 0 ? '' : ' text-danger fw-semibold'}">${row.store_qty}</td>
                     <td>${storeBreakdownHtml}</td>
