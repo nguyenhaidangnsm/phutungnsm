@@ -3348,6 +3348,24 @@
             </div>
 
             <div class="card card-custom p-3 mb-3 mb-md-4">
+                <h6 class="fw-bold mb-2"><i class="bi bi-car-front-fill me-2 text-primary"></i>Dữ Liệu Model Xe / Giá Nhập / Nhóm Hao Mòn</h6>
+                <div class="small text-muted mb-3">
+                    File export kiểu "output11" (cột <strong>Part #</strong>, <strong>Model</strong>, <strong>Nhóm hao mòn</strong>, <strong>Giá nhập</strong>) -
+                    cho biết mỗi mã hàng dùng cho (những) dòng xe/đời xe nào (cột "Dùng Cho Xe"), và phục vụ dashboard tổng giá trị đơn hàng
+                    (trước/sau duyệt, theo từng nhóm hao mòn) bên dưới. Cần nhập <strong>bảng tra Mã xe → Dòng xe</strong> ở màn
+                    <strong>Bộ Áo Xe</strong> trước (nếu chưa có) thì mới giải mã được cột Model.
+                    Mỗi lần nhập sẽ <strong>THAY THẾ TOÀN BỘ</strong> dữ liệu này.
+                </div>
+                <div class="d-flex flex-wrap align-items-center gap-2">
+                    <input type="file" class="form-control form-control-sm" style="width:auto;" id="vehicleModelImportFile" accept=".xlsx,.xls,.csv">
+                    <button class="btn btn-primary btn-sm" onclick="importVehicleModelExcel()" id="vehicleModelImportBtn">
+                        <i class="bi bi-upload me-1"></i>Nhập Dữ Liệu
+                    </button>
+                    <span class="small text-muted" id="vehicleModelImportStatus"></span>
+                </div>
+            </div>
+
+            <div class="card card-custom p-3 mb-3 mb-md-4">
                 <h5 class="mb-3"><i class="bi bi-clipboard2-check-fill me-2 text-primary"></i>Kiểm Tra Đơn Hàng</h5>
                 <div class="d-flex flex-wrap gap-2 align-items-center mb-2">
                     <label class="small mb-0">Cửa hàng đặt hàng:</label>
@@ -3380,6 +3398,7 @@
             </div>
 
             <div class="card card-custom p-3 mb-3 mb-md-4 d-none" id="orderCheckResultCard">
+                <div class="mb-3" id="orderCheckDashboard"></div>
                 <div class="d-flex flex-wrap gap-2 align-items-center mb-3" id="orderCheckFilterBar">
                     <label class="small mb-0 fw-semibold">Lọc:</label>
                     <select class="form-select form-select-sm" style="width:auto;" id="ocFilterLock" onchange="renderOrderCheckTable()">
@@ -3427,6 +3446,7 @@
                                 <th>Mã Hàng</th>
                                 <th class="text-end">SL Đặt</th>
                                 <th>Tên Hàng</th>
+                                <th>Dùng Cho Xe</th>
                                 <th>Tình Hình Bán</th>
                                 <th class="text-end">Tồn CH</th>
                                 <th>Tồn Hệ Thống</th>
@@ -5824,6 +5844,66 @@
         }
     }
 
+    async function importVehicleModelExcel() {
+        const input = document.getElementById('vehicleModelImportFile');
+        const btn = document.getElementById('vehicleModelImportBtn');
+        const status = document.getElementById('vehicleModelImportStatus');
+        if (!input.files || input.files.length === 0) {
+            alert('Vui lòng chọn 1 file trước.');
+            return;
+        }
+        if (!confirm('Nhập dữ liệu mới sẽ THAY THẾ TOÀN BỘ dữ liệu Model xe hiện có. Tiếp tục?')) return;
+
+        const formData = new FormData();
+        formData.append('vehicle_model_file', input.files[0]);
+
+        btn.disabled = true;
+        if (status) status.innerText = 'Đang nhập dữ liệu...';
+        try {
+            const res = await fetch('/api/admin/import-vehicle-models', { method: 'POST', body: formData });
+            const json = await res.json();
+            if (!json.success) {
+                if (status) status.innerText = '';
+                alert(json.error || 'Nhập dữ liệu thất bại.');
+                return;
+            }
+            if (status) status.innerText = `Đã nhập ${json.total_parts.toLocaleString()} mã hàng.`;
+            input.value = '';
+        } catch (err) {
+            if (status) status.innerText = '';
+            console.error('Lỗi importVehicleModelExcel:', err);
+            alert('Lỗi kết nối máy chủ khi nhập dữ liệu.');
+        } finally {
+            btn.disabled = false;
+        }
+    }
+
+    // Dựng HTML hiển thị "Dùng Cho Xe" (danh sách dòng xe/đời xe) cho 1
+    // dòng kết quả Kiểm Tra Đơn Hàng - xem 'vehicle_models'/
+    // 'vehicle_models_unresolved' trả về từ order_check() trong app.py.
+    // Gộp theo Dòng xe (vehicle_family): mỗi dòng xe 1 badge, các Đời/kiểu
+    // của dòng đó liệt kê trong tooltip (title) để không chiếm quá nhiều
+    // chỗ trên bảng.
+    function _orderCheckVehicleModelsHtml(row) {
+        const models = row.vehicle_models || [];
+        if (models.length) {
+            const byFamily = {};
+            models.forEach(m => {
+                (byFamily[m.vehicle_family] = byFamily[m.vehicle_family] || []).push(m.sub_model);
+            });
+            return `<div class="d-flex flex-wrap gap-1" style="max-width:200px; white-space:normal;">` +
+                Object.keys(byFamily).map(fam => {
+                    const subs = [...new Set(byFamily[fam])];
+                    return `<span class="badge bg-info-subtle text-info-emphasis border border-info-subtle" title="${escapeHtmlAttr(subs.join(', '))}">${escapeHtmlAttr(fam)}</span>`;
+                }).join('') +
+                `</div>`;
+        }
+        if (row.vehicle_models_unresolved) {
+            return `<span class="small text-muted fst-italic" title="Không tách được thành mã xe hợp lệ - hiển thị nguyên văn dữ liệu gốc">${escapeHtmlAttr(row.vehicle_models_unresolved)}</span>`;
+        }
+        return `<span class="small text-muted">—</span>`;
+    }
+
     // Chú thích cho nhãn TX/TB/CB nhỏ cạnh mỗi cửa hàng trong "Tồn Hệ Thống" -
     // giải thích RÕ vì sao cửa hàng đó được/không được xét làm nguồn chuyển.
     function _ocFreqTip(code) {
@@ -5993,6 +6073,7 @@
         if (!row) return;
         const val = parseInt(e.target.value, 10);
         row.suggested_approve_qty = isNaN(val) ? 0 : val;
+        renderOrderCheckDashboard();
         saveOrderCheckSession();
     });
 
@@ -6037,6 +6118,93 @@
         const filtered = _orderCheckData.filter(_orderCheckRowMatchesFilters);
         if (countEl) countEl.innerText = `Hiển thị ${filtered.length}/${_orderCheckData.length} mã hàng`;
         body.innerHTML = filtered.map(_orderCheckRowHtml).join('');
+        renderOrderCheckDashboard();
+    }
+
+    // Dashboard tổng giá trị (theo Giá Nhập) của TOÀN BỘ đơn hàng đang kiểm
+    // tra (KHÔNG bị ảnh hưởng bởi bộ lọc trên bảng - dashboard luôn phản
+    // ánh cả đơn) - so sánh "Trước Duyệt" (SL Đặt gốc admin đã dán vào)
+    // với "Sau Duyệt" (SL Duyệt Đề Xuất hiện tại, có thể admin đã sửa tay
+    // trong ô input - xem listener 'input' ở dưới), tổng cộng + chi tiết
+    // theo từng "Nhóm hao mòn". Giá nhập/Nhóm hao mòn lấy từ dữ liệu nhập
+    // ở khối "Dữ Liệu Model Xe" phía trên (file "output11") - mã hàng nào
+    // CHƯA có giá nhập sẽ bị bỏ qua khỏi tổng (đếm riêng để cảnh báo admin
+    // biết tổng đang thiếu 1 phần dữ liệu, không phải con số đầy đủ).
+    function renderOrderCheckDashboard() {
+        const el = document.getElementById('orderCheckDashboard');
+        if (!el) return;
+        if (!_orderCheckData || !_orderCheckData.length) { el.innerHTML = ''; return; }
+
+        let totalBefore = 0, totalAfter = 0, missingPrice = 0;
+        const byGroup = {}; // { nhom: {before, after} }
+        _orderCheckData.forEach(row => {
+            const gia = row.gia_nhap;
+            if (gia === null || gia === undefined) { missingPrice++; return; }
+            const before = (row.qty_order || 0) * gia;
+            const after = (row.suggested_approve_qty || 0) * gia;
+            totalBefore += before;
+            totalAfter += after;
+            const groupName = row.nhom_hao_mon && String(row.nhom_hao_mon).trim() ? row.nhom_hao_mon : 'Chưa phân loại';
+            const g = byGroup[groupName] || (byGroup[groupName] = { before: 0, after: 0 });
+            g.before += before;
+            g.after += after;
+        });
+
+        const fmt = n => Math.round(n).toLocaleString('vi-VN');
+        const diff = totalAfter - totalBefore;
+        const diffCls = diff > 0 ? 'text-danger' : (diff < 0 ? 'text-success' : 'text-muted');
+        const diffSign = diff > 0 ? '+' : '';
+
+        const groupNames = Object.keys(byGroup).sort();
+        const groupRows = groupNames.map(name => {
+            const g = byGroup[name];
+            const gDiff = g.after - g.before;
+            const gCls = gDiff > 0 ? 'text-danger' : (gDiff < 0 ? 'text-success' : 'text-muted');
+            const gSign = gDiff > 0 ? '+' : '';
+            return `<tr>
+                <td>${escapeHtmlText(name)}</td>
+                <td class="text-end">${fmt(g.before)}</td>
+                <td class="text-end">${fmt(g.after)}</td>
+                <td class="text-end ${gCls}">${gSign}${fmt(gDiff)}</td>
+            </tr>`;
+        }).join('');
+
+        el.innerHTML = `
+            <div class="border rounded-3 p-3 bg-light-subtle">
+                <div class="d-flex flex-wrap align-items-center gap-2 mb-2">
+                    <i class="bi bi-graph-up-arrow text-primary"></i>
+                    <span class="fw-bold">Tổng Giá Trị Đơn Hàng (theo Giá Nhập)</span>
+                    ${missingPrice > 0 ? `<span class="small text-warning-emphasis">(${missingPrice} mã hàng chưa có dữ liệu Giá Nhập - không tính vào tổng)</span>` : ''}
+                </div>
+                <div class="row g-2 mb-2">
+                    <div class="col-6 col-md-3">
+                        <div class="small text-muted">Tổng Trước Duyệt</div>
+                        <div class="fw-bold fs-6">${fmt(totalBefore)} đ</div>
+                    </div>
+                    <div class="col-6 col-md-3">
+                        <div class="small text-muted">Tổng Sau Duyệt (Đề Xuất)</div>
+                        <div class="fw-bold fs-6">${fmt(totalAfter)} đ</div>
+                    </div>
+                    <div class="col-6 col-md-3">
+                        <div class="small text-muted">Chênh Lệch</div>
+                        <div class="fw-bold fs-6 ${diffCls}">${diffSign}${fmt(diff)} đ</div>
+                    </div>
+                </div>
+                ${groupNames.length ? `
+                <div class="table-responsive" style="max-height:260px;">
+                    <table class="table table-sm table-borderless mb-0 small">
+                        <thead>
+                            <tr class="border-bottom">
+                                <th>Nhóm Hao Mòn</th>
+                                <th class="text-end">Trước Duyệt</th>
+                                <th class="text-end">Sau Duyệt</th>
+                                <th class="text-end">Chênh Lệch</th>
+                            </tr>
+                        </thead>
+                        <tbody>${groupRows}</tbody>
+                    </table>
+                </div>` : ''}
+            </div>`;
     }
 
     function _bacNamText(qtyBac, qtyNam, hasStockBac, hasStockNam) {
@@ -6195,6 +6363,7 @@
                     <td>${escapeHtmlText(row.part_code)}${notFound ? '<div class="small text-danger">Không tìm thấy trong tồn kho hệ thống</div>' : ''}</td>
                     <td class="text-end">${row.qty_order}</td>
                     <td>${escapeHtmlText(row.part_name || '')}</td>
+                    <td>${_orderCheckVehicleModelsHtml(row)}</td>
                     <td>${salesHtml}</td>
                     <td class="text-end${row.store_qty > 0 ? '' : ' text-danger fw-semibold'}">${row.store_qty}</td>
                     <td>${storeBreakdownHtml}</td>
@@ -6282,6 +6451,9 @@
                 'Mã Hàng': row.part_code,
                 'SL Đặt': row.qty_order,
                 'Tên Hàng': row.part_name || '',
+                'Dùng Cho Xe': (row.vehicle_models && row.vehicle_models.length)
+                    ? [...new Set(row.vehicle_models.map(m => m.vehicle_family))].join(', ')
+                    : (row.vehicle_models_unresolved || ''),
                 'Tình Hình Bán': row.sales_freq ? row.sales_freq.label : '',
                 'Đã Bán/Kỳ': row.qty_sold_period ?? 0,
                 'Tồn CH': row.store_qty,
@@ -6295,6 +6467,10 @@
                 'Đề Xuất Luân Chuyển': transferText,
                 'Vẫn Thiếu Sau Luân Chuyển': row.still_needed_after_transfer || 0,
                 'SL Duyệt Đề Xuất': row.suggested_approve_qty,
+                'Nhóm Hao Mòn': row.nhom_hao_mon || '',
+                'Giá Nhập': row.gia_nhap ?? '',
+                'Thành Tiền Trước Duyệt': (row.gia_nhap != null) ? Math.round(row.qty_order * row.gia_nhap) : '',
+                'Thành Tiền Sau Duyệt': (row.gia_nhap != null) ? Math.round(row.suggested_approve_qty * row.gia_nhap) : '',
                 'Ghi Chú': row.note || '',
                 'Không Tìm Thấy': row.found ? '' : 'Không có trong hệ thống',
             };

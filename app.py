@@ -1035,6 +1035,41 @@ def init_db():
             )
         ''')
 
+        # 6a-4. Bảng lưu cột "Model" (nguyên văn, dạng chuỗi các Mã xe con
+        # nối liền nhau, vd "Y7Y6K4K3E4E3") theo TỪNG mã hàng - nhập riêng
+        # từ file export kiểu "output11" (cột "Part #" + "Model"). Dùng để
+        # màn "Duyệt Đơn Hàng" biết 1 mã hàng dùng cho (những) dòng xe/đời
+        # xe nào - xem decode_vehicle_models_for_part() và cách dùng trong
+        # order_check(). Bảng tra "Mã xe" -> "Dòng xe/Đời xe" để GIẢI MÃ
+        # chuỗi này KHÔNG lưu ở đây - dùng lại bảng body_kit_model_categories
+        # đã có sẵn (CSDL đặt hàng riêng, xem body_kit.py) để khỏi phải nhập
+        # 2 lần cùng 1 bảng tra Mã xe -> Dòng xe cho 2 tính năng khác nhau.
+        # Ghi đè TOÀN BỘ mỗi lần import - giống order_lock_items/part_prices.
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS part_vehicle_models (
+                part_code VARCHAR(100) PRIMARY KEY,
+                model_raw TEXT,
+                updated_at TIMESTAMP,
+                updated_by VARCHAR(50)
+            )
+        ''')
+        # ALTER phòng bảng đã tồn tại từ TRƯỚC khi có 2 cột giá nhập/nhóm
+        # hao mòn (thêm sau, dùng cho dashboard tổng giá trị đơn hàng ở
+        # order_check() - xem import_vehicle_models()). Cùng 1 file nguồn
+        # "output11" có sẵn cả 4 cột (Part #/Model/Nhóm hao mòn/Giá nhập)
+        # nên gộp chung 1 bảng thay vì tách riêng, đỡ phải nhập 2 lần.
+        cursor.execute('ALTER TABLE part_vehicle_models ADD COLUMN IF NOT EXISTS nhom_hao_mon TEXT')
+        cursor.execute('ALTER TABLE part_vehicle_models ADD COLUMN IF NOT EXISTS gia_nhap NUMERIC')
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS vehicle_model_meta (
+                id INTEGER PRIMARY KEY DEFAULT 1,
+                filename TEXT,
+                uploaded_by VARCHAR(50),
+                upload_time TIMESTAMP,
+                total_parts INTEGER
+            )
+        ''')
+
         # 6b. Bảng lưu VỊ TRÍ KỆ HÀNG (tối đa 3 vị trí) cho mỗi mã hàng tại
         #     từng cửa hàng. Store tự quản lý vị trí của cửa hàng mình (chỉ
         #     cho những mã hàng đã từng xuất hiện trong file tồn kho hệ
@@ -3891,6 +3926,183 @@ ORDER_CHECK_TRANSFER_MIN_MONTHS_OF_STOCK = 4.0
 _ORDER_CHECK_STORE_CODES = ('NS1', 'NS2', 'NS3', 'NS4', 'NS5', 'NSM1')
 
 
+@app.route('/api/admin/import-vehicle-models', methods=['POST'])
+def import_vehicle_models():
+    """Admin import cột "Model" + "Nhóm hao mòn" + "Giá nhập" (theo mã
+    hàng) từ file export kiểu "output11" (cột cần có: "Part #" và "Model";
+    "Nhóm hao mòn"/"Giá nhập" tuỳ chọn). "Model" là 1 chuỗi các Mã xe con
+    nối liền nhau KHÔNG có dấu phân cách, vd "Y7Y6K4K3E4E3", xem
+    decode_vehicle_models_for_part() bên dưới - dùng cho cột "Dùng Cho Xe".
+    "Nhóm hao mòn" + "Giá nhập" dùng cho dashboard tổng giá trị đơn hàng
+    (trước/sau duyệt, theo từng nhóm) ở order_check(). Ghi đè TOÀN BỘ mỗi
+    lần import - giống hệt import_prices()/import_order_lock(). Lưu ý:
+    bảng TRA "Mã xe" -> "Dòng xe/Đời xe" để giải mã cột Model là 1 file
+    KHÁC (vd test_da_sua.xlsx) và được nhập ở màn Bộ Áo Xe, nút "Nhập bảng
+    tra Mã xe → Dòng xe" (/api/admin/body-kit/import-model-categories) -
+    không phải ở đây."""
+    if 'user' not in session or session['role'] != 'admin':
+        return jsonify({'error': 'Forbidden'}), 403
+
+    vm_file = request.files.get('vehicle_model_file')
+    if not vm_file:
+        return jsonify({'error': 'Vui lòng chọn file để tải lên.'}), 400
+
+    try:
+        df = read_any(vm_file)
+    except Exception as e:
+        return jsonify({'error': f'Không đọc được file: {e}'}), 400
+
+    part_col = find_col(df.columns, ['part #', 'part#', 'mã phụ tùng', 'mã hàng', 'part code', 'part number', 'part'])
+    model_col = find_col(df.columns, ['model'])
+    if not part_col or not model_col:
+        return jsonify({'error': 'Không tìm thấy cột "Part #" và "Model" trong file. Vui lòng kiểm tra lại file.'}), 400
+    # Nhóm hao mòn + Giá nhập: KHÔNG bắt buộc (file cũ có thể chưa có 2 cột
+    # này) - thiếu thì chỉ giải mã được "Dùng Cho Xe", dashboard tổng giá
+    # trị đơn hàng ở order_check() sẽ bỏ qua mã hàng đó (coi như chưa có giá).
+    nhom_col = find_col(df.columns, ['nhóm hao mòn', 'nhom hao mon', 'nhóm hao mon'])
+    gia_col = find_col(df.columns, ['giá nhập', 'gia nhap', 'đơn giá nhập'])
+
+    now = vn_now()
+    actor = _current_actor_name()
+    rows = []
+    for _, r in df.iterrows():
+        part_code = str(r.get(part_col, '') or '').strip()
+        if not part_code or part_code.lower() == 'nan':
+            continue
+        raw = r.get(model_col)
+        try:
+            if pd.isna(raw):
+                raw = None
+        except (TypeError, ValueError):
+            pass
+        model_raw = str(raw).strip() if raw is not None else ''
+        if not model_raw or model_raw.lower() == 'nan':
+            model_raw = None
+
+        nhom = None
+        if nhom_col:
+            nv = r.get(nhom_col)
+            try:
+                if pd.isna(nv):
+                    nv = None
+            except (TypeError, ValueError):
+                pass
+            nhom = str(nv).strip() if nv is not None else None
+            if nhom and nhom.lower() == 'nan':
+                nhom = None
+
+        gia = None
+        if gia_col:
+            try:
+                gv = float(r.get(gia_col))
+                if not math.isnan(gv):
+                    gia = gv
+            except (TypeError, ValueError):
+                gia = None
+
+        if model_raw is None and nhom is None and gia is None:
+            continue  # dòng không có dữ liệu gì hữu ích - bỏ qua
+        rows.append((part_code, model_raw, nhom, gia, now, actor))
+
+    if not rows:
+        return jsonify({'error': 'File không có dòng dữ liệu hợp lệ nào (Part # + Model/Nhóm hao mòn/Giá nhập).'}), 400
+
+    db = get_db()
+    cursor = db.cursor()
+    try:
+        # Trùng mã hàng trong file -> chỉ giữ dòng CUỐI CÙNG (giống các hàm
+        # import khác), tránh vi phạm PRIMARY KEY part_code.
+        dedup = {r[0]: r for r in rows}
+        rows = list(dedup.values())
+
+        cursor.execute('TRUNCATE TABLE part_vehicle_models')
+        execute_values(
+            cursor,
+            '''INSERT INTO part_vehicle_models (part_code, model_raw, nhom_hao_mon, gia_nhap, updated_at, updated_by)
+               VALUES %s''',
+            rows
+        )
+        cursor.execute('''
+            INSERT INTO vehicle_model_meta (id, filename, uploaded_by, upload_time, total_parts)
+            VALUES (1, %s, %s, %s, %s)
+            ON CONFLICT (id) DO UPDATE SET
+                filename = EXCLUDED.filename,
+                uploaded_by = EXCLUDED.uploaded_by,
+                upload_time = EXCLUDED.upload_time,
+                total_parts = EXCLUDED.total_parts
+        ''', (vm_file.filename, actor, now, len(rows)))
+        db.commit()
+        return jsonify({'success': True, 'total_parts': len(rows)})
+    except Exception as e:
+        db.rollback()
+        app.logger.error("Lỗi /api/admin/import-vehicle-models: %s\n%s", e, traceback.format_exc())
+        return jsonify({'error': str(e)}), 500
+    finally:
+        cursor.close()
+
+
+def _segment_model_code(s, vocab, maxlen, cache):
+    """Tách chuỗi `s` (vd "Y7Y6K4K3E4E3") thành list các Mã xe con có mặt
+    trong `vocab` (set các Mã xe hợp lệ, lấy từ body_kit_model_categories),
+    dùng quy hoạch động (thử token DÀI NHẤT trước, ưu tiên cách tách CÓ ÍT
+    TOKEN NHẤT khi có nhiều cách tách hợp lệ). Trả về list Mã xe nếu tách
+    được TRỌN VẸN cả chuỗi, hoặc None nếu KHÔNG có cách tách nào khớp hết
+    (thường gặp khi ô "Model" ghi thẳng tên xe, vd "WAVE110" thay vì mã)."""
+    if s in cache:
+        return cache[s]
+    if s == '':
+        return []
+    best = None
+    for length in range(min(maxlen, len(s)), 0, -1):
+        token = s[:length]
+        if token not in vocab:
+            continue
+        rest = _segment_model_code(s[length:], vocab, maxlen, cache)
+        if rest is None:
+            continue
+        candidate = [token] + rest
+        if best is None or len(candidate) < len(best):
+            best = candidate
+    cache[s] = best
+    return best
+
+
+def decode_vehicle_models_for_part(model_raw, vehicle_map):
+    """Giải mã 1 chuỗi `model_raw` (cột "Model" của 1 mã hàng, xem
+    part_vehicle_models) thành danh sách (Dòng xe, Đời/kiểu) cụ thể, tra
+    qua `vehicle_map` ({model_code: (vehicle_family, sub_model)}, lấy từ
+    body_kit_model_categories). Trả về (models, unresolved_raw):
+      - models: list dict {code, vehicle_family, sub_model}, đã loại
+        trùng (nhiều mã con cùng 1 dòng+đời xe chỉ hiện 1 lần), giữ đúng
+        thứ tự xuất hiện trong chuỗi gốc.
+      - unresolved_raw: chuỗi gốc, CHỈ trả về khi KHÔNG tách được thành
+        các Mã xe hợp lệ (vd file ghi thẳng tên xe như "WAVE110",
+        "Winner 2024") - để FE vẫn hiển thị được thông tin thô thay vì bỏ
+        trống hoàn toàn; None nếu tách được bình thường."""
+    s = (model_raw or '').strip()
+    if not s:
+        return [], None
+    if not vehicle_map:
+        return [], s
+    maxlen = max((len(c) for c in vehicle_map), default=0)
+    codes = _segment_model_code(s, vehicle_map, maxlen, {})
+    if codes is None:
+        return [], s
+    seen = set()
+    models = []
+    for code in codes:
+        info = vehicle_map.get(code)
+        if not info:
+            continue
+        family, sub = info
+        key = (family, sub)
+        if key in seen:
+            continue
+        seen.add(key)
+        models.append({'code': code, 'vehicle_family': family, 'sub_model': sub})
+    return models, None
+
+
 @app.route('/api/admin/order-check', methods=['POST'])
 def order_check():
     """"Duyệt Đơn Hàng" (admin): nhận 1 danh sách (mã hàng, số lượng đặt) do
@@ -3973,6 +4185,31 @@ def order_check():
         (order_list,)
     )
     lock_by_part = {r['part_code']: r for r in cursor.fetchall()}
+
+    # ---- 3d) Model xe (mã hàng dùng cho dòng xe/đời xe nào) - dữ liệu
+    # "Model" nhập riêng qua /api/admin/import-vehicle-models, giải mã bằng
+    # bảng tra "Mã xe" -> "Dòng xe/Đời xe" của tính năng Bộ Áo Xe
+    # (body_kit_model_categories, CSDL đặt hàng riêng - xem body_kit.py).
+    # Giống cách lấy 'pending_customers' ở dưới: lỗi/chưa cấu hình CSDL
+    # đặt hàng KHÔNG được làm hỏng cả kết quả Kiểm Tra Đơn Hàng chính, chỉ
+    # bỏ qua phần "Dùng Cho Xe" (models rỗng) cho lần kiểm tra đó.
+    cursor.execute(
+        'SELECT part_code, model_raw, nhom_hao_mon, gia_nhap FROM part_vehicle_models WHERE part_code = ANY(%s)',
+        (order_list,)
+    )
+    vehicle_extra_by_part = {r['part_code']: r for r in cursor.fetchall()}
+    model_raw_by_part = {pc: r['model_raw'] for pc, r in vehicle_extra_by_part.items()}
+    vehicle_map = {}
+    if model_raw_by_part:
+        try:
+            from orders import get_orders_db
+            vdb = get_orders_db()
+            vcur = vdb.cursor()
+            vcur.execute('SELECT model_code, vehicle_family, sub_model FROM body_kit_model_categories')
+            vehicle_map = {r['model_code']: (r['vehicle_family'], r['sub_model']) for r in vcur.fetchall()}
+            vcur.close()
+        except Exception as e:
+            print(f'[order_check] Bỏ qua giải mã Model xe (body_kit_model_categories): {e}')
 
     # ---- 3b) Mã cùng "họ" hậu tố chữ cái với mã đã dán - vd mã gốc
     # "40545001000", biến thể "40545001000SS": biến thể = mã gốc + hậu tố
@@ -4143,6 +4380,8 @@ def order_check():
 
         lock = lock_by_part.get(part_code)
         debt = debt_by_part.get(part_code)
+        vehicle_models, vehicle_models_unresolved = decode_vehicle_models_for_part(
+            model_raw_by_part.get(part_code), vehicle_map)
 
         # Mã cùng họ (mã gốc <-> biến thể hậu tố chữ cái, xem bước 3b ở
         # trên): CHỈ tìm/hiển thị khi chính mã đã dán KHÔNG có tần suất bán
@@ -4290,6 +4529,19 @@ def order_check():
             'transfer_suggestions': transfer_suggestions,
             'related_child_codes': related_child_codes,
             'pending_customers': pending_customers_by_part.get(part_code, []),
+            # Mã hàng này dùng cho (những) dòng xe/đời xe nào - xem 3d) ở
+            # trên. 'vehicle_models': list {code, vehicle_family, sub_model}
+            # đã giải mã được; 'vehicle_models_unresolved': chuỗi Model thô
+            # (chỉ có giá trị khi KHÔNG giải mã được, vd file ghi thẳng tên
+            # xe); cả 2 rỗng/None nghĩa là mã này chưa có dữ liệu Model.
+            'vehicle_models': vehicle_models,
+            'vehicle_models_unresolved': vehicle_models_unresolved,
+            # Giá nhập + Nhóm hao mòn (từ file "output11", xem
+            # import_vehicle_models()) - dùng để FE tính dashboard tổng giá
+            # trị đơn hàng trước/sau duyệt theo từng nhóm. None nếu mã hàng
+            # chưa có dữ liệu giá nhập (dashboard sẽ bỏ qua mã đó).
+            'gia_nhap': float(vehicle_extra_by_part[part_code]['gia_nhap']) if vehicle_extra_by_part.get(part_code) and vehicle_extra_by_part[part_code].get('gia_nhap') is not None else None,
+            'nhom_hao_mon': vehicle_extra_by_part[part_code]['nhom_hao_mon'] if vehicle_extra_by_part.get(part_code) else None,
             'note': note_by_part.get(part_code) or '',
             # Số lượng đề xuất để admin DUYỆT (có thể sửa tay ở FE trước khi
             # chốt): mã đang bị khoá đặt hàng -> đề xuất 0 (không đặt được,
