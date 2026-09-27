@@ -454,6 +454,20 @@
     .oc-result-table tbody tr.table-warning td:nth-child(2) {
         background-color: #fff3cd;
     }
+    /* Đồng bộ hiệu ứng hover (table-hover) cho 2 cột dính - trước đây khi
+       rê chuột, phần còn lại của dòng đổi màu xám nhạt (table-hover mặc
+       định của Bootstrap) nhưng 2 cột dính "Mã Hàng"/"SL Đặt" vẫn giữ
+       nguyên nền đặc ở trên (bắt buộc phải đặc màu để che nội dung cuộn
+       phía dưới) -> dòng bị "gãy" màu ngay ranh giới cột dính, nhìn rất
+       khó dò/đối chiếu theo 1 dòng ngang qua các cột. Phủ thêm lớp
+       rgba(0,0,0,.075) - đúng tông hover mặc định của Bootstrap - CHỒNG
+       LÊN màu nền đặc sẵn có (trắng ở dòng thường, vàng ở dòng
+       "table-warning") để 2 cột dính đổi màu ĐỒNG BỘ với phần còn lại của
+       dòng khi hover, không còn lệch/gãy màu nữa. */
+    .oc-result-table tbody tr:hover > td:nth-child(1),
+    .oc-result-table tbody tr:hover > td:nth-child(2) {
+        background-image: linear-gradient(rgba(0,0,0,.075), rgba(0,0,0,.075));
+    }
 
 
        nhạt theo tần suất bán (TX xanh / TB vàng / CB đỏ) để mắt nhận diện
@@ -6469,7 +6483,7 @@
                     <td class="text-end">
                         <input type="number" step="1" min="0" class="form-control form-control-sm text-end order-check-approve-input"
                                style="width:90px; display:inline-block;" data-part-code="${escapeHtmlAttr(row.part_code)}"
-                               value="${row.suggested_approve_qty}">
+                               value="${row.suggested_approve_qty}" onfocus="this.select()">
                     </td>
                     <td>
                         <input type="text" class="form-control form-control-sm order-check-note-input"
