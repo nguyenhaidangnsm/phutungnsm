@@ -397,24 +397,32 @@
        phía sau khi cuộn ngang qua dưới nó. z-index: ô thường > ô header
        (vì header vừa dính top vừa dính left, phải nổi trên cả 2 trường
        hợp) > sticky-header thường (vốn đã z-index:10 ở style bên trên). */
+    /* Đóng băng (sticky) 2 cột đầu "Mã Hàng" + "SL Đặt" khi kéo ngang bảng
+       Kiểm Tra Đơn Hàng - luôn thấy được mã/số lượng đặt dù đang xem cột
+       nào ở phía bên phải, dễ đối chiếu hơn thay vì phải kéo qua lại liên
+       tục. KHÔNG đặt cứng width ở đây - độ rộng do người dùng tự kéo giãn
+       (xem class .resizable-table + makeResizableColumns('order-check-table',...)
+       ở phần JS) rồi lưu vào localStorage. Cột 2 dùng biến CSS
+       --oc-col2-left để LUÔN bám đúng ngay sau mép phải cột 1 dù cột 1 vừa
+       bị kéo rộng/hẹp - biến này được JS cập nhật realtime lúc kéo (xem
+       tham số onColumnResize truyền vào makeResizableColumns).
+       Nền phải ĐẶC (không trong suốt) để che phần nội dung các cột phía
+       sau khi cuộn ngang qua dưới nó. z-index: ô thường > ô header (vì
+       header vừa dính top vừa dính left, phải nổi trên cả 2 trường hợp) >
+       sticky-header thường (vốn đã z-index:10 ở style bên trên). */
     .oc-result-table th:nth-child(1),
     .oc-result-table td:nth-child(1) {
         position: sticky;
         left: 0;
         z-index: 5;
         background-color: #fff;
-        min-width: 130px;
-        max-width: 130px;
-        white-space: normal;
     }
     .oc-result-table th:nth-child(2),
     .oc-result-table td:nth-child(2) {
         position: sticky;
-        left: 130px;
+        left: var(--oc-col2-left, 130px);
         z-index: 5;
         background-color: #fff;
-        min-width: 85px;
-        max-width: 85px;
         box-shadow: 3px 0 6px -3px rgba(0,0,0,.25);
     }
     /* Ô header (dòng tiêu đề) của 2 cột này: dính CẢ top LẪN left cùng lúc
@@ -3487,7 +3495,7 @@
                     <span class="small text-muted ms-auto" id="orderCheckFilterCount"></span>
                 </div>
                 <div class="table-responsive" style="max-height:70vh;">
-                    <table class="table table-hover align-middle mb-0 text-nowrap oc-result-table">
+                    <table class="table table-hover align-middle mb-0 text-nowrap oc-result-table resizable-table" id="order-check-table">
                         <thead>
                             <tr>
                                 <th>Mã Hàng</th>
@@ -6030,6 +6038,7 @@
             _orderCheckCurrentStore = storeCode;
             resetOrderCheckFilters();
             saveOrderCheckSession();
+            setupOrderCheckColumnResize();
         } catch (err) {
             if (status) status.innerText = '';
             console.error('Lỗi runOrderCheck:', err);
@@ -6106,6 +6115,7 @@
         if (resultCard) resultCard.classList.remove('d-none');
         if (status) status.innerText = `Đã khôi phục phiên đang duyệt trước đó (${saved.data.length} mã hàng).`;
         resetOrderCheckFilters();
+        setupOrderCheckColumnResize();
     }
 
     // Đồng bộ số lượng duyệt (gõ tay, có thể khác số đề xuất ban đầu) và
@@ -6579,6 +6589,20 @@
         }
     }
 
+    // Khởi tạo kéo-giãn-cột riêng cho bảng Kiểm Tra Đơn Hàng: giống hệt
+    // makeResizableColumns() dùng chung, nhưng thêm 1 việc riêng - mỗi khi
+    // cột 1 ("Mã Hàng") đổi độ rộng (đang kéo HOẶC lúc khởi tạo từ độ rộng
+    // đã lưu), cập nhật biến CSS --oc-col2-left để cột 2 ("SL Đặt") - vốn
+    // đang "đóng băng" (position:sticky) ngay sau nó - luôn bám sát đúng
+    // mép phải cột 1, không bị đè lên hay hở ra.
+    function setupOrderCheckColumnResize() {
+        makeResizableColumns('order-check-table', 'colWidths_orderCheckTable', (idx, width) => {
+            if (idx !== 0) return;
+            const table = document.getElementById('order-check-table');
+            if (table) table.style.setProperty('--oc-col2-left', width + 'px');
+        });
+    }
+
     // ------------------------------------------------------------------
     // NÚT "TRA CỨU NHANH" NỔI GÓC DƯỚI BÊN PHẢI (chỉ user cửa hàng) - mở
     // modal hiện lại đúng bảng Tồn Kho & Vị Trí (dùng chung buildInventoryRowsHtml
@@ -6597,7 +6621,7 @@
     // lại liên tục lúc lọc/tìm kiếm (thead không bị vẽ lại nên không mất
     // độ rộng đã kéo). Độ rộng được lưu vào localStorage theo từng bảng để
     // lần sau vào lại vẫn giữ nguyên.
-    function makeResizableColumns(tableId, storageKey) {
+    function makeResizableColumns(tableId, storageKey, onColumnResize) {
         const table = document.getElementById(tableId);
         if (!table || table.dataset.resizeInit === '1') return;
         const headerRow = table.querySelector('thead tr');
@@ -6619,6 +6643,7 @@
             // ban đầu khi mới chuyển sang table-layout:fixed).
             const initialW = saved[idx] || th.getBoundingClientRect().width;
             th.style.width = Math.round(initialW) + 'px';
+            if (onColumnResize) onColumnResize(idx, Math.round(initialW)); // đồng bộ ngay từ đầu (vd offset cột sticky kế bên), không đợi tới lúc kéo
 
             if (idx === ths.length - 1) return; // cột cuối cùng: không cần tay kéo (không có cột bên phải để mở rộng vào)
 
@@ -6640,6 +6665,7 @@
                 if (!resizingCol) return;
                 const newW = Math.max(40, startW + (e.clientX - startX));
                 th.style.width = newW + 'px';
+                if (onColumnResize) onColumnResize(idx, newW); // cập nhật NGAY lúc đang kéo (không đợi thả tay) để cột sticky kế bên bám theo mượt
             });
             function endResizeCol() {
                 if (!resizingCol) return;
