@@ -400,14 +400,22 @@
     /* Đóng băng (sticky) 2 cột đầu "Mã Hàng" + "SL Đặt" khi kéo ngang bảng
        Kiểm Tra Đơn Hàng - luôn thấy được mã/số lượng đặt dù đang xem cột
        nào ở phía bên phải, dễ đối chiếu hơn thay vì phải kéo qua lại liên
-       tục. Width ĐẶT CỐ ĐỊNH (không cho tự kéo giãn) - đã thử kết hợp với
-       cơ chế kéo-giãn-cột nhưng bị lỗi lệch/đè cột khi thao tác trên di
-       động (sticky + resize tương tác không ổn định trên cảm ứng) nên bỏ,
-       đổi qua đặt sẵn 1 width đủ rộng (150px - chứa được mã 12-13 ký tự
-       không bị vỡ dòng) + text-overflow:ellipsis, xem đầy đủ mã qua
-       tooltip (title, xem thêm ở _orderCheckRowHtml) khi rê chuột nếu mã
-       vẫn dài hơn 150px. Nền phải ĐẶC (không trong suốt) để che phần nội
-       dung các cột phía sau khi cuộn ngang qua dưới nó. z-index: ô thường
+       tục.
+       Cột 1 (Mã Hàng) KHÔNG còn width cố định 150px + ellipsis nữa (từng
+       khiến các mã dài hơn 150px - phần lớn mã 12-13 ký tự - bị cắt bớt
+       thành "..." dù bảng có title/tooltip). Vì cả bảng đã có class
+       "text-nowrap" (không tự xuống dòng), bỏ max-width/overflow/ellipsis
+       để trình duyệt tự co giãn cột 1 theo đúng mã DÀI NHẤT đang hiển thị
+       trong toàn bộ dữ liệu (giống hành vi bình thường của <table>, chỉ
+       giữ lại min-width để cột không quá hẹp khi mã ngắn).
+       Vì width cột 1 giờ THAY ĐỔI tuỳ dữ liệu (không còn là hằng số
+       150px), cột 2 không thể "left: 150px" cố định như trước - sẽ đè lên
+       cột 1 khi cột 1 giãn rộng hơn, hoặc để hở khi cột 1 hẹp hơn. Thay
+       bằng biến CSS --oc-col1-w, được JS đo lại độ rộng THỰC TẾ của cột 1
+       sau mỗi lần render bảng (xem syncOcCol1Width() ở renderOrderCheckTable)
+       và gán trực tiếp lên phần tử <table>, luôn khớp đúng bất kể mã dài
+       ngắn thế nào. Nền phải ĐẶC (không trong suốt) để che phần nội dung
+       các cột phía sau khi cuộn ngang qua dưới nó. z-index: ô thường
        > ô header (vì header vừa dính top vừa dính left, phải nổi trên cả
        2 trường hợp) > sticky-header thường (vốn đã z-index:10 ở trên). */
     .oc-result-table th:nth-child(1),
@@ -416,16 +424,12 @@
         left: 0;
         z-index: 5;
         background-color: #fff;
-        width: 150px;
-        min-width: 150px;
-        max-width: 150px;
-        overflow: hidden;
-        text-overflow: ellipsis;
+        min-width: 110px;
     }
     .oc-result-table th:nth-child(2),
     .oc-result-table td:nth-child(2) {
         position: sticky;
-        left: 150px;
+        left: var(--oc-col1-w, 150px);
         z-index: 5;
         background-color: #fff;
         width: 80px;
@@ -6181,7 +6185,28 @@
         const filtered = _orderCheckData.filter(_orderCheckRowMatchesFilters);
         if (countEl) countEl.innerText = `Hiển thị ${filtered.length}/${_orderCheckData.length} mã hàng`;
         body.innerHTML = filtered.map(_orderCheckRowHtml).join('');
+        syncOcCol1Width();
         renderOrderCheckDashboard();
+    }
+
+    // Cột 1 "Mã Hàng" của bảng Kiểm Tra Đơn Hàng giờ tự co giãn theo đúng
+    // mã DÀI NHẤT đang hiển thị (xem CSS .oc-result-table th/td:nth-child(1)
+    // ở trên - không còn width cố định 150px + ellipsis nữa). Vì cột 2
+    // "SL Đặt" sticky ngay sau đó cần biết CHÍNH XÁC cột 1 vừa render rộng
+    // bao nhiêu để tự đặt "left" đúng vị trí (không đè lên / không hở),
+    // hàm này đo lại độ rộng THỰC TẾ (offsetWidth) của ô cột 1 sau mỗi lần
+    // render và gán vào biến CSS --oc-col1-w trên chính <table>. Dùng
+    // requestAnimationFrame để chắc chắn trình duyệt đã layout xong với nội
+    // dung mới trước khi đo (đo ngay lúc gán innerHTML có thể ra số cũ).
+    function syncOcCol1Width() {
+        const table = document.querySelector('.oc-result-table');
+        if (!table) return;
+        requestAnimationFrame(() => {
+            const firstCell = table.querySelector('tbody tr td:first-child') || table.querySelector('thead th:first-child');
+            if (!firstCell) return;
+            const w = firstCell.getBoundingClientRect().width;
+            if (w > 0) table.style.setProperty('--oc-col1-w', w + 'px');
+        });
     }
 
     // Dashboard tổng giá trị (theo Giá Nhập) của TOÀN BỘ đơn hàng đang kiểm
