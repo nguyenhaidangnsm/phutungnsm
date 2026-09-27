@@ -388,6 +388,53 @@
     }
     .oc-result-table > tbody > tr:last-child > td { border-bottom: none; }
 
+    /* Đóng băng (sticky) 2 cột đầu "Mã Hàng" + "SL Đặt" khi kéo ngang bảng
+       Kiểm Tra Đơn Hàng - luôn thấy được mã/số lượng đặt dù đang xem cột
+       nào ở phía bên phải, dễ đối chiếu hơn thay vì phải kéo qua lại liên
+       tục. Cột 1 (Mã Hàng) dán vào mép trái (left:0), cột 2 (SL Đặt) dán
+       ngay sau đó (left = đúng bề rộng cột 1 - phải khớp width đặt bên
+       dưới). Nền phải ĐẶC (không trong suốt) để che phần nội dung các cột
+       phía sau khi cuộn ngang qua dưới nó. z-index: ô thường > ô header
+       (vì header vừa dính top vừa dính left, phải nổi trên cả 2 trường
+       hợp) > sticky-header thường (vốn đã z-index:10 ở style bên trên). */
+    .oc-result-table th:nth-child(1),
+    .oc-result-table td:nth-child(1) {
+        position: sticky;
+        left: 0;
+        z-index: 5;
+        background-color: #fff;
+        min-width: 130px;
+        max-width: 130px;
+        white-space: normal;
+    }
+    .oc-result-table th:nth-child(2),
+    .oc-result-table td:nth-child(2) {
+        position: sticky;
+        left: 130px;
+        z-index: 5;
+        background-color: #fff;
+        min-width: 85px;
+        max-width: 85px;
+        box-shadow: 3px 0 6px -3px rgba(0,0,0,.25);
+    }
+    /* Ô header (dòng tiêu đề) của 2 cột này: dính CẢ top LẪN left cùng lúc
+       -> cần z-index cao hơn mọi ô sticky khác (kể cả header các cột còn
+       lại) để không bị đè khi 2 trục cuộn giao nhau, và giữ nền xanh nhạt
+       #e7f1ff giống các ô header khác thay vì trắng. */
+    .oc-result-table thead th:nth-child(1),
+    .oc-result-table thead th:nth-child(2) {
+        z-index: 15;
+        background-color: #e7f1ff;
+    }
+    /* Dòng "table-warning" (mã không tìm thấy trong tồn kho) - đổi luôn nền
+       của 2 ô sticky theo đúng màu cảnh báo, nếu không chúng vẫn hiện nền
+       trắng mặc định (đã set ở trên) trong khi phần còn lại của dòng đã
+       vàng, gây lệch màu ngay tại 2 cột luôn hiển thị này. */
+    .oc-result-table tbody tr.table-warning td:nth-child(1),
+    .oc-result-table tbody tr.table-warning td:nth-child(2) {
+        background-color: #fff3cd;
+    }
+
 
        nhạt theo tần suất bán (TX xanh / TB vàng / CB đỏ) để mắt nhận diện
        ngay tình trạng bán của mã hàng thay vì phải đọc chữ nhỏ, badge tròn
