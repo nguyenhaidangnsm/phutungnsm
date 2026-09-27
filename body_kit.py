@@ -86,6 +86,51 @@ def _load_model_category_map(cursor):
     return {r['model_code']: (r['vehicle_family'], r['sub_model']) for r in cursor.fetchall()}
 
 
+_MODEL_CODE_SPLIT_RE = re.compile(r'[\s,;/\\+&]+')
+
+
+def _split_model_codes(model_code):
+    """Tách chuỗi `model_code` (cột "Model" trong file bảng giá bộ áo)
+    thành list các mã đơn lẻ. Bộ áo dùng chung cho nhiều model thường được
+    ghi gộp trong CÙNG 1 ô, nhưng người nhập liệu không phải lúc nào cũng
+    dùng đúng 1 khoảng trắng đơn thuần làm dấu phân cách - có thể là dấu
+    phẩy/gạch chéo/xuống dòng, hoặc khoảng trắng "không ngắt" (non-breaking
+    space, \\xa0 - hay gặp khi copy-paste từ Word/web vào Excel) mà mắt
+    thường nhìn giống hệt khoảng trắng bình thường nhưng str.split() mặc
+    định KHÔNG coi là khoảng trắng để tách. Hàm này chuẩn hoá mọi biến thể
+    đó về cùng 1 kiểu tách trước khi so khớp."""
+    if not model_code:
+        return []
+    normalized = model_code.replace('\xa0', ' ').replace('\u3000', ' ')
+    return [c for c in _MODEL_CODE_SPLIT_RE.split(normalized) if c]
+
+
+def _resolve_category_override(model_code, category_map):
+    """Tra `model_code` trong `category_map` ({model_code: (vehicle_family,
+    sub_model)}) để lấy giá trị GHI ĐÈ, có xử lý trường hợp `model_code`
+    ghép NHIỀU mã trong CÙNG 1 ô (vd "A4 A6" - bộ áo dùng chung cho cả 2
+    model, xem _split_model_codes để biết các biến thể dấu phân cách được
+    xử lý). ĐÂY LÀ LỖI ĐÃ PHÁT HIỆN: tra nguyên văn cả chuỗi "A4 A6" sẽ
+    KHÔNG BAO GIỜ khớp vì category_map chỉ chứa từng mã đơn lẻ ("A4",
+    "A6"...), khiến mọi nhóm có model_code ghép bị rơi về suy luận tự động
+    (classify_group_label) dù từng mã thành phần đều đã có trong bảng tra.
+
+    Cách sửa: tách model_code thành từng mã riêng, tra từng mã, rồi:
+    - Nếu MỌI mã khớp đều trỏ về CÙNG 1 (vehicle_family, sub_model) -> trả
+      về giá trị đó (an toàn để ghi đè).
+    - Nếu không mã nào khớp -> trả None (nơi gọi tự dùng suy luận tự động).
+    - Nếu các mã khớp lại trỏ về NHIỀU dòng xe KHÁC NHAU (mâu thuẫn ngay
+      trong 1 model_code ghép, hiếm gặp) -> trả None thay vì đoán bừa 1
+      trong số đó, để không ghi đè sai - nhóm này vẫn được suy luận tự
+      động từ chính nhãn "Mã loại" của nó, giống cách xử lý ambiguous_codes
+      hiện có.
+    """
+    matched = {category_map[code] for code in _split_model_codes(model_code) if code in category_map}
+    if len(matched) == 1:
+        return next(iter(matched))
+    return None
+
+
 # ----------------------------------------------------------------------------
 # KHỞI TẠO BẢNG (trên CSDL đặt hàng riêng - xem lý do ở đầu file)
 # ----------------------------------------------------------------------------
@@ -219,7 +264,7 @@ def import_body_kit_excel():
             # comment ở _load_model_category_map().
             category_map = _load_model_category_map(cursor)
             for g in groups:
-                override = category_map.get(g['model_code']) if g['model_code'] else None
+                override = _resolve_category_override(g['model_code'], category_map)
                 if override:
                     g['vehicle_family'], g['sub_model'] = override
 
@@ -335,35 +380,94 @@ def import_body_kit_model_categories():
     try:
         file.save(tmp_path)
         try:
-            mapping, conflicts, warnings = parse_model_category_excel(tmp_path)
+            mapping, conflicts, warnings, ambiguous_codes = parse_model_category_excel(tmp_path)
         except Exception as e:
             return jsonify({'error': f'Lỗi đọc file Excel: {e}'}), 400
 
         if not mapping:
             return jsonify({'error': 'Không đọc được mã xe nào từ file - kiểm tra lại đúng file/sheet.'}), 400
 
+        # Mã xe MÂU THUẪN (1 mã dùng chung cho >1 dòng xe khác nhau tuỳ
+        # năm/màu, vd "J19" vừa Wave RSX 110 vừa Blade - xem ambiguous_codes
+        # trong parse_model_category_excel) KHÔNG được đưa vào bảng ghi đè:
+        # ép cố định 1 mã như vậy về 1 dòng xe sẽ làm SAI phân nửa số nhóm
+        # thực tế dùng mã đó ở dòng xe còn lại. Với các mã này, để mỗi nhóm
+        # bộ áo TỰ giữ vehicle_family/sub_model suy luận riêng từ chính
+        # nhãn "Mã loại" của nó trong file bảng giá (đã phân biệt đúng theo
+        # từng nhóm màu/năm) - đúng yêu cầu "tên xe theo bảng giá bộ áo".
+        skipped_ambiguous = sorted(ambiguous_codes)
+        mapping_to_apply = {code: v for code, v in mapping.items() if code not in ambiguous_codes}
+        # _resolve_category_override() cần category_map dạng {code: (family,
+        # sub_model)} - TUPLE hashable (giống _load_model_category_map()
+        # đọc từ DB) - trong khi `mapping_to_apply` ở trên vẫn giữ nguyên
+        # dạng dict {'vehicle_family':..., 'sub_model':..., 'raw_header':...}
+        # (cần cả raw_header để ghi vào bảng body_kit_model_categories bên
+        # dưới) nên KHÔNG dùng thẳng được - phải quy đổi sang tuple riêng.
+        category_lookup = {code: (v['vehicle_family'], v['sub_model'])
+                            for code, v in mapping_to_apply.items()}
+
         db = get_orders_db()
         cursor = db.cursor()
         try:
             cursor.execute('TRUNCATE TABLE body_kit_model_categories')
-            execute_values(
-                cursor,
-                '''INSERT INTO body_kit_model_categories (model_code, vehicle_family, sub_model, raw_header)
-                   VALUES %s''',
-                [(code, v['vehicle_family'], v['sub_model'], v['raw_header']) for code, v in mapping.items()],
-            )
+            if mapping_to_apply:
+                execute_values(
+                    cursor,
+                    '''INSERT INTO body_kit_model_categories (model_code, vehicle_family, sub_model, raw_header)
+                       VALUES %s''',
+                    [(code, v['vehicle_family'], v['sub_model'], v['raw_header'])
+                     for code, v in mapping_to_apply.items()],
+                )
 
             # Áp ngay cho các nhóm bộ áo ĐÃ CÓ SẴN (nếu đã từng nhập bảng
             # giá trước đó) - khớp theo model_code, KHÔNG đụng tới nhóm nào
             # có model_code không nằm trong bảng tra vừa nhập (giữ nguyên
             # giá trị suy luận tự động cũ của chúng).
-            cursor.execute('''
-                UPDATE body_kit_groups AS g
-                SET vehicle_family = c.vehicle_family, sub_model = c.sub_model
-                FROM body_kit_model_categories AS c
-                WHERE g.model_code = c.model_code AND g.is_manual = FALSE
-            ''')
-            updated_groups = cursor.rowcount
+            #
+            # LÀM Ở PHÍA PYTHON (không dùng JOIN SQL trực tiếp theo
+            # g.model_code = c.model_code như bản cũ) vì `model_code` của 1
+            # nhóm bộ áo có thể GHÉP NHIỀU mã cách nhau bởi khoảng trắng
+            # trong CÙNG 1 ô (vd "A4 A6" - bộ áo dùng chung cho 2 model) -
+            # so khớp nguyên văn cả chuỗi sẽ KHÔNG BAO GIỜ khớp với bảng tra
+            # (bảng tra chỉ có từng mã đơn lẻ), khiến các nhóm này luôn bị
+            # bỏ qua dù từng mã thành phần đã có trong bảng tra (xem
+            # _resolve_category_override để biết chi tiết + cách xử lý mâu
+            # thuẫn giữa các mã ghép chung).
+            cursor.execute(
+                'SELECT id, group_label, model_code FROM body_kit_groups WHERE is_manual = FALSE'
+            )
+            existing_groups = cursor.fetchall()
+
+            update_values = []   # nhóm được ghi đè theo bảng tra vừa nhập
+            reset_values = []    # nhóm bị TRẢ LẠI về suy luận tự động (mã mâu thuẫn)
+            for row in existing_groups:
+                codes = _split_model_codes(row['model_code'])
+                if any(code in ambiguous_codes for code in codes):
+                    # Mã (hoặc 1 trong các mã ghép) nằm trong danh sách mâu
+                    # thuẫn (vd "J19" vừa Wave RSX 110 vừa Blade tuỳ
+                    # năm/màu) - TRẢ LẠI đúng vehicle_family/sub_model suy
+                    # luận riêng từ CHÍNH nhãn "Mã loại" của nhóm này, phòng
+                    # trường hợp lần import trước đó đã lỡ ghi đè cố định.
+                    fam, sub = classify_group_label(row['group_label'])
+                    reset_values.append((row['id'], fam, sub))
+                    continue
+                override = _resolve_category_override(row['model_code'], category_lookup)
+                if override:
+                    update_values.append((row['id'], override[0], override[1]))
+                # Không khớp mã nào trong bảng tra vừa nhập -> giữ nguyên
+                # giá trị hiện có, không đụng tới (giống hành vi cũ).
+
+            updated_groups = len(update_values)
+            reset_groups = len(reset_values)
+            all_changes = update_values + reset_values
+            if all_changes:
+                execute_values(
+                    cursor,
+                    '''UPDATE body_kit_groups AS g SET vehicle_family = v.family, sub_model = v.sub
+                       FROM (VALUES %s) AS v(id, family, sub)
+                       WHERE g.id = v.id''',
+                    all_changes,
+                )
 
             db.commit()
         except Exception:
@@ -375,8 +479,10 @@ def import_body_kit_model_categories():
 
         return jsonify({
             'success': True,
-            'codes_imported': len(mapping),
+            'codes_imported': len(mapping_to_apply),
+            'codes_skipped_ambiguous': skipped_ambiguous,
             'groups_updated': updated_groups,
+            'groups_reset_to_price_file_label': reset_groups,
             'conflicts': conflicts[:50],
             'conflicts_total': len(conflicts),
             'warnings': warnings[:50],
@@ -856,7 +962,7 @@ def _resolve_family(cursor, data):
     if family:
         return family, (sub_model or family)
     if data['model_code']:
-        mapped = _load_model_category_map(cursor).get(data['model_code'])
+        mapped = _resolve_category_override(data['model_code'], _load_model_category_map(cursor))
         if mapped:
             return mapped[0], (sub_model or mapped[1])
     guessed_family, guessed_sub = classify_group_label(data['group_label'])

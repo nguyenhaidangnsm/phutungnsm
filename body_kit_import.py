@@ -467,7 +467,7 @@ def _build_col_merge_map_span(ws, col):
 
 def parse_model_category_excel(path, sheet_name=MODEL_CATEGORY_SHEET_NAME):
     """Đọc file tra "Mã xe" -> "Dòng xe" (vd M3 -> Air Blade 125). Trả về
-    (mapping, conflicts, warnings):
+    (mapping, conflicts, warnings, ambiguous_codes):
         mapping   - dict {model_code: {'vehicle_family', 'sub_model',
                     'raw_header'}}. `vehicle_family` dùng cho menu cấp 1,
                     `sub_model` dùng cho menu cấp 2 (suy luận từ
@@ -479,9 +479,20 @@ def parse_model_category_excel(path, sheet_name=MODEL_CATEGORY_SHEET_NAME):
                     luận từ text tự do).
         conflicts - list[str] các Mã xe xuất hiện dưới >1 dòng xe khác nhau
                     trong cùng file (dữ liệu gốc mâu thuẫn - vẫn dùng lần
-                    khớp SAU CÙNG, người dùng tự soát lại nếu cần).
+                    khớp SAU CÙNG chỉ để hiển thị trong `mapping`, nhưng mã
+                    này CŨNG được liệt vào `ambiguous_codes` - xem bên dưới).
         warnings  - list[str] các dòng bất thường khác (mô tả không có mã,
                     mã xuất hiện trước khi có dòng xe nào...).
+        ambiguous_codes - set[str] các Mã xe có mặt trong `conflicts` (thực
+                    tế 1 mã dùng chung cho >1 dòng xe khác nhau tuỳ
+                    năm/màu - vd "J19" vừa thuộc Wave RSX 110 vừa thuộc
+                    Blade). Với các mã này, GHI ĐÈ theo model_code là SAI vì
+                    ép mọi nhóm về 1 dòng xe cố định - nơi gọi hàm này (xem
+                    import_body_kit_model_categories() ở body_kit.py) phải
+                    LOẠI các mã trong tập này khỏi bảng ghi đè, để mỗi nhóm
+                    bộ áo tự giữ đúng vehicle_family/sub_model suy luận
+                    riêng từ CHÍNH nhãn "Mã loại" của nó trong file bảng giá
+                    (đã phân biệt đúng Wave/Blade theo từng nhóm màu/năm).
     """
     wb = openpyxl.load_workbook(path, data_only=True)
     if sheet_name not in wb.sheetnames:
@@ -494,6 +505,7 @@ def parse_model_category_excel(path, sheet_name=MODEL_CATEGORY_SHEET_NAME):
     mapping = {}
     conflicts = []
     warnings = []
+    ambiguous_codes = set()
     current_header = None
     pending_header_parts = []
 
@@ -528,6 +540,7 @@ def parse_model_category_excel(path, sheet_name=MODEL_CATEGORY_SHEET_NAME):
                 f"Mã xe {code}: xuất hiện ở cả '{prior['raw_header']}' và '{current_header}' - "
                 f"đang dùng '{current_header}' (lần khớp sau cùng)."
             )
+            ambiguous_codes.add(code)
 
         family, sub_model = classify_group_label(current_header)
         if family == 'Khác':
@@ -573,7 +586,7 @@ def parse_model_category_excel(path, sheet_name=MODEL_CATEGORY_SHEET_NAME):
 
     _flush_block()
 
-    return mapping, conflicts, warnings
+    return mapping, conflicts, warnings, ambiguous_codes
 
 
 if __name__ == '__main__':

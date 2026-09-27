@@ -101,6 +101,23 @@
     }
     .bodykit-family-btn.active .bk-name { color: #fff; }
     .bodykit-family-btn.active .bk-count { background: rgba(255,255,255,.22); color: #fff; }
+    /* Menu cấp 2 (đời/dung tích) - hiện dưới menu Dòng xe SAU KHI đã chọn 1
+       dòng, dạng pill nhỏ gọn vì số lượng đời/dung tích trong 1 dòng thường
+       không nhiều, không cần thẻ to như cấp 1. */
+    .bodykit-submodel-menu { display: flex; flex-wrap: wrap; gap: 8px; }
+    .bodykit-submodel-btn {
+        display: inline-flex; align-items: center; gap: 6px;
+        padding: 6px 14px; border-radius: 999px; border: 1.5px solid #e2e8f0;
+        background: #fff; color: var(--ns-dark); font-weight: 600; font-size: .84rem;
+        cursor: pointer; transition: border-color .15s ease, background .15s ease, color .15s ease;
+    }
+    .bodykit-submodel-btn:hover { border-color: var(--ns-blue); background: #eff6ff; }
+    .bodykit-submodel-btn .bk-count {
+        font-size: .7rem; font-weight: 700; color: #64748b;
+        background: #f1f5f9; border-radius: 999px; padding: 0 8px;
+    }
+    .bodykit-submodel-btn.active { border-color: var(--ns-blue); background: var(--ns-blue); color: #fff; }
+    .bodykit-submodel-btn.active .bk-count { background: rgba(255,255,255,.25); color: #fff; }
     .loc-col {
     position: relative;
     padding-right: 28px !important;
@@ -2108,6 +2125,7 @@
              bỏ qua menu này). -->
         <div id="bodyKitMenuWrap">
             <div class="bodykit-family-menu mb-3" id="bodyKitFamilyMenu"></div>
+            <div class="bodykit-submodel-menu mb-3 d-none" id="bodyKitSubModelMenu"></div>
         </div>
 
         <div class="row g-3" id="body-kit-grid">
@@ -2215,12 +2233,19 @@
                         <label class="form-label small fw-semibold mb-1">Năm</label>
                         <input type="number" class="form-control form-control-sm" id="bkfYear" min="1950" max="2100" placeholder="2023">
                     </div>
-                    <div class="col-12 col-md-6">
+                    <div class="col-12 col-md-3">
                         <label class="form-label small fw-semibold mb-1">Dòng xe (menu)</label>
                         <input type="text" class="form-control form-control-sm" id="bkfFamily" maxlength="100"
                                list="bkfFamilyList" placeholder="Chọn dòng xe có sẵn hoặc gõ tên mới">
                         <datalist id="bkfFamilyList"></datalist>
                         <div class="form-text small">Để trống: hệ thống tự tra theo mã model, hoặc đoán từ tên bộ áo.</div>
+                    </div>
+                    <div class="col-12 col-md-3">
+                        <label class="form-label small fw-semibold mb-1">Đời/dung tích (menu con)</label>
+                        <input type="text" class="form-control form-control-sm" id="bkfSubModel" maxlength="150"
+                               list="bkfSubModelList" placeholder="VD: Air Blade 110">
+                        <datalist id="bkfSubModelList"></datalist>
+                        <div class="form-text small">Để trống: hệ thống tự đoán - gõ tay để sửa nếu bị sai/trùng lặp.</div>
                     </div>
                     <div class="col-12 col-md-6">
                         <label class="form-label small fw-semibold mb-1">Ảnh minh hoạ (tuỳ chọn)</label>
@@ -5078,10 +5103,11 @@
         }
     }
 
-    // Menu dòng xe - thiết kế dạng thẻ (card) lớn, dễ bấm, nổi bật hơn kiểu
-    // nút pill trước đây. Không còn tầng menu con theo đời/dung tích (đã bỏ
-    // theo yêu cầu) - bấm 1 dòng xe là xem luôn TẤT CẢ nhóm/đời của dòng đó;
-    // muốn lọc kỹ hơn theo đời/dung tích thì gõ thẳng vào ô tìm kiếm.
+    // Menu dòng xe - thiết kế dạng thẻ (card) lớn, dễ bấm. Sau khi chọn 1
+    // dòng, hiện thêm menu cấp 2 (đời/dung tích, vd Wave -> Wave S110,
+    // RSX110, Wave 100...) ở renderBodyKitSubModelMenu() bên dưới - bấm 1
+    // dòng xe vẫn xem luôn TẤT CẢ nhóm/đời của dòng đó ngay, menu cấp 2 chỉ
+    // để lọc thêm cho gọn nếu muốn.
     function renderBodyKitFamilyMenu() {
         const famEl = document.getElementById('bodyKitFamilyMenu');
         if (!famEl || !_bodyKitMenuCache) return;
@@ -5093,15 +5119,54 @@
                 <span class="bk-count">${f.group_count}</span>
             </button>
         `).join('');
+        renderBodyKitSubModelMenu();
+    }
+
+    // Menu cấp 2 (đời/dung tích) - chỉ hiện khi đã chọn 1 dòng xe VÀ dòng đó
+    // có từ 2 đời/dung tích khác nhau trở lên (chỉ 1 thì không cần lọc thêm).
+    function renderBodyKitSubModelMenu() {
+        const subEl = document.getElementById('bodyKitSubModelMenu');
+        if (!subEl) return;
+        const fam = _bodyKitMenuCache && _bodyKitSelectedFamily
+            ? _bodyKitMenuCache.find(f => f.family === _bodyKitSelectedFamily) : null;
+        const subModels = fam ? fam.sub_models.filter(s => s.sub_model) : [];
+        if (!fam || subModels.length < 2) {
+            subEl.classList.add('d-none');
+            subEl.innerHTML = '';
+            return;
+        }
+        subEl.classList.remove('d-none');
+        subEl.innerHTML = `
+            <button type="button" class="bodykit-submodel-btn ${!_bodyKitSelectedSubModel ? 'active' : ''}"
+                    onclick="selectBodyKitSubModel(null)">
+                <span>Tất cả ${_bkEsc(fam.family)}</span>
+                <span class="bk-count">${fam.group_count}</span>
+            </button>
+        ` + subModels.map(s => `
+            <button type="button" class="bodykit-submodel-btn ${_bodyKitSelectedSubModel === s.sub_model ? 'active' : ''}"
+                    onclick="selectBodyKitSubModel(${escapeHtmlAttr(JSON.stringify(s.sub_model))})">
+                <span>${_bkEsc(s.sub_model)}</span>
+                <span class="bk-count">${s.group_count}</span>
+            </button>
+        `).join('');
     }
 
     function selectBodyKitFamily(family) {
         // Bấm lại đúng dòng xe đang chọn -> bỏ chọn (về lại trạng thái
         // "chưa chọn dòng nào"); bấm dòng khác -> chuyển thẳng sang dòng đó
-        // và hiện luôn TẤT CẢ nhóm/đời của dòng này.
+        // và hiện luôn TẤT CẢ nhóm/đời của dòng này (menu cấp 2 chỉ để lọc
+        // thêm nếu muốn).
         _bodyKitSelectedFamily = (_bodyKitSelectedFamily === family) ? null : family;
         _bodyKitSelectedSubModel = null;
         renderBodyKitFamilyMenu();
+        loadBodyKitGroups();
+    }
+
+    function selectBodyKitSubModel(subModel) {
+        // Bấm lại đúng đời/dung tích đang chọn -> bỏ chọn (về lại xem TẤT CẢ
+        // nhóm của dòng xe); bấm đời khác -> lọc theo đúng đời đó.
+        _bodyKitSelectedSubModel = (_bodyKitSelectedSubModel === subModel) ? null : subModel;
+        renderBodyKitSubModelMenu();
         loadBodyKitGroups();
     }
 
@@ -5527,7 +5592,7 @@
         const modalEl = document.getElementById('bodyKitFormModal');
         document.getElementById('bkfId').value = groupId || '';
         document.getElementById('bodyKitFormTitle').innerText = groupId ? 'Sửa Bộ Áo' : 'Thêm Bộ Áo';
-        ['bkfLabel', 'bkfModel', 'bkfYear', 'bkfFamily', 'bkfBulkText'].forEach(id => { document.getElementById(id).value = ''; });
+        ['bkfLabel', 'bkfModel', 'bkfYear', 'bkfFamily', 'bkfSubModel', 'bkfBulkText'].forEach(id => { document.getElementById(id).value = ''; });
         document.getElementById('bkfImage').value = '';
         document.getElementById('bkfImagePreview').style.display = 'none';
         document.getElementById('bkfRemoveImage').checked = false;
@@ -5542,6 +5607,14 @@
         document.getElementById('bkfFamilyList').innerHTML = (_bodyKitMenuCache || [])
             .filter(f => f.family !== 'Khác')
             .map(f => `<option value="${_bkEsc(f.family)}"></option>`).join('');
+        // Gợi ý đời/dung tích có sẵn (gộp tất cả dòng xe) cho ô "Đời/dung
+        // tích", để dễ chọn lại ĐÚNG tên đã dùng thay vì gõ tay ra 1 biến
+        // thể mới (đây chính là nguyên nhân bị trùng lặp kiểu "Air Blade"
+        // vs "Ari Blade" vs "AIRBLADE 110" trước đây).
+        const allSubModels = new Set();
+        (_bodyKitMenuCache || []).forEach(f => f.sub_models.forEach(s => { if (s.sub_model) allSubModels.add(s.sub_model); }));
+        document.getElementById('bkfSubModelList').innerHTML = [...allSubModels].sort()
+            .map(s => `<option value="${_bkEsc(s)}"></option>`).join('');
 
         if (!groupId) {
             addBodyKitFormRow();
@@ -5557,6 +5630,7 @@
             document.getElementById('bkfModel').value = g.model_code || '';
             document.getElementById('bkfYear').value = g.year || '';
             document.getElementById('bkfFamily').value = g.vehicle_family || '';
+            document.getElementById('bkfSubModel').value = g.sub_model || '';
             if (g.image_url) {
                 const prev = document.getElementById('bkfImagePreview');
                 prev.src = g.image_url;
@@ -5601,6 +5675,7 @@
         fd.append('group_label', label);
         fd.append('model_code', document.getElementById('bkfModel').value.trim());
         fd.append('vehicle_family', document.getElementById('bkfFamily').value.trim());
+        fd.append('sub_model', document.getElementById('bkfSubModel').value.trim());
         fd.append('year', document.getElementById('bkfYear').value.trim());
         fd.append('parts', JSON.stringify(parts));
         if (_bkfImageBlob) fd.append('image', _bkfImageBlob, 'image.jpg');
