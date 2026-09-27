@@ -3964,42 +3964,36 @@ def import_vehicle_models():
 
     now = vn_now()
     actor = _current_actor_name()
+
+    # ---- Xử lý VECTOR HÓA theo cột thay vì lặp từng dòng bằng iterrows()
+    # (iterrows() rất chậm - phải tạo lại 1 Series/ép kiểu cho MỖI dòng -
+    # với file vài nghìn~chục nghìn dòng có thể mất hàng chục giây tới vài
+    # phút, dễ vượt --timeout của gunicorn. Dùng thao tác cột (Series) của
+    # pandas xử lý toàn bộ 1 lần, nhanh hơn gấp hàng chục-hàng trăm lần.)
+    part_s = df[part_col].astype(str).str.strip()
+    part_s = part_s.mask(part_s.str.lower() == 'nan', '')
+
+    model_s = df[model_col].astype(str).str.strip()
+    model_s = model_s.mask(df[model_col].isna() | (model_s.str.lower() == 'nan'), '')
+
+    if nhom_col:
+        nhom_s = df[nhom_col].astype(str).str.strip()
+        nhom_s = nhom_s.mask(df[nhom_col].isna() | (nhom_s.str.lower() == 'nan'), '')
+    else:
+        nhom_s = pd.Series([''] * len(df), index=df.index)
+
+    if gia_col:
+        gia_num = pd.to_numeric(df[gia_col], errors='coerce')
+    else:
+        gia_num = pd.Series([float('nan')] * len(df), index=df.index)
+
     rows = []
-    for _, r in df.iterrows():
-        part_code = str(r.get(part_col, '') or '').strip()
-        if not part_code or part_code.lower() == 'nan':
+    for part_code, model_raw, nhom, gia in zip(part_s, model_s, nhom_s, gia_num):
+        if not part_code:
             continue
-        raw = r.get(model_col)
-        try:
-            if pd.isna(raw):
-                raw = None
-        except (TypeError, ValueError):
-            pass
-        model_raw = str(raw).strip() if raw is not None else ''
-        if not model_raw or model_raw.lower() == 'nan':
-            model_raw = None
-
-        nhom = None
-        if nhom_col:
-            nv = r.get(nhom_col)
-            try:
-                if pd.isna(nv):
-                    nv = None
-            except (TypeError, ValueError):
-                pass
-            nhom = str(nv).strip() if nv is not None else None
-            if nhom and nhom.lower() == 'nan':
-                nhom = None
-
-        gia = None
-        if gia_col:
-            try:
-                gv = float(r.get(gia_col))
-                if not math.isnan(gv):
-                    gia = gv
-            except (TypeError, ValueError):
-                gia = None
-
+        model_raw = model_raw or None
+        nhom = nhom or None
+        gia = None if math.isnan(gia) else float(gia)
         if model_raw is None and nhom is None and gia is None:
             continue  # dòng không có dữ liệu gì hữu ích - bỏ qua
         rows.append((part_code, model_raw, nhom, gia, now, actor))
