@@ -522,25 +522,30 @@ def parse_model_category_excel(path, sheet_name=MODEL_CATEGORY_SHEET_NAME):
         nonlocal block_rows, block_label
         if not block_rows:
             return
-        code = next((c for _, c, _ in block_rows if c), None)
         first_row = block_rows[0][0]
-        if not code:
+        # LƯU Ý: 1 khối có thể chứa NHIỀU mã xe khác nhau, không chỉ 1 - vd
+        # 1 nhãn "Loại xe" ghép ("K1FF/K1GF") đại diện cho 2 biến thể, mỗi
+        # biến thể có 1 dòng/1 mã riêng (M12 và M13) nhưng CÙNG merge dọc
+        # của cột "Loại xe"; hoặc 2 vùng merge B:C liên tiếp TRÙNG Y HỆT nội
+        # dung chữ (vd cả 2 đều "K03R WAVE S (SPOKE/DIST)") nên bị gộp
+        # chung 1 block theo logic so khớp label (xem vòng lặp chính, so
+        # `label != block_label`). BẢN CŨ chỉ lấy mã ĐẦU TIÊN tìm thấy
+        # (`next(...)`) rồi bỏ qua hoàn toàn các mã còn lại trong khối -
+        # KHÔNG có cảnh báo gì - khiến các mã bị rơi mất âm thầm khỏi bảng
+        # tra (vd "I3", "I5", "M13" bị mất, chỉ còn "I2"/"I4"/"M12" của
+        # cùng khối). Sửa: lấy TẤT CẢ mã xuất hiện trong khối, gán CÙNG 1
+        # (vehicle_family, sub_model) cho từng mã - vì mọi mã trong khối
+        # đều thuộc chung 1 "Loại xe"/1 current_header như nhau.
+        codes = [c for _, c, _ in block_rows if c]
+        if not codes:
             if block_label:
                 warnings.append(f"Dòng {first_row}: có mô tả '{block_label}' nhưng không có Mã xe - đã bỏ qua.")
             block_rows = []
             return
         if current_header is None:
-            warnings.append(f"Dòng {first_row}: Mã xe '{code}' xuất hiện trước khi có dòng xe nào - đã bỏ qua.")
+            warnings.append(f"Dòng {first_row}: Mã xe '{codes[0]}' xuất hiện trước khi có dòng xe nào - đã bỏ qua.")
             block_rows = []
             return
-
-        prior = mapping.get(code)
-        if prior and prior['raw_header'] != current_header:
-            conflicts.append(
-                f"Mã xe {code}: xuất hiện ở cả '{prior['raw_header']}' và '{current_header}' - "
-                f"đang dùng '{current_header}' (lần khớp sau cùng)."
-            )
-            ambiguous_codes.add(code)
 
         family, sub_model = classify_group_label(current_header)
         if family == 'Khác':
@@ -551,11 +556,20 @@ def parse_model_category_excel(path, sheet_name=MODEL_CATEGORY_SHEET_NAME):
             family = current_header
             sub_model = current_header
 
-        mapping[code] = {
-            'vehicle_family': family,
-            'sub_model': sub_model,
-            'raw_header': current_header,
-        }
+        for code in codes:
+            prior = mapping.get(code)
+            if prior and prior['raw_header'] != current_header:
+                conflicts.append(
+                    f"Mã xe {code}: xuất hiện ở cả '{prior['raw_header']}' và '{current_header}' - "
+                    f"đang dùng '{current_header}' (lần khớp sau cùng)."
+                )
+                ambiguous_codes.add(code)
+
+            mapping[code] = {
+                'vehicle_family': family,
+                'sub_model': sub_model,
+                'raw_header': current_header,
+            }
         block_rows = []
 
     for r in range(2, ws.max_row + 1):

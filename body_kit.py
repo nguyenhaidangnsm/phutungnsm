@@ -86,7 +86,7 @@ def _load_model_category_map(cursor):
     return {r['model_code']: (r['vehicle_family'], r['sub_model']) for r in cursor.fetchall()}
 
 
-_MODEL_CODE_SPLIT_RE = re.compile(r'[\s,;/\\+&]+')
+_MODEL_CODE_SPLIT_RE = re.compile(r'[\s,;/\\+&-]+')
 
 
 def _split_model_codes(model_code):
@@ -94,11 +94,12 @@ def _split_model_codes(model_code):
     thành list các mã đơn lẻ. Bộ áo dùng chung cho nhiều model thường được
     ghi gộp trong CÙNG 1 ô, nhưng người nhập liệu không phải lúc nào cũng
     dùng đúng 1 khoảng trắng đơn thuần làm dấu phân cách - có thể là dấu
-    phẩy/gạch chéo/xuống dòng, hoặc khoảng trắng "không ngắt" (non-breaking
-    space, \\xa0 - hay gặp khi copy-paste từ Word/web vào Excel) mà mắt
-    thường nhìn giống hệt khoảng trắng bình thường nhưng str.split() mặc
-    định KHÔNG coi là khoảng trắng để tách. Hàm này chuẩn hoá mọi biến thể
-    đó về cùng 1 kiểu tách trước khi so khớp."""
+    phẩy/gạch chéo/GẠCH NGANG (vd "M14-M15")/xuống dòng, hoặc khoảng trắng
+    "không ngắt" (non-breaking space, \\xa0 - hay gặp khi copy-paste từ
+    Word/web vào Excel) mà mắt thường nhìn giống hệt khoảng trắng bình
+    thường nhưng str.split() mặc định KHÔNG coi là khoảng trắng để tách.
+    Hàm này chuẩn hoá mọi biến thể đó về cùng 1 kiểu tách trước khi so
+    khớp."""
     if not model_code:
         return []
     normalized = model_code.replace('\xa0', ' ').replace('\u3000', ' ')
