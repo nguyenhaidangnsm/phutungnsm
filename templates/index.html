@@ -3468,6 +3468,8 @@
                 <div class="mb-3" id="orderCheckDashboard"></div>
                 <div class="d-flex flex-wrap gap-2 align-items-center mb-3" id="orderCheckFilterBar">
                     <label class="small mb-0 fw-semibold">Lọc:</label>
+                    <input type="text" class="form-control form-control-sm" style="width:180px;" id="ocFilterCode"
+                           placeholder="Tìm mã hàng..." oninput="renderOrderCheckTable()">
                     <select class="form-select form-select-sm" style="width:auto;" id="ocFilterLock" onchange="renderOrderCheckTable()">
                         <option value="all">Khoá đặt hàng: Tất cả</option>
                         <option value="locked">Đã khoá</option>
@@ -6145,6 +6147,8 @@
     });
 
     function resetOrderCheckFilters() {
+        const codeEl = document.getElementById('ocFilterCode');
+        if (codeEl) codeEl.value = '';
         ['ocFilterLock', 'ocFilterDebt', 'ocFilterFreq', 'ocFilterChild', 'ocFilterFound'].forEach(id => {
             const el = document.getElementById(id);
             if (el) el.value = 'all';
@@ -6153,6 +6157,9 @@
     }
 
     function _orderCheckRowMatchesFilters(row) {
+        const fCode = normalizeCodeSearch(document.getElementById('ocFilterCode').value);
+        if (fCode && !normalizeCodeSearch(row.part_code).includes(fCode)) return false;
+
         const fLock = document.getElementById('ocFilterLock').value;
         if (fLock === 'locked' && !row.is_locked) return false;
         if (fLock === 'unlocked' && row.is_locked) return false;
