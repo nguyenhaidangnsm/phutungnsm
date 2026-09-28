@@ -10883,6 +10883,7 @@ if (storeLocationForm) {
                     <td class="small">
                         ${u.last_login_time ? fmtDateTimeVN(u.last_login_time) : '<span class="text-muted">Chưa từng đăng nhập</span>'}
                         ${u.last_login_ip ? `<div class="text-muted">IP: ${u.last_login_ip}${u.last_login_location ? ` · ${u.last_login_location}` : ''}</div>` : ''}
+                        ${renderGeoInfo(u.last_geo)}
                         ${u.is_store_ip === true ? '<span class="badge bg-success mt-1"><i class="bi bi-shield-check me-1"></i>Đúng IP cửa hàng</span>'
                             : u.is_store_ip === false ? '<span class="badge bg-warning text-dark mt-1"><i class="bi bi-exclamation-triangle me-1"></i>IP khác cửa hàng</span>'
                             : ''}
@@ -10902,6 +10903,27 @@ if (storeLocationForm) {
                 </tr>
             `).join('');
         }
+    }
+
+    // Hiển thị vị trí CHÍNH XÁC lúc đăng nhập (GPS/Wi-Fi từ thiết bị) - dùng cho cả
+    // danh sách user lẫn lịch sử đăng nhập. g: {lat,lng,accuracy_m,geo_address,geo_status}
+    function renderGeoInfo(g) {
+        if (!g) return '';
+        if (g.lat != null && g.lng != null) {
+            const acc = g.accuracy_m != null ? ` (sai số ±${Math.round(g.accuracy_m)} m)` : '';
+            const url = `https://www.google.com/maps?q=${Number(g.lat)},${Number(g.lng)}`;
+            const addr = g.geo_address
+                ? escapeHtmlText(g.geo_address)
+                : `Toạ độ ${Number(g.lat).toFixed(5)}, ${Number(g.lng).toFixed(5)}`;
+            return `<div class="mt-1"><i class="bi bi-geo-alt-fill text-danger me-1"></i>${addr}${acc} <a href="${url}" target="_blank" rel="noopener">Xem bản đồ</a></div>`;
+        }
+        const labels = {
+            denied: 'Từ chối chia sẻ vị trí',
+            unavailable: 'Thiết bị không hỗ trợ định vị',
+            timeout: 'Không lấy được vị trí (hết thời gian)',
+        };
+        return labels[g.geo_status]
+            ? `<div class="mt-1 text-muted"><i class="bi bi-geo-alt me-1"></i>${labels[g.geo_status]}</div>` : '';
     }
 
     let _currentHistoryStoreCode = null;
@@ -10933,7 +10955,7 @@ if (storeLocationForm) {
             tbody.innerHTML = logs.length ? logs.map(log => `
                 <tr>
                     <td class="small">${fmtDateTimeVN(log.login_time)}</td>
-                    <td class="small">${log.ip_address || '--'}${log.location ? `<div class="text-muted">${log.location}</div>` : ''}</td>
+                    <td class="small">${log.ip_address || '--'}${log.location ? `<div class="text-muted">${log.location}</div>` : ''}${renderGeoInfo(log)}</td>
                     <td class="small text-muted">${parseUserAgent(log.user_agent)}</td>
                     <td class="small">
                         ${log.is_store_ip === true ? '<span class="badge bg-success">Đúng</span>'
@@ -12095,6 +12117,27 @@ function checkTransferChanges(prev, current) {
         }
     });
 }
+
+    // ================== GỬI VỊ TRÍ THIẾT BỊ SAU KHI ĐĂNG NHẬP ==================
+    // Server chỉ xin vị trí cho lượt đăng nhập MỚI (GET báo pending=true); trình duyệt
+    // sẽ hiện hộp thoại xin quyền. Từ chối/không hỗ trợ cũng được ghi lại để admin biết.
+    async function reportLoginLocation() {
+        try {
+            const r = await fetch('/api/login-geo');
+            if (!r.ok || !(await r.json()).pending) return;
+        } catch (e) { return; }
+        const send = (payload) => fetch('/api/login-geo', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        }).catch(() => {});
+        if (!navigator.geolocation) { send({ status: 'unavailable' }); return; }
+        navigator.geolocation.getCurrentPosition(
+            pos => send({ status: 'ok', lat: pos.coords.latitude, lng: pos.coords.longitude, accuracy: pos.coords.accuracy }),
+            err => send({ status: err.code === 1 ? 'denied' : (err.code === 3 ? 'timeout' : 'unavailable') }),
+            { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
+        );
+    }
+    document.addEventListener('DOMContentLoaded', reportLoginLocation);
 </script>
 <div id="imgLightboxOverlay" onclick="closeImageLightbox(event)">
     <span class="lightbox-close" onclick="closeImageLightbox(event)">&times;</span>

@@ -22,6 +22,7 @@ from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 from dotenv import load_dotenv
 import threading
+import ipaddress
 import zlib
 import ssl
 import urllib.request
@@ -252,7 +253,7 @@ def _track_online_user():
 # Các request ghi KHÔNG làm cache phản hồi ở trên bị cũ: (đăng nhập/đăng xuất,
 # đánh dấu đã đọc thông báo, đổi mật khẩu - không đụng tới dữ liệu tồn
 # kho/vị trí/phiếu luân chuyển).
-_WRITE_EPOCH_IGNORED_PREFIXES = ('/api/notifications/', '/api/change-password', '/login', '/logout')
+_WRITE_EPOCH_IGNORED_PREFIXES = ('/api/notifications/', '/api/change-password', '/login', '/logout', '/api/login-geo')
 
 
 @app.after_request
@@ -498,16 +499,15 @@ _ip_location_cache_lock = threading.Lock()
 
 
 def _is_private_ip(ip):
-    """IP nội bộ/localhost (VD: chạy local, hoặc Render gọi nhau qua mạng
-    private) - không có ý nghĩa địa lý thật, tra cứu chỉ tốn thời gian vô ích."""
+    """IP nội bộ/localhost/CGNAT/không hợp lệ - không có ý nghĩa địa lý thật,
+    tra cứu chỉ tốn thời gian vô ích. Dùng module ipaddress (đúng cho cả IPv6
+    và dải 100.64.0.0/10) thay cho so khớp tiền tố chuỗi như trước đây."""
     if not ip:
         return True
-    return (
-        ip.startswith('127.') or ip.startswith('10.') or ip.startswith('192.168.')
-        or ip == '::1' or ip.startswith('172.16.') or ip.startswith('172.17.')
-        or ip.startswith('172.18.') or ip.startswith('172.19.')
-        or ip.startswith('172.2') or ip.startswith('172.30.') or ip.startswith('172.31.')
-    )
+    try:
+        return not ipaddress.ip_address(ip).is_global
+    except ValueError:
+        return True
 
 
 def get_ip_location(ip):
@@ -543,8 +543,11 @@ def get_ip_location(ip):
     except Exception as e:
         app.logger.warning("Không tra được vị trí địa lý cho IP %s: %s", ip, e)
 
-    with _ip_location_cache_lock:
-        _ip_location_cache[ip] = result
+    if result.get('city') or result.get('country'):
+        with _ip_location_cache_lock:
+            if len(_ip_location_cache) >= 5000:
+                _ip_location_cache.clear()
+            _ip_location_cache[ip] = result
     return result
 
 
@@ -776,6 +779,14 @@ def init_db():
         cursor.execute('ALTER TABLE login_log ADD COLUMN IF NOT EXISTS city VARCHAR(100)')
         cursor.execute('ALTER TABLE login_log ADD COLUMN IF NOT EXISTS region VARCHAR(100)')
         cursor.execute('ALTER TABLE login_log ADD COLUMN IF NOT EXISTS country VARCHAR(100)')
+        # Vị trí CHÍNH XÁC lấy từ thiết bị người dùng (GPS/Wi-Fi qua trình duyệt) -
+        # khác với city/region suy ra từ IP. geo_status: ok | denied | unavailable | timeout
+        # (NULL = chưa có phản hồi từ trình duyệt).
+        cursor.execute('ALTER TABLE login_log ADD COLUMN IF NOT EXISTS lat DOUBLE PRECISION')
+        cursor.execute('ALTER TABLE login_log ADD COLUMN IF NOT EXISTS lng DOUBLE PRECISION')
+        cursor.execute('ALTER TABLE login_log ADD COLUMN IF NOT EXISTS accuracy_m REAL')
+        cursor.execute('ALTER TABLE login_log ADD COLUMN IF NOT EXISTS geo_address TEXT')
+        cursor.execute('ALTER TABLE login_log ADD COLUMN IF NOT EXISTS geo_status VARCHAR(20)')
 
         # 1c. Bảng "IP đã biết" của từng cửa hàng - admin đăng ký thủ công
         # (đánh dấu 1 lượt đăng nhập trong lịch sử là "đúng IP cửa hàng"),
@@ -3059,6 +3070,7 @@ def login():
             # xem lịch sử, KHÔNG được phép làm hỏng việc đăng nhập của user
             # nếu vì lý do gì đó (VD: DB tạm thời chậm/lỗi) mà ghi log thất
             # bại - user vẫn phải đăng nhập được bình thường.
+            new_login_log_id = None
             try:
                 cursor.execute(
                     "INSERT INTO login_log (username, ip_address, user_agent, login_time) VALUES (%s, %s, %s, %s) RETURNING id",
@@ -3081,6 +3093,8 @@ def login():
             cursor.close()
             session.clear()
             session['user'] = user['username']
+            if new_login_log_id:
+                session['login_log_id'] = new_login_log_id  # chờ trình duyệt gửi toạ độ (xem /api/login-geo)
             session['role'] = user['role']
             session['store_code'] = user['store_code']
             # Họ và tên để hiển thị lời chào (VD "Xin chào Nguyễn Văn A") -
@@ -3094,6 +3108,120 @@ def login():
             cursor.close()
             return render_template('login.html', error="Sai tên đăng nhập hoặc mật khẩu!")
     return render_template('login.html')
+
+
+# ---------------------------------------------------------------------------
+# VỊ TRÍ CHÍNH XÁC KHI ĐĂNG NHẬP (GPS/Wi-Fi từ trình duyệt) + ĐỊA CHỈ CHỮ
+# IP chỉ cho biết nhà mạng/thành phố gần đúng; muốn biết đúng nơi đăng nhập phải
+# xin vị trí thiết bị (người dùng có thể từ chối -> geo_status='denied').
+# Toạ độ do trình trình duyệt gửi lên nên có thể bị giả mạo: chỉ là thông tin
+# THAM KHẢO cho admin, không phải bằng chứng.
+# ---------------------------------------------------------------------------
+_GEO_STATUSES = ('ok', 'denied', 'unavailable', 'timeout')
+_GEO_UA = 'NamSuongMotor-Portal/1.0 (phutungnamsuong.com)'
+_nominatim_lock = threading.Lock()
+_nominatim_last_call = [0.0]
+
+
+def _http_get_json(url, timeout=8):
+    req = urllib.request.Request(url, headers={'User-Agent': _GEO_UA, 'Accept-Language': 'vi'})
+    with urllib.request.urlopen(req, timeout=timeout, context=_HTTPS_SSL_CONTEXT) as resp:
+        return json.loads(resp.read().decode('utf-8'))
+
+
+def reverse_geocode(lat, lng):
+    """Toạ độ -> địa chỉ chữ (tiếng Việt). Ưu tiên Goong.io nếu đặt biến môi trường
+    GOONG_API_KEY (dữ liệu số nhà/đường VN tốt hơn); nếu không có hoặc lỗi thì dùng
+    OpenStreetMap Nominatim (miễn phí, không cần key, giới hạn 1 request/giây).
+    Không bao giờ raise - trả None nếu không tra được."""
+    key = os.environ.get('GOONG_API_KEY')
+    if key:
+        try:
+            data = _http_get_json(f"https://rsapi.goong.io/Geocode?latlng={lat:.6f},{lng:.6f}&api_key={key}")
+            results = data.get('results') or []
+            if results and results[0].get('formatted_address'):
+                return results[0]['formatted_address'][:300]
+        except Exception as e:
+            app.logger.warning("Goong reverse geocode lỗi: %s", e)
+    try:
+        with _nominatim_lock:  # chính sách Nominatim: tối đa 1 request/giây
+            wait = 1.1 - (time.time() - _nominatim_last_call[0])
+            if wait > 0:
+                time.sleep(wait)
+            _nominatim_last_call[0] = time.time()
+            data = _http_get_json(
+                f"https://nominatim.openstreetmap.org/reverse?format=jsonv2&zoom=18"
+                f"&lat={lat:.6f}&lon={lng:.6f}&accept-language=vi")
+        addr = (data.get('display_name') or '').strip()
+        return addr[:300] or None
+    except Exception as e:
+        app.logger.warning("Nominatim reverse geocode lỗi: %s", e)
+        return None
+
+
+def _save_geo_address_async(log_id, lat, lng):
+    """Tra địa chỉ chữ trong thread nền (gọi API ngoài mất 1-2s) rồi UPDATE login_log."""
+    def _run():
+        addr = reverse_geocode(lat, lng)
+        if not addr:
+            return
+        pool = _get_pool()
+        conn = pool.getconn()
+        try:
+            cur = conn.cursor()
+            cur.execute("UPDATE login_log SET geo_address = %s WHERE id = %s", (addr, log_id))
+            conn.commit()
+        except Exception as e:
+            conn.rollback()
+            app.logger.warning("Không lưu được địa chỉ cho login_log id=%s: %s", log_id, e)
+        finally:
+            pool.putconn(conn)
+
+    threading.Thread(target=_run, daemon=True).start()
+
+
+@app.route('/api/login-geo', methods=['GET', 'POST'])
+@limiter.limit("30 per minute")
+def login_geo():
+    """GET: có đang chờ vị trí cho lượt đăng nhập hiện tại không.
+    POST {status:'ok', lat, lng, accuracy} hoặc {status:'denied'|'unavailable'|'timeout'}.
+    Mỗi lượt đăng nhập chỉ ghi được 1 lần (WHERE geo_status IS NULL)."""
+    if 'user' not in session:
+        return jsonify({'error': 'Unauthorized'}), 401
+    log_id = session.get('login_log_id')
+    if request.method == 'GET':
+        return jsonify({'pending': bool(log_id)})
+    if not log_id:
+        return jsonify({'success': False, 'reason': 'no_pending'})
+
+    d = request.get_json(silent=True) or {}
+    status = d.get('status')
+    if status not in _GEO_STATUSES:
+        return jsonify({'error': 'Dữ liệu không hợp lệ.'}), 400
+    lat = lng = acc = None
+    if status == 'ok':
+        try:
+            lat, lng = float(d['lat']), float(d['lng'])
+            acc = max(0.0, float(d.get('accuracy') or 0))
+        except (KeyError, TypeError, ValueError):
+            return jsonify({'error': 'Dữ liệu không hợp lệ.'}), 400
+        if not (math.isfinite(lat) and math.isfinite(lng) and -90 <= lat <= 90 and -180 <= lng <= 180):
+            return jsonify({'error': 'Toạ độ không hợp lệ.'}), 400
+
+    db = get_db()
+    cur = db.cursor()
+    cur.execute(
+        "UPDATE login_log SET lat = %s, lng = %s, accuracy_m = %s, geo_status = %s "
+        "WHERE id = %s AND username = %s AND geo_status IS NULL",
+        (lat, lng, acc, status, log_id, session['user'])
+    )
+    updated = cur.rowcount
+    db.commit()
+    cur.close()
+    session.pop('login_log_id', None)
+    if updated and status == 'ok':
+        _save_geo_address_async(log_id, lat, lng)
+    return jsonify({'success': bool(updated)})
 
 
 @app.route('/logout')
@@ -6067,7 +6195,8 @@ def admin_users():
     # sắp theo login_time mới nhất) trong 1 truy vấn duy nhất, ghép vào kết
     # quả trên thay vì query riêng cho từng user (tránh N+1).
     cursor.execute('''
-        SELECT DISTINCT ON (username) username, ip_address, login_time, city, region, country
+        SELECT DISTINCT ON (username) username, ip_address, login_time, city, region, country,
+               lat, lng, accuracy_m, geo_address, geo_status
         FROM login_log
         ORDER BY username, login_time DESC
     ''')
@@ -6082,6 +6211,10 @@ def admin_users():
             u['last_login_time'] = last['login_time'].isoformat() if last else None
             u['last_login_ip'] = last['ip_address'] if last else None
             u['last_login_location'] = ', '.join(filter(None, [last['city'], last['region']])) if last else None
+            u['last_geo'] = {
+                'lat': last['lat'], 'lng': last['lng'], 'accuracy_m': last['accuracy_m'],
+                'geo_address': last['geo_address'], 'geo_status': last['geo_status'],
+            } if last else None
 
             known_ips = store_ips.get(u['store_code'])
             u['is_store_ip'] = (last['ip_address'] in known_ips) if (last and known_ips) else None
@@ -6122,6 +6255,7 @@ def admin_login_log():
     if username:
         cursor.execute('''
             SELECT l.username, l.ip_address, l.user_agent, l.login_time, l.city, l.region, l.country,
+                   l.lat, l.lng, l.accuracy_m, l.geo_address, l.geo_status,
                    u.store_code
             FROM login_log l LEFT JOIN users u ON u.username = l.username
             WHERE l.username = %s
@@ -6130,6 +6264,7 @@ def admin_login_log():
     else:
         cursor.execute('''
             SELECT l.username, l.ip_address, l.user_agent, l.login_time, l.city, l.region, l.country,
+                   l.lat, l.lng, l.accuracy_m, l.geo_address, l.geo_status,
                    u.store_code
             FROM login_log l LEFT JOIN users u ON u.username = l.username
             ORDER BY l.login_time DESC LIMIT 200
