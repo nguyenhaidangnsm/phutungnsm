@@ -2718,6 +2718,23 @@
             <div class="col-6 col-md-4">
                 <input type="text" id="damaged-filter-search" class="form-control form-control-sm" placeholder="Tìm mã hàng / tên hàng..." autocomplete="off" oninput="filterDamaged()">
             </div>
+            <div class="col-12 col-md-3">
+                <select id="damaged-filter-status" class="form-select form-select-sm" onchange="filterDamaged()">
+                    <option value="pending" selected>Chưa xử lý</option>
+                    <option value="resolved">Đã xử lý</option>
+                    <option value="all">Tất cả</option>
+                </select>
+            </div>
+        </div>
+        {% else %}
+        <div class="row g-2 mb-3">
+            <div class="col-12 col-md-3">
+                <select id="damaged-filter-status" class="form-select form-select-sm" onchange="filterDamaged()">
+                    <option value="pending" selected>Chưa xử lý</option>
+                    <option value="resolved">Đã xử lý</option>
+                    <option value="all">Tất cả</option>
+                </select>
+            </div>
         </div>
         {% endif %}
         <div class="table-responsive border rounded-3">
@@ -7334,6 +7351,11 @@ async function saveLocationRow(btn, partCode) {
     // nhưng hàm dùng chung, store gọi renderDamagedTable trực tiếp với toàn bộ dữ liệu của mình).
     function filterDamaged() {
         let data = globalDamaged;
+        // Lọc theo trạng thái xử lý (mọi role): mặc định chỉ hiện "Chưa xử lý".
+        const statusEl = document.getElementById('damaged-filter-status');
+        const statusVal = statusEl ? statusEl.value : 'pending';
+        if (statusVal === 'pending') data = data.filter(item => !item.resolved);
+        else if (statusVal === 'resolved') data = data.filter(item => item.resolved);
         if (CURRENT_ROLE === 'admin') {
             const storeSel = document.getElementById('damaged-filter-store');
             const searchEl = document.getElementById('damaged-filter-search');
@@ -7359,7 +7381,7 @@ async function saveLocationRow(btn, partCode) {
         if (countEl) countEl.innerText = data.length.toLocaleString();
 
         if (!data || data.length === 0) {
-            tbody.innerHTML = `<tr><td colspan="${isAdmin ? 8 : 7}" class="text-center py-4 text-muted">Chưa có báo cáo hàng cần xử lý nào.</td></tr>`;
+            tbody.innerHTML = `<tr><td colspan="${isAdmin ? 8 : 7}" class="text-center py-4 text-muted">Không có dòng nào ở trạng thái này.</td></tr>`;
             return;
         }
 
@@ -7386,18 +7408,25 @@ async function saveLocationRow(btn, partCode) {
 
             const imgCount = item.image_count || 0;
             const imgBtnClass = imgCount > 0 ? 'btn-primary' : 'btn-outline-secondary';
+            const resolvedBadge = item.resolved
+                ? `<div><span class="badge bg-success-subtle text-success-emphasis"><i class="bi bi-check-circle me-1"></i>Đã xử lý</span> <span class="text-muted small">${escapeHtmlAttr(item.resolved_by || '')}${item.resolved_at ? ' - ' + escapeHtmlAttr(item.resolved_at) : ''}</span></div>`
+                : '';
+            const resolveBtn = item.resolved
+                ? `<button class="btn btn-outline-secondary btn-sm" title="Hoàn tác (chuyển về chưa xử lý)" onclick="resolveDamagedRow(${item.id}, false)"><i class="bi bi-arrow-counterclockwise"></i></button>`
+                : `<button class="btn btn-success btn-sm" title="Đánh dấu đã xử lý" onclick="resolveDamagedRow(${item.id}, true)"><i class="bi bi-check2-circle"></i> Đã xử lý</button>`;
             return `
-                <tr class="damaged-row" style="cursor:pointer;" title="Bấm để xem ảnh đính kèm" onclick="handleDamagedRowClick(event, ${item.id}, '${escapeHtmlAttr(item.part_code)}')"
+                <tr class="damaged-row${item.resolved ? ' text-muted' : ''}" style="cursor:pointer;${item.resolved ? ' opacity:.65;' : ''}" title="Bấm để xem ảnh đính kèm" onclick="handleDamagedRowClick(event, ${item.id}, '${escapeHtmlAttr(item.part_code)}')"
                     ${imgCount > 0 ? `onmouseenter="showDamagedImageHoverPreview(event, ${item.id})" onmousemove="positionDamagedImageHoverPreview(event)" onmouseleave="hideDamagedImageHoverPreview()"` : ''}
                 >
                     ${storeCol}
                     <td><span class="part-code">${escapeHtmlAttr(item.part_code)}</span></td>
                     <td>${escapeHtmlAttr(item.part_name || '')}</td>
                     <td class="text-end fw-semibold text-warning-emphasis">${item.quantity.toLocaleString()}</td>
-                    <td>${escapeHtmlAttr(item.note || '')}</td>
+                    <td>${escapeHtmlAttr(item.note || '')}${resolvedBadge}</td>
                     <td class="text-muted small">${escapeHtmlAttr(item.created_by || '')}</td>
                     <td class="text-muted small">${escapeHtmlAttr(item.created_at || '')}</td>
                     <td class="text-center text-nowrap">
+                        ${resolveBtn}
                         <button class="btn ${imgBtnClass} btn-sm" title="Ảnh đính kèm" onclick="openDamagedImages(${item.id}, '${escapeHtmlAttr(item.part_code)}')"><i class="bi bi-camera"></i>${imgCount > 0 ? ' ' + imgCount : ''}</button>
                         <button class="btn btn-outline-primary btn-sm" title="Sửa" onclick="startEditDamaged(${item.id})"><i class="bi bi-pencil"></i></button>
                         <button class="btn btn-outline-danger btn-sm" title="Xoá" onclick="deleteDamagedRow(${item.id})"><i class="bi bi-trash"></i></button>
@@ -7435,6 +7464,24 @@ async function saveLocationRow(btn, partCode) {
                 refreshDamagedHighlights();
             } else {
                 alert('Lỗi: ' + (result.error || 'Không thể lưu thay đổi.'));
+            }
+        } catch (e) { alert('Lỗi kết nối server.'); }
+    }
+
+    async function resolveDamagedRow(id, resolved) {
+        if (resolved && !confirm('Đánh dấu lần báo này là ĐÃ XỬ LÝ? Tồn kho sẽ không còn cảnh báo vàng cho phần này.')) return;
+        try {
+            const res = await fetch('/api/damaged/resolve', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ id: id, resolved: resolved })
+            });
+            const result = await res.json();
+            if (res.ok && result.success) {
+                await loadDamaged();
+                refreshDamagedHighlights();
+            } else {
+                alert('Lỗi: ' + (result.error || 'Không thể cập nhật trạng thái.'));
             }
         } catch (e) { alert('Lỗi kết nối server.'); }
     }

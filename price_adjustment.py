@@ -32,7 +32,7 @@ import openpyxl
 from flask import Blueprint, request, jsonify, session
 from psycopg2.extras import execute_values
 
-from app import get_db, vn_now, _current_actor_name
+from app import get_db, vn_now, _current_actor_name, invalidate_inventory_cache
 
 price_adjustment_bp = Blueprint('price_adjustment', __name__)
 
@@ -439,6 +439,7 @@ def price_adjustment_import():
             )
 
         db.commit()
+        invalidate_inventory_cache()
         return jsonify({
             'success': True,
             'sheet_name': sheet_name,
@@ -805,6 +806,7 @@ def price_adjustment_propose():
             _upsert_new_code(cursor, part_code, part_name, thue_frac, gia_ban, actor, now)
 
         db.commit()
+        invalidate_inventory_cache()
         return jsonify({
             'success': True,
             'id': new_id,
@@ -892,6 +894,7 @@ def price_adjustment_update_proposal(proposal_id):
             _upsert_new_code(cursor, part_code, part_name, None, gia_ban, _current_actor_name(), vn_now())
 
         db.commit()
+        invalidate_inventory_cache()
         return jsonify({
             'success': True,
             'part_code': part_code,
@@ -955,6 +958,7 @@ def price_adjustment_reset_code(part_code):
     cursor.execute('DELETE FROM price_adjustment_proposals WHERE part_code = %s RETURNING id', (part_code,))
     deleted_rows = cursor.fetchall()
     db.commit()
+    invalidate_inventory_cache()
     cursor.close()
 
     if not deleted_rows:
@@ -975,6 +979,7 @@ def price_adjustment_delete_proposal(proposal_id):
     cursor.execute('DELETE FROM price_adjustment_proposals WHERE id = %s RETURNING id', (proposal_id,))
     row = cursor.fetchone()
     db.commit()
+    invalidate_inventory_cache()
     cursor.close()
 
     if not row:

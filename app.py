@@ -1110,6 +1110,11 @@ def init_db():
                 created_at TIMESTAMP NOT NULL DEFAULT NOW()
             )
         ''')
+        # 7b'. Trạng thái "ĐÃ XỬ LÝ" của từng lần báo hư: resolved_at IS NULL =
+        #      còn cần xử lý (tô vàng trên Tồn Kho); có giá trị = đã xử lý xong
+        #      (giữ lại lịch sử, chỉ ngừng cảnh báo).
+        cursor.execute('ALTER TABLE damaged_items ADD COLUMN IF NOT EXISTS resolved_at TIMESTAMP')
+        cursor.execute('ALTER TABLE damaged_items ADD COLUMN IF NOT EXISTS resolved_by VARCHAR(50)')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_damaged_items_part_code ON damaged_items(part_code)')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_damaged_items_store ON damaged_items(store_code)')
 
@@ -4668,8 +4673,35 @@ def get_inventory():
 
     # Giá bán lưu ở bảng riêng (part_prices) - áp dụng chung cho mã hàng
     # trên toàn hệ thống, không phân biệt theo cửa hàng.
-    cursor.execute('SELECT part_code, sale_price FROM part_prices')
-    price_by_part = {r['part_code']: (float(r['sale_price']) if r['sale_price'] is not None else None) for r in cursor.fetchall()}
+    cursor.execute('SELECT part_code, sale_price, updated_at FROM part_prices')
+    price_rows = cursor.fetchall()
+    price_by_part = {r['part_code']: (float(r['sale_price']) if r['sale_price'] is not None else None) for r in price_rows}
+    price_updated_at = {r['part_code']: r['updated_at'] for r in price_rows}
+
+    # GIÁ ĐỀ XUẤT TẠM THỜI: nếu mã hàng có đề xuất tăng giá (Đề Xuất Tăng Giá)
+    # MỚI HƠN lần import/sửa giá bán gần nhất của mã đó thì hiển thị luôn Giá
+    # bán của đề xuất mới nhất thay cho giá trong part_prices. Khi admin import
+    # lại file giá bán (import_prices ghi updated_at = now cho mọi mã) hoặc
+    # sửa tay giá (update_price) thì mốc updated_at mới hơn đề xuất -> giá
+    # trong part_prices lại được ưu tiên, đề xuất không còn ghi đè nữa.
+    cursor.execute('SELECT upload_time FROM price_meta WHERE id = 1')
+    _pm = cursor.fetchone()
+    last_price_import = _pm['upload_time'] if _pm and _pm.get('upload_time') else None
+
+    cursor.execute('''
+        SELECT DISTINCT ON (part_code) part_code, gia_ban, created_at
+        FROM price_adjustment_proposals
+        WHERE gia_ban IS NOT NULL
+          AND (%s::timestamp IS NULL OR created_at > %s::timestamp)
+        ORDER BY part_code, created_at DESC, id DESC
+    ''', (last_price_import, last_price_import))
+    proposed_by_part = {}
+    for r in cursor.fetchall():
+        code = r['part_code']
+        row_ts = price_updated_at.get(code)
+        if row_ts is None or r['created_at'] > row_ts:
+            proposed_by_part[code] = float(r['gia_ban'])
+            price_by_part[code] = proposed_by_part[code]
 
     pivot = {}
     for it in items:
@@ -4678,6 +4710,8 @@ def get_inventory():
             'part_name': it['part_name'],
             'unit': it['unit'],
             'sale_price': price_by_part.get(it['part_code']),
+            # True = giá đang hiển thị là GIÁ ĐỀ XUẤT (chưa được admin import lại giá bán).
+            'price_is_proposed': it['part_code'] in proposed_by_part,
             'NS1': 0, 'NS2': 0, 'NS3': 0, 'NS4': 0, 'NS5': 0, 'NSM1': 0,
             # "CB" (Kho CB / mã kho KHANGCHAMBAN) là kho ĐỘC LẬP, hiển thị
             # tách riêng - KHÔNG tính vào "Tổng Tồn 6 CH" của 6 cửa hàng
@@ -5169,6 +5203,7 @@ def damaged_summary():
     cursor.execute('''
         SELECT part_code, store_code, quantity, note, created_at
         FROM damaged_items
+        WHERE resolved_at IS NULL
         ORDER BY part_code, created_at
     ''')
     rows = cursor.fetchall()
@@ -5205,12 +5240,12 @@ def get_damaged():
 
     if role == 'store':
         cursor.execute('''
-            SELECT id, store_code, part_code, quantity, note, created_by, created_at
+            SELECT id, store_code, part_code, quantity, note, created_by, created_at, resolved_at, resolved_by
             FROM damaged_items WHERE store_code = %s ORDER BY created_at DESC
         ''', (session['store_code'],))
     elif role == 'admin':
         cursor.execute('''
-            SELECT id, store_code, part_code, quantity, note, created_by, created_at
+            SELECT id, store_code, part_code, quantity, note, created_by, created_at, resolved_at, resolved_by
             FROM damaged_items ORDER BY created_at DESC
         ''')
     else:
@@ -5255,6 +5290,9 @@ def get_damaged():
             'created_by': r['created_by'],
             'created_at': format_vi_datetime(r['created_at']) if r['created_at'] else None,
             'image_count': image_counts.get(r['id'], 0),
+            'resolved': r['resolved_at'] is not None,
+            'resolved_at': format_vi_datetime(r['resolved_at']) if r['resolved_at'] else None,
+            'resolved_by': r['resolved_by'],
         })
 
     return jsonify({'success': True, 'data': data})
@@ -5398,6 +5436,57 @@ def update_damaged():
     if not updated:
         return jsonify({'error': 'Không tìm thấy bản ghi (hoặc không thuộc cửa hàng của bạn).'}), 404
     return jsonify({'success': True})
+
+
+@app.route('/api/damaged/resolve', methods=['POST'])
+def resolve_damaged():
+    """Đánh dấu 1 lần báo hư là ĐÃ XỬ LÝ (resolved=true, mặc định) hoặc hoàn tác
+    về CHƯA XỬ LÝ (resolved=false). Đã xử lý -> /api/damaged/summary bỏ dòng này
+    nên bảng Tồn Kho hết tô vàng/cảnh báo cho phần đó. Quyền giống update:
+    Store chỉ với dòng của cửa hàng mình; Admin với mọi cửa hàng."""
+    if 'user' not in session:
+        return jsonify({'error': 'Unauthorized'}), 401
+    role = session['role']
+    if role not in ('store', 'admin'):
+        return jsonify({'error': 'Forbidden'}), 403
+
+    data = request.json or {}
+    try:
+        item_id = int(data.get('id'))
+    except (TypeError, ValueError):
+        return jsonify({'error': 'Dữ liệu không hợp lệ.'}), 400
+    resolved = data.get('resolved', True)
+    if isinstance(resolved, str):
+        resolved = resolved.strip().lower() not in ('false', '0', '')
+    resolved = bool(resolved)
+
+    if resolved:
+        set_sql, params = 'resolved_at = %s, resolved_by = %s', [vn_now(), _current_actor_name()]
+    else:
+        set_sql, params = 'resolved_at = NULL, resolved_by = NULL', []
+
+    db = get_db()
+    cursor = db.cursor()
+    try:
+        if role == 'admin':
+            cursor.execute(f'UPDATE damaged_items SET {set_sql} WHERE id = %s', params + [item_id])
+        else:
+            cursor.execute(
+                f'UPDATE damaged_items SET {set_sql} WHERE id = %s AND store_code = %s',
+                params + [item_id, session['store_code']]
+            )
+        updated = cursor.rowcount
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        app.logger.error("Lỗi /api/damaged/resolve: %s\n%s", e, traceback.format_exc())
+        return jsonify({'error': str(e)}), 500
+    finally:
+        cursor.close()
+
+    if not updated:
+        return jsonify({'error': 'Không tìm thấy bản ghi (hoặc không thuộc cửa hàng của bạn).'}), 404
+    return jsonify({'success': True, 'resolved': resolved})
 
 
 @app.route('/api/damaged/import-excel', methods=['POST'])
@@ -5700,7 +5789,8 @@ def get_version():
             (SELECT MAX(id) FROM upload_log) AS history_v,
             GREATEST(
                 (SELECT upload_time FROM inventory_meta WHERE id = 1),
-                (SELECT MAX(updated_at) FROM part_prices)
+                (SELECT MAX(updated_at) FROM part_prices),
+                (SELECT MAX(created_at) FROM price_adjustment_proposals)
             ) AS inv_v,
             (SELECT MD5(COALESCE(string_agg(username || ':' || role || ':' || store_code || ':' || password, ',' ORDER BY username), ''))
                FROM users) AS users_v,
@@ -5709,6 +5799,7 @@ def get_version():
             (SELECT MAX(updated_at) FROM part_locations) AS loc_v,
             (SELECT COUNT(*) FROM damaged_items) AS dmg_c,
             (SELECT MAX(created_at) FROM damaged_items) AS dmg_v,
+            (SELECT COUNT(resolved_at)::text || ':' || COALESCE(MAX(resolved_at)::text, '') FROM damaged_items) AS dmg_r,
             (SELECT COUNT(*) FROM notifications WHERE store_code = %s AND is_read = FALSE) AS unread
     ''', (session.get('store_code'),))
     vrow = cursor.fetchone()
@@ -5719,7 +5810,7 @@ def get_version():
     users_version = vrow['users_v']
     transfer_version = f"{vrow['tr_c']}:{vrow['tr_v']}"
     locations_version = vrow['loc_v']
-    damaged_version = f"{vrow['dmg_c']}:{vrow['dmg_v']}"
+    damaged_version = f"{vrow['dmg_c']}:{vrow['dmg_v']}:{vrow['dmg_r']}"
     unread_notifications = vrow['unread'] if session['role'] in ('store', 'admin') else 0
 
     # Thông báo "ngày xe đi" (banner đỏ) đang hiệu lực - trả THẲNG luôn nội
