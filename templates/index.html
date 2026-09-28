@@ -3285,25 +3285,25 @@
                         <div class="dropdown">
                             <button type="button" class="btn btn-outline-secondary btn-sm form-select form-select-sm text-start dropdown-toggle"
                                     id="region-report-status-btn" data-bs-toggle="dropdown" data-bs-auto-close="outside" aria-expanded="false">
-                                Tất cả trạng thái
+                                3 trạng thái đã chọn
                             </button>
                             <ul class="dropdown-menu p-2 shadow-lg" style="min-width: 270px; max-height: 320px; overflow-y: auto;">
                                 <li>
                                     <label class="dropdown-item d-flex align-items-center gap-2 mb-0 rounded" style="cursor:pointer;">
-                                        <input type="checkbox" class="form-check-input mt-0" id="rr-status-chk-all" checked onchange="onRegionReportStatusAllToggle()">
+                                        <input type="checkbox" class="form-check-input mt-0" id="rr-status-chk-all" onchange="onRegionReportStatusAllToggle()">
                                         <span class="fw-semibold">Tất cả trạng thái</span>
                                     </label>
                                 </li>
                                 <li><hr class="dropdown-divider my-1"></li>
                                 <li>
                                     <label class="dropdown-item d-flex align-items-center gap-2 mb-0 rounded" style="cursor:pointer;">
-                                        <input type="checkbox" class="form-check-input mt-0 rr-status-chk" value="pending" onchange="onRegionReportStatusItemToggle()">
+                                        <input type="checkbox" class="form-check-input mt-0 rr-status-chk" value="pending" checked onchange="onRegionReportStatusItemToggle()">
                                         <span class="rr-dot rr-dot-pending"></span> Chờ Xử Lý
                                     </label>
                                 </li>
                                 <li>
                                     <label class="dropdown-item d-flex align-items-center gap-2 mb-0 rounded" style="cursor:pointer;">
-                                        <input type="checkbox" class="form-check-input mt-0 rr-status-chk" value="approved_np_nr" onchange="onRegionReportStatusItemToggle()">
+                                        <input type="checkbox" class="form-check-input mt-0 rr-status-chk" value="approved_np_nr" checked onchange="onRegionReportStatusItemToggle()">
                                         <span class="rr-dot rr-dot-not-prepared"></span> Đã Đồng Ý — Chưa Soạn — Chưa Nhận Đủ
                                     </label>
                                 </li>
@@ -3315,7 +3315,7 @@
                                 </li>
                                 <li>
                                     <label class="dropdown-item d-flex align-items-center gap-2 mb-0 rounded" style="cursor:pointer;">
-                                        <input type="checkbox" class="form-check-input mt-0 rr-status-chk" value="approved_p_nr" onchange="onRegionReportStatusItemToggle()">
+                                        <input type="checkbox" class="form-check-input mt-0 rr-status-chk" value="approved_p_nr" checked onchange="onRegionReportStatusItemToggle()">
                                         <span class="rr-dot rr-dot-prepared"></span> Đã Đồng Ý — Đã Soạn — Chưa Nhận Đủ
                                     </label>
                                 </li>
@@ -3392,7 +3392,7 @@
                         </tbody>
                     </table>
                 </div>
-                <p class="text-muted small mt-2 mb-0"><i class="bi bi-info-circle me-1"></i>NS1 &amp; NS3 thuộc khu vực Cà Mau, NS2 thuộc Hoà Bình, NS4 thuộc Hộ Phòng, NS5 &amp; NSM1 thuộc Bạc Liêu. "Số Luồng Phiếu" là số phiếu luân chuyển đi theo đúng chiều khu vực đó; "Số Mã Hàng" là tổng số dòng mã hàng gộp trong các phiếu đó.</p>
+                <p class="text-muted small mt-2 mb-0"><i class="bi bi-info-circle me-1"></i>NS1 &amp; NS3 thuộc khu vực Cà Mau, NS2 thuộc Hoà Bình, NS4 thuộc Hộ Phòng, NS5 &amp; NSM1 thuộc Bạc Liêu. "Số Luồng Phiếu" là số phiếu luân chuyển đi theo đúng chiều khu vực đó; "Số Mã Hàng" là tổng số dòng mã hàng gộp trong các phiếu đó. Bảng chỉ hiển thị 12 luồng giữa 4 khu vực theo thứ tự cố định (luồng chưa có phiếu hiện 0); mặc định chỉ tính phiếu Chờ Xử Lý, Đã Đồng Ý chưa soạn (chưa nhận đủ) và Đã Đồng Ý đã soạn nhưng chưa nhận đủ.</p>
             </div>
 
             <!-- ===== TẠO PHIẾU / NHẬP EXCEL - THU GỌN MẶC ĐỊNH, BẤM ĐỂ PHÓNG TO ===== -->
@@ -10715,7 +10715,7 @@ if (storeLocationForm) {
             ? `<i class="bi bi-calendar3 me-1"></i>Ngày ${fromVi}`
             : `<i class="bi bi-calendar3 me-1"></i>Từ ${fromVi} đến ${toVi}`;
 
-        document.getElementById('region-report-flow-count').textContent = result.flows.length.toLocaleString();
+        document.getElementById('region-report-flow-count').textContent = result.flows.filter(f => f.requests > 0).length.toLocaleString();
         document.getElementById('region-report-total-requests').textContent = result.total_requests.toLocaleString();
         document.getElementById('region-report-total-items').textContent = result.total_items.toLocaleString();
 
@@ -10731,8 +10731,8 @@ if (storeLocationForm) {
                 <td><span class="badge bg-light text-dark border">${escapeHtmlAttr(f.from_region)}</span></td>
                 <td class="text-center text-muted"><i class="bi bi-arrow-right"></i></td>
                 <td><span class="badge bg-light text-dark border">${escapeHtmlAttr(f.to_region)}</span></td>
-                <td class="text-end fw-semibold">${f.requests.toLocaleString()}</td>
-                <td class="text-end fw-semibold">${f.items.toLocaleString()}</td>
+                <td class="text-end ${f.requests ? 'fw-semibold' : 'text-muted'}">${f.requests.toLocaleString()}</td>
+                <td class="text-end ${f.requests ? 'fw-semibold' : 'text-muted'}">${f.items.toLocaleString()}</td>
             </tr>
         `).join('');
     }

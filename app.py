@@ -6426,6 +6426,20 @@ REGION_REPORT_STATUS_LABELS = {
 }
 
 
+# 12 LUỒNG khu vực (đi -> đến) mà báo cáo luân chuyển theo khu vực CHỈ thống kê,
+# đúng THỨ TỰ hiển thị mong muốn: Cà Mau đi Hộ Phòng/Hoà Bình/Bạc Liêu, rồi Hộ
+# Phòng đi Cà Mau/Hoà Bình/Bạc Liêu, Hoà Bình đi Bạc Liêu/Hộ Phòng/Cà Mau, Bạc
+# Liêu đi Hoà Bình/Hộ Phòng/Cà Mau. Các luồng khác (vd trong nội bộ 1 khu vực
+# như NS1 -> NS3 cùng Cà Mau) không nằm trong báo cáo này.
+REGION_REPORT_FLOW_ORDER = [
+    ('Cà Mau', 'Hộ Phòng'), ('Cà Mau', 'Hoà Bình'), ('Cà Mau', 'Bạc Liêu'),
+    ('Hộ Phòng', 'Cà Mau'), ('Hộ Phòng', 'Hoà Bình'), ('Hộ Phòng', 'Bạc Liêu'),
+    ('Hoà Bình', 'Bạc Liêu'), ('Hoà Bình', 'Hộ Phòng'), ('Hoà Bình', 'Cà Mau'),
+    ('Bạc Liêu', 'Hoà Bình'), ('Bạc Liêu', 'Hộ Phòng'), ('Bạc Liêu', 'Cà Mau'),
+]
+REGION_REPORT_FLOW_SET = set(REGION_REPORT_FLOW_ORDER)
+
+
 def _parse_region_report_period(args):
     """Đọc period + ngày/tuần/tháng tương ứng từ query string, trả về
     (start_date, end_date, error_response_hoặc_None). Dùng chung cho cả báo
@@ -6587,20 +6601,26 @@ def admin_transfer_region_report():
     filtered_rows = cursor.fetchall()
     cursor.close()
 
-    flows = {}
+    # Luôn trả đủ 12 luồng theo đúng thứ tự cố định (luồng chưa có phiếu = 0),
+    # phiếu thuộc luồng khác (vd cùng khu vực) bị bỏ qua, và tổng phiếu/mã hàng
+    # chỉ cộng các luồng này để khớp với bảng hiển thị.
+    flows = {
+        key: {'from_region': key[0], 'to_region': key[1], 'requests': 0, 'items': 0}
+        for key in REGION_REPORT_FLOW_ORDER
+    }
+    total_requests = 0
     total_items = 0
     for r in filtered_rows:
-        total_items += r['item_count']
-        from_region = _store_region(r['from_store'])
-        to_region = _store_region(r['to_store'])
-        key = (from_region, to_region)
-        flow = flows.setdefault(key, {
-            'from_region': from_region, 'to_region': to_region, 'requests': 0, 'items': 0,
-        })
+        key = (_store_region(r['from_store']), _store_region(r['to_store']))
+        flow = flows.get(key)
+        if flow is None:
+            continue
         flow['requests'] += 1
         flow['items'] += r['item_count']
+        total_requests += 1
+        total_items += r['item_count']
 
-    flow_list = sorted(flows.values(), key=lambda f: f['requests'], reverse=True)
+    flow_list = [flows[key] for key in REGION_REPORT_FLOW_ORDER]
 
     return jsonify({
         'success': True,
@@ -6608,7 +6628,7 @@ def admin_transfer_region_report():
         'start_date': start_date.isoformat(),
         'end_date': end_date.isoformat(),
         'status_filter': status_values,
-        'total_requests': len(filtered_rows),
+        'total_requests': total_requests,
         'total_items': total_items,
         'status_counts': status_counts,
         'status_labels': REGION_REPORT_STATUS_LABELS,
@@ -6681,6 +6701,9 @@ def admin_transfer_region_report_export():
 
     out_rows = []
     for r in rows:
+        # Xuất đúng những gì báo cáo đang hiển thị: chỉ 12 luồng khu vực cố định.
+        if (_store_region(r['from_store']), _store_region(r['to_store'])) not in REGION_REPORT_FLOW_SET:
+            continue
         out_rows.append({
             'Mã Phiếu': r['id'],
             'Ngày Xin': format_vi_datetime(r['created_at']),
