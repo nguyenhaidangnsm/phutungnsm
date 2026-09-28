@@ -7,7 +7,7 @@
 <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
 <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
 <style>
-@font-face { font-family:'SVN-MonaSans'; src:url("{{ url_for('static', filename='fonts/SVN-MonaSans-SemiBoldWide.otf') }}") format('opentype'); }
+@font-face { font-family:'SVN-MonaSans'; src: url("{{ url_for('static', filename='fonts/SVN-MonaSans-SemiBoldWide.woff') }}") format('woff'), url("{{ url_for('static', filename='fonts/SVN-MonaSans-SemiBoldWide.otf') }}") format('opentype'); font-weight:normal; font-style:normal; font-display:swap; }
 :root { --ink:#0f172a; --mut:#475569; --faint:#64748b; --line:#d5dde9; --bg:#eef2f7; --brand:#1d4ed8; }
 body { background:var(--bg); color:var(--ink); font-family:system-ui,-apple-system,'Segoe UI',Roboto,Arial,sans-serif; }
 .brand-title { font-family:'SVN-MonaSans',system-ui,sans-serif; }
@@ -87,13 +87,187 @@ input.qe.late { color:#b91c1c; font-weight:800; } input.qe.bad { border-color:#d
 .ac-i b { color:#1e3a8a; } .ac-i em { font-style:normal; font-weight:700; color:#166534; } .ac-i.on { background:#dbe8ff; box-shadow:inset 3px 0 0 var(--brand); }
 #toast { position:fixed; bottom:1.2rem; left:50%; transform:translateX(-50%); z-index:3000; background:#0f172a; color:#fff; padding:.6rem 1.1rem; border-radius:8px; font-size:.86rem; font-weight:600; display:none; }
 #toast.err { background:#b91c1c; }
+    /* ================================================================
+       DESIGN REFRESH (đồng bộ với index.html) - lớp giao diện đặt CUỐI
+       khối CSS để ghi đè nhẹ, KHÔNG đổi id/class/cấu trúc mà JS đang
+       dùng. Dùng chung 1 bộ màu / bo góc / đổ bóng / trạng thái focus
+       với trang chính để 3 trang nhìn như 1 hệ thống.
+       ================================================================ */
+    :root {
+        --ns-blue: #0d6efd;
+        --ns-dark: #1e293b;
+        --ns-border: #e2e8f0;
+        --ns-border-soft: #eef2f7;
+        --ns-muted: #64748b;
+        --ns-radius: 14px;
+        --ns-radius-sm: 8px;
+        --ns-shadow-sm: 0 1px 2px rgba(15,23,42,.05), 0 2px 8px rgba(15,23,42,.05);
+        --ns-shadow-md: 0 6px 20px rgba(15,23,42,.09);
+        --ns-focus-ring: 0 0 0 .2rem rgba(13,110,253,.18);
+    }
+    body {
+        background-color: #f4f6f9;
+        color: var(--ns-dark);
+        font-family: 'SVN-MonaSans', system-ui, -apple-system, 'Segoe UI', Roboto, Arial, sans-serif;
+        -webkit-font-smoothing: antialiased;
+        text-rendering: optimizeLegibility;
+    }
+
+    /* --- Thanh trên cùng: nền trắng + vạch xanh dưới, giống banner của index --- */
+    .ns-topbar {
+        background: #fff;
+        border-bottom: 3px solid var(--ns-blue);
+        box-shadow: 0 10px 30px rgba(13,110,253,.05);
+        padding: .7rem 1.5rem;
+        display: flex; align-items: center; justify-content: space-between;
+        flex-wrap: wrap; gap: .5rem;
+    }
+    .ns-topbar .brand-logo { max-height: 40px; }
+    .ns-topbar .ns-title { font-weight: 800; font-size: 1.05rem; letter-spacing: .01em; line-height: 1.2; color: var(--ns-dark); }
+    .ns-topbar .ns-subtitle { font-size: .8rem; color: var(--ns-muted); }
+
+    /* --- Thẻ nội dung --- */
+    .card {
+        border: none;
+        border-top: 3px solid var(--ns-blue);
+        border-radius: var(--ns-radius);
+        box-shadow: var(--ns-shadow-sm);
+    }
+
+    /* --- Ô nhập & nút --- */
+    .form-control, .form-select {
+        border-color: #cbd5e1;
+        border-radius: var(--ns-radius-sm);
+        transition: border-color .15s ease, box-shadow .15s ease, background-color .15s ease;
+    }
+    .form-control::placeholder { color: #94a3b8; }
+    .form-control:hover:not(:focus):not(:disabled):not([readonly]),
+    .form-select:hover:not(:focus):not(:disabled) { border-color: #94a3b8; }
+    .form-control:focus, .form-select:focus { border-color: #86b7fe; box-shadow: var(--ns-focus-ring); }
+    .form-label { font-weight: 600; }
+    .btn { border-radius: var(--ns-radius-sm); font-weight: 600;
+           transition: background-color .15s ease, border-color .15s ease, box-shadow .15s ease, color .15s ease; }
+    .btn:focus-visible { box-shadow: var(--ns-focus-ring); outline: none; }
+    .btn:active:not(:disabled) { transform: translateY(1px); }
+    .badge { font-weight: 600; }
+    a:focus-visible, button:focus-visible, [tabindex]:focus-visible { outline: 2px solid #0d6efd; outline-offset: 2px; }
+    .form-control:focus-visible, .form-select:focus-visible, .btn:focus-visible { outline: none; }
+
+    /* --- Cửa sổ (modal) & menu thả --- */
+    .modal-content { border: none; border-radius: 16px; box-shadow: 0 24px 60px rgba(15,23,42,.2); }
+    .modal-footer { border-top-color: var(--ns-border-soft); }
+    .dropdown-menu { border-color: var(--ns-border); box-shadow: var(--ns-shadow-md); border-radius: 12px; }
+
+    /* --- Thanh cuộn mảnh cho vùng bảng --- */
+    .table-responsive, .bo-wrap { scrollbar-width: thin; scrollbar-color: #cbd5e1 transparent; }
+    .table-responsive::-webkit-scrollbar, .bo-wrap::-webkit-scrollbar { width: 10px; height: 10px; }
+    .table-responsive::-webkit-scrollbar-track, .bo-wrap::-webkit-scrollbar-track { background: transparent; }
+    .table-responsive::-webkit-scrollbar-thumb, .bo-wrap::-webkit-scrollbar-thumb {
+        background: #cbd5e1; border-radius: 10px; border: 2px solid #fff;
+    }
+    .table-responsive::-webkit-scrollbar-thumb:hover, .bo-wrap::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+
+    /* --- Cảm ứng: vùng bấm đủ lớn (không đụng ô trong bảng) --- */
+    @media (pointer: coarse) {
+        .btn:not(.btn-sm):not(.btn-close) { min-height: 44px; }
+        .btn-sm { min-height: 38px; }
+        .form-control-sm, .form-select-sm { min-height: 38px; }
+        td .btn-sm, th .btn-sm, td .form-control-sm, td .form-select-sm, td input, td select { min-height: 0; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+        *, *::before, *::after {
+            animation-duration: .01ms !important; animation-iteration-count: 1 !important;
+            transition-duration: .01ms !important; scroll-behavior: auto !important;
+        }
+    }
+
+    /* ================================================================
+       DANH SÁCH ĐẶT HÀNG - bảng theo phong cách index.html:
+       tiêu đề xanh nhạt chữ xanh (thay cho nền đen cũ), căn lề theo
+       kiểu dữ liệu - chữ/tên căn TRÁI, số lượng/ngày/trạng thái căn
+       GIỮA, tiền căn PHẢI - và tiêu đề luôn căn đúng như cột bên dưới.
+       Lưới .ig của tiêu đề và của từng dòng dùng CHUNG 1 định nghĩa nên
+       các cột luôn thẳng hàng.
+       ================================================================ */
+    :root { --brand: #0d6efd; --line: #dbe3ee; --bg: #f4f6f9; --mut: #475569; }
+    .btn-nam-suong { background: var(--ns-blue); border-color: var(--ns-blue); color: #fff; }
+    .btn-nam-suong:hover, .btn-nam-suong:focus { background: #0b5ed7; border-color: #0b5ed7; color: #fff; }
+    .container-main { margin: 1.1rem auto; }
+
+    /* Bộ lọc nhanh theo trạng thái (chip) - cùng kiểu pill với index */
+    .chip { border: 1px solid var(--ns-border); background: #fff; color: #475569; font-weight: 600;
+            padding: .32rem .9rem; transition: background .15s ease, color .15s ease, border-color .15s ease; }
+    .chip:hover { background: #eff6ff; color: var(--ns-blue); border-color: #bcd4ff; }
+    .chip.on { background: var(--ns-blue); border-color: var(--ns-blue); color: #fff; }
+
+    /* Khung bảng */
+    .bo-wrap { border-radius: 0; }
+    .card { overflow: hidden; }
+    table.bo { font-size: .86rem; }
+    table.bo thead th {
+        background: #e7f1ff; color: #0b5ed7;
+        font-size: .72rem; font-weight: 700; letter-spacing: .03em; line-height: 1.25;
+        padding: .7rem .8rem; vertical-align: middle;
+        box-shadow: inset 0 -2px 0 #cfe0ff;
+    }
+    table.bo thead th.k-stt, table.bo thead th.k-act { text-align: center; }
+    table.bo thead th.k-cust, table.bo thead th.k-veh { text-align: left; }
+    table.bo thead th.k-money { text-align: right; }
+
+    /* Dòng dữ liệu: đường kẻ giữa các đơn mảnh, rõ nhóm; hover nhẹ và ĐỒNG
+       MÀU trên toàn dòng (không bị lệch giữa các ô) */
+    table.bo td { padding: .7rem .8rem; border-top: 1px solid #d3deee; }
+    tbody.req:nth-of-type(even) td { background: #fafcff; }
+    tbody.req tr:hover td { background: #f1f6ff; }
+    .k-stt { width: 64px; text-align: center; }
+    .k-money { min-width: 140px; text-align: right; }
+    .k-act { width: 92px; text-align: center; white-space: nowrap; }
+    .stt { font-size: 1rem; }
+    .money-big, .money-sub, .qty, .dv, input.qe { font-variant-numeric: tabular-nums; }
+
+    /* Lưới mặt hàng (tiêu đề + dòng dùng chung): cột SL & ngày rộng hơn
+       để chữ số/ngày không bị cắt với font thương hiệu */
+    .ig { grid-template-columns: minmax(230px,1fr) 56px 136px 108px repeat(4, 110px) minmax(180px,240px); min-width: 1310px; }
+    .ig > div { border-top-color: #e6edf6; }
+
+    /* Tiêu đề lưới: căn theo cột dữ liệu bên dưới (cột 1 & 9 trái, còn lại giữa) */
+    table.bo thead .ig > .h { color: #0b5ed7 !important; font-size: .72rem !important; font-weight: 700 !important;
+                              letter-spacing: .03em; text-align: center; }
+    table.bo thead .ig > .h:first-child, table.bo thead .ig > .h:last-child { text-align: left !important; }
+
+    /* Nội dung ô: mã/tên hàng trái, SL giữa; trạng thái/loại đơn/ngày giữa */
+    .qty { text-align: center; }
+    .ig > div.first input.qe.merged, input.qe.merged { text-align: center; }
+    input.qe[data-t="date"] { text-align: center; }
+    select.pillsel { text-align: center; text-align-last: center; padding: .25rem .6rem; }
+    input.qe { border-bottom: 1px dashed #b4c1d6; }
+    input.qe:focus { border: 1px solid var(--ns-blue); box-shadow: var(--ns-focus-ring); }
+    .code { background: #eef2ff; border-color: #dbe4ff; color: #1e3a8a; }
+    .pname { line-height: 1.35; }
+    .ico { width: 32px; height: 32px; border-radius: 8px; border-color: var(--ns-border); }
+    .ico:hover { background: #e7f1ff; color: var(--ns-blue); border-color: #bcd4ff; }
+
+    /* Phiếu nhập / sửa đơn: tiêu đề xanh thương hiệu như các modal của index */
+    .modal-header { background: var(--ns-blue); color: #fff; border-bottom: 0; }
+    .sec { border-left-color: var(--ns-blue); }
+    .tot-bar { background: #f8fafc; border-top: 1px solid var(--ns-border); }
+    .item-card { border-radius: 10px; }
+    #toast { border-radius: 10px; box-shadow: var(--ns-shadow-md); }
+    .ac { border-radius: 10px; border-color: #bcd4ff; }
+
+    /* Thanh phân trang cuối bảng */
+    #pagerInfo { font-weight: 600; }
+    @media (max-width: 768px) {
+        .ns-topbar { padding: .6rem 1rem; }
+        .container-main { padding: 0 .75rem; }
+    }
 </style>
 </head>
 <body>
-<div class="topbar">
+<div class="topbar ns-topbar">
   <div class="d-flex align-items-center gap-2">
     <img src="{{ url_for('static', filename='logo.png') }}" alt="Logo" class="brand-logo">
-    <div><div class="fw-bold brand-title">DANH SÁCH ĐẶT HÀNG</div><div class="small text-secondary">Theo dõi đặt hàng cho khách (BO khách hàng)</div></div>
+    <div><div class="fw-bold brand-title ns-title">DANH SÁCH ĐẶT HÀNG</div><div class="small text-secondary ns-subtitle">Theo dõi đặt hàng cho khách (BO khách hàng)</div></div>
   </div>
   <div class="d-flex align-items-center gap-2">
     <a href="/" class="btn btn-outline-secondary btn-sm"><i class="bi bi-house"></i> Trang chủ</a>

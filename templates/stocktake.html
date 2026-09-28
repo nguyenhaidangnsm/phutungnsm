@@ -14,9 +14,11 @@
        trơn như trước. ===== */
     @font-face {
         font-family: 'SVN-MonaSans';
-        src: url("{{ url_for('static', filename='fonts/SVN-MonaSans-SemiBoldWide.otf') }}") format('opentype');
+        src: url("{{ url_for('static', filename='fonts/SVN-MonaSans-SemiBoldWide.woff') }}") format('woff'),
+             url("{{ url_for('static', filename='fonts/SVN-MonaSans-SemiBoldWide.otf') }}") format('opentype');
         font-weight: normal;
         font-style: normal;
+        font-display: swap;
     }
     :root {
         --ns-blue: #0d6efd;
@@ -79,14 +81,182 @@
         #st-last-count-qty { width: 84px !important; }
         .modal-dialog { margin: 0.5rem; }
     }
+    /* ================================================================
+       DESIGN REFRESH (đồng bộ với index.html) - lớp giao diện đặt CUỐI
+       khối CSS để ghi đè nhẹ, KHÔNG đổi id/class/cấu trúc mà JS đang
+       dùng. Dùng chung 1 bộ màu / bo góc / đổ bóng / trạng thái focus
+       với trang chính để 3 trang nhìn như 1 hệ thống.
+       ================================================================ */
+    :root {
+        --ns-blue: #0d6efd;
+        --ns-dark: #1e293b;
+        --ns-border: #e2e8f0;
+        --ns-border-soft: #eef2f7;
+        --ns-muted: #64748b;
+        --ns-radius: 14px;
+        --ns-radius-sm: 8px;
+        --ns-shadow-sm: 0 1px 2px rgba(15,23,42,.05), 0 2px 8px rgba(15,23,42,.05);
+        --ns-shadow-md: 0 6px 20px rgba(15,23,42,.09);
+        --ns-focus-ring: 0 0 0 .2rem rgba(13,110,253,.18);
+    }
+    body {
+        background-color: #f4f6f9;
+        color: var(--ns-dark);
+        font-family: 'SVN-MonaSans', system-ui, -apple-system, 'Segoe UI', Roboto, Arial, sans-serif;
+        -webkit-font-smoothing: antialiased;
+        text-rendering: optimizeLegibility;
+    }
+
+    /* --- Thanh trên cùng: nền trắng + vạch xanh dưới, giống banner của index --- */
+    .ns-topbar {
+        background: #fff;
+        border-bottom: 3px solid var(--ns-blue);
+        box-shadow: 0 10px 30px rgba(13,110,253,.05);
+        padding: .7rem 1.5rem;
+        display: flex; align-items: center; justify-content: space-between;
+        flex-wrap: wrap; gap: .5rem;
+    }
+    .ns-topbar .brand-logo { max-height: 40px; }
+    .ns-topbar .ns-title { font-weight: 800; font-size: 1.05rem; letter-spacing: .01em; line-height: 1.2; color: var(--ns-dark); }
+    .ns-topbar .ns-subtitle { font-size: .8rem; color: var(--ns-muted); }
+
+    /* --- Thẻ nội dung --- */
+    .card {
+        border: none;
+        border-top: 3px solid var(--ns-blue);
+        border-radius: var(--ns-radius);
+        box-shadow: var(--ns-shadow-sm);
+    }
+
+    /* --- Ô nhập & nút --- */
+    .form-control, .form-select {
+        border-color: #cbd5e1;
+        border-radius: var(--ns-radius-sm);
+        transition: border-color .15s ease, box-shadow .15s ease, background-color .15s ease;
+    }
+    .form-control::placeholder { color: #94a3b8; }
+    .form-control:hover:not(:focus):not(:disabled):not([readonly]),
+    .form-select:hover:not(:focus):not(:disabled) { border-color: #94a3b8; }
+    .form-control:focus, .form-select:focus { border-color: #86b7fe; box-shadow: var(--ns-focus-ring); }
+    .form-label { font-weight: 600; }
+    .btn { border-radius: var(--ns-radius-sm); font-weight: 600;
+           transition: background-color .15s ease, border-color .15s ease, box-shadow .15s ease, color .15s ease; }
+    .btn:focus-visible { box-shadow: var(--ns-focus-ring); outline: none; }
+    .btn:active:not(:disabled) { transform: translateY(1px); }
+    .badge { font-weight: 600; }
+    a:focus-visible, button:focus-visible, [tabindex]:focus-visible { outline: 2px solid #0d6efd; outline-offset: 2px; }
+    .form-control:focus-visible, .form-select:focus-visible, .btn:focus-visible { outline: none; }
+
+    /* --- Cửa sổ (modal) & menu thả --- */
+    .modal-content { border: none; border-radius: 16px; box-shadow: 0 24px 60px rgba(15,23,42,.2); }
+    .modal-footer { border-top-color: var(--ns-border-soft); }
+    .dropdown-menu { border-color: var(--ns-border); box-shadow: var(--ns-shadow-md); border-radius: 12px; }
+
+    /* --- Thanh cuộn mảnh cho vùng bảng --- */
+    .table-responsive, .bo-wrap { scrollbar-width: thin; scrollbar-color: #cbd5e1 transparent; }
+    .table-responsive::-webkit-scrollbar, .bo-wrap::-webkit-scrollbar { width: 10px; height: 10px; }
+    .table-responsive::-webkit-scrollbar-track, .bo-wrap::-webkit-scrollbar-track { background: transparent; }
+    .table-responsive::-webkit-scrollbar-thumb, .bo-wrap::-webkit-scrollbar-thumb {
+        background: #cbd5e1; border-radius: 10px; border: 2px solid #fff;
+    }
+    .table-responsive::-webkit-scrollbar-thumb:hover, .bo-wrap::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+
+    /* --- Cảm ứng: vùng bấm đủ lớn (không đụng ô trong bảng) --- */
+    @media (pointer: coarse) {
+        .btn:not(.btn-sm):not(.btn-close) { min-height: 44px; }
+        .btn-sm { min-height: 38px; }
+        .form-control-sm, .form-select-sm { min-height: 38px; }
+        td .btn-sm, th .btn-sm, td .form-control-sm, td .form-select-sm, td input, td select { min-height: 0; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+        *, *::before, *::after {
+            animation-duration: .01ms !important; animation-iteration-count: 1 !important;
+            transition-duration: .01ms !important; scroll-behavior: auto !important;
+        }
+    }
+
+    /* ================================================================
+       BẢNG KIỂM KÊ - quy tắc căn lề thống nhất (đọc từ trái sang phải):
+       chữ/mã căn TRÁI, số căn PHẢI (chữ số thẳng hàng nhờ tabular-nums),
+       trạng thái & nút thao tác căn GIỮA. Tiêu đề cột căn ĐÚNG như nội
+       dung của cột đó (trước đây mọi tiêu đề bị ép căn giữa nên lệch với
+       số căn phải bên dưới). Cột được xác định theo thứ tự (nth-child)
+       nên KHÔNG phải sửa mã JS tạo dòng.
+       ================================================================ */
+    .st-tbl { font-size: .86rem; margin-bottom: 0; --bs-table-border-color: var(--ns-border-soft); }
+    .st-tbl thead th {
+        background-color: #e7f1ff;
+        color: #0b5ed7;
+        font-size: .72rem;
+        font-weight: 700 !important;
+        letter-spacing: .03em;
+        line-height: 1.25;
+        text-align: left !important;
+        vertical-align: middle;
+        padding: .7rem .8rem;
+        border-bottom: 0;
+        box-shadow: inset 0 -2px 0 #cfe0ff;
+    }
+    .st-tbl tbody td { padding: .6rem .8rem; vertical-align: middle; }
+    .st-tbl tbody tr { border-bottom: 1px solid var(--ns-border-soft); }
+    .st-tbl tbody tr:last-child { border-bottom: 0; }
+    .st-tbl td.text-end, .st-tbl th.text-end { font-variant-numeric: tabular-nums; }
+    .st-tbl .part-code { display: inline-block; }
+
+    /* Nhật Ký Đếm: 1 Thời gian | 2 Mã | 3 Tên | 4-6 Số | 7 Tình trạng | 8 Vị trí | 9 Thao tác */
+    .st-tbl-log :is(th, td):nth-child(n+4):nth-child(-n+6) { text-align: right !important; white-space: nowrap; }
+    .st-tbl-log :is(th, td):nth-child(7),
+    .st-tbl-log :is(th, td):nth-child(9) { text-align: center !important; white-space: nowrap; }
+    .st-tbl-log :is(th, td):nth-child(1) { white-space: nowrap; }
+    .st-tbl-log :is(th, td):nth-child(3) { min-width: 200px; }
+
+    /* Bảng Đối Chiếu: 1 Mã | 2 Tên | 3 Vị trí | 4-8 Số | 9 Trạng thái | 10 Thao tác */
+    .st-tbl-sum :is(th, td):nth-child(n+4):nth-child(-n+8) { text-align: right !important; white-space: nowrap; }
+    .st-tbl-sum :is(th, td):nth-child(9),
+    .st-tbl-sum :is(th, td):nth-child(10) { text-align: center !important; white-space: nowrap; }
+    .st-tbl-sum :is(th, td):nth-child(2) { min-width: 220px; }
+    .st-tbl-sum thead th:nth-child(n+4):nth-child(-n+8) { white-space: nowrap; }
+
+    /* Lịch Sử: 1 Mã | 2 Cửa hàng | 3 Chốt sổ | 4 Trạng thái | 5 Người tạo | 6 Chốt lúc | 7 Thao tác */
+    .st-tbl-his :is(th, td):nth-child(4),
+    .st-tbl-his :is(th, td):nth-child(7) { text-align: center !important; white-space: nowrap; }
+    .st-tbl-his :is(th, td):nth-child(1),
+    .st-tbl-his :is(th, td):nth-child(3),
+    .st-tbl-his :is(th, td):nth-child(6) { white-space: nowrap; }
+
+    /* Vùng bảng tự cuộn trong khung + tiêu đề dính: đối chiếu số liệu mà
+       không mất dòng tiêu đề khi cuộn (trước đây khung không có chiều cao
+       tối đa nên header dính không có tác dụng). */
+    .st-sum-scroll { max-height: 70vh; overflow: auto; border-radius: 10px; }
+    .st-his-scroll { max-height: 50vh; overflow: auto; border-radius: 10px; }
+    .st-log-scroll { border-radius: 10px; }
+
+    /* Dòng lệch: giữ màu cảnh báo nhẹ, thêm vạch màu mép trái cho dễ quét */
+    .st-tbl tr.row-recount > td:first-child { box-shadow: inset 3px 0 0 #dc3545; }
+    .st-tbl tr.row-minor > td:first-child { box-shadow: inset 3px 0 0 #f0ad4e; }
+    .st-tbl.table-hover > tbody > tr:hover > * { --bs-table-bg-state: #f1f6ff; }
+
+    /* Huy hiệu trạng thái: cùng chiều cao, chữ căn giữa */
+    .badge-status { display: inline-block; min-width: 68px; text-align: center; }
+
+    /* Bộ lọc & tab số trang gọn gàng hơn */
+    #st-summary-pages .nav-link { padding: .3rem .75rem; font-size: .82rem; }
+    .st-tbl .btn-sm { padding: .2rem .5rem; }
+    .st-pagehead { font-weight: 700; }
 </style>
 </head>
 <body>
-<div class="container-fluid app-container px-2 px-md-4 py-3 py-md-4">
-    <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
-        <h4 class="fw-bold mb-0" style="color: var(--ns-dark);"><i class="bi bi-clipboard-check" style="color: var(--ns-blue);"></i> Kiểm Kê Kho <span class="text-muted fw-normal fs-6 d-none d-sm-inline">- Nam Sương Motor</span></h4>
-        <a href="/" class="btn btn-outline-secondary btn-sm"><i class="bi bi-arrow-left"></i> Về trang chính</a>
+<div class="ns-topbar mb-3 mb-md-4">
+    <div class="d-flex align-items-center gap-2">
+        <img src="{{ url_for('static', filename='logo.png') }}" alt="Logo" class="brand-logo">
+        <div>
+            <div class="ns-title"><i class="bi bi-clipboard-check" style="color: var(--ns-blue);"></i> KIỂM KÊ KHO</div>
+            <div class="ns-subtitle d-none d-sm-block">Nam Sương Motor</div>
+        </div>
     </div>
+    <a href="/" class="btn btn-outline-secondary btn-sm"><i class="bi bi-arrow-left"></i> Về trang chính</a>
+</div>
+<div class="container-fluid app-container px-2 px-md-4 pb-3 pb-md-4">
 
     <!-- Chọn cửa hàng + phiên hiện tại -->
     <div class="card shadow-sm mb-3">
@@ -220,7 +390,7 @@
                 </div>
             </div>
             <div class="table-responsive st-log-scroll">
-                <table class="table table-sm">
+                <table class="table table-sm st-tbl st-tbl-log">
                     <thead class="table-light"><tr><th>Thời Gian Kiểm</th><th>Mã Hàng</th><th>Tên Hàng</th><th class="text-end">Số Lượng Đã Quét</th><th class="text-end">Thực Tế</th><th class="text-end">Tồn Sổ Sách</th><th>Tình Trạng</th><th>Vị Trí Kho</th><th></th></tr></thead>
                     <tbody id="st-log-body"></tbody>
                 </table>
@@ -284,8 +454,8 @@
                 <ul class="nav nav-pills" id="st-summary-pages"></ul>
             </div>
 
-            <div class="table-responsive">
-                <table class="table table-sm table-hover align-middle">
+            <div class="table-responsive st-sum-scroll">
+                <table class="table table-sm table-hover align-middle st-tbl st-tbl-sum">
                     <thead class="table-light">
                         <tr>
                             <th>Mã Hàng</th><th>Tên Hàng</th>
@@ -316,8 +486,8 @@
                     <button type="button" class="btn btn-outline-danger btn-sm" onclick="purgeStoreData()"><i class="bi bi-trash3"></i> Xoá Dữ Liệu Kiểm Kê Cửa Hàng</button>
                 </div>
             </div>
-            <div class="table-responsive">
-                <table class="table table-sm">
+            <div class="table-responsive st-his-scroll">
+                <table class="table table-sm st-tbl st-tbl-his">
                     <thead class="table-light"><tr><th>Mã</th><th>Cửa Hàng</th><th>Chốt Sổ</th><th>Trạng Thái</th><th>Người Tạo</th><th>Chốt Lúc</th><th></th></tr></thead>
                     <tbody id="st-history-body"></tbody>
                 </table>
