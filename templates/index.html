@@ -5324,6 +5324,8 @@
     let _bodyKitMenuCache = null;   // [{family, group_count, sub_models:[{sub_model, group_count}]}]
     let _bodyKitSelectedFamily = null;
     let _bodyKitSelectedSubModel = null;
+    // Đặt true nếu muốn bật lại menu con (lọc theo đời/dung tích) của Bảng Giá Bộ Áo.
+    const BODYKIT_SUBMENU_ENABLED = false;
 
     function debouncedLoadBodyKitGroups() {
         clearTimeout(_bodyKitSearchTimer);
@@ -5392,7 +5394,7 @@
         const fam = _bodyKitMenuCache && _bodyKitSelectedFamily
             ? _bodyKitMenuCache.find(f => f.family === _bodyKitSelectedFamily) : null;
         const subModels = fam ? fam.sub_models.filter(s => s.sub_model) : [];
-        if (!fam || subModels.length < 2) {
+        if (!BODYKIT_SUBMENU_ENABLED || !fam || subModels.length < 2) {
             subEl.classList.add('d-none');
             subEl.innerHTML = '';
             return;
