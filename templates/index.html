@@ -1077,6 +1077,138 @@
         :root { --ns-sb-collapsed: 54px; --ns-sb-expanded: 224px; }
         .ns-sidebar-group-title, .ns-sidebar-item { font-size: 0.8rem; }
     }
+    /* ================================================================
+       DESIGN REFRESH - lớp giao diện đồng bộ (đặt CUỐI khối CSS để ghi
+       đè nhẹ, KHÔNG đổi id/class/cấu trúc mà JS đang dùng).
+       Mục tiêu: (1) 1 bộ "token" màu/bo góc/đổ bóng dùng chung cho mọi
+       trang; (2) dễ đọc hơn (tương phản chữ, tiêu đề bảng gọn hơn);
+       (3) thao tác rõ ràng (trạng thái focus/hover/đang chọn nhất quán,
+       vùng bấm đủ lớn trên cảm ứng); (4) menu dọc rõ mục đang chọn.
+       Không đụng tới màu nền ô/hàng bảng (để không phá các cột dính và
+       hiệu ứng hover đã căn chỉnh ở bảng Duyệt Đơn Hàng).
+       ================================================================ */
+    :root {
+        --ns-border: #e2e8f0;
+        --ns-border-soft: #eef2f7;
+        --ns-muted: #64748b;
+        --ns-radius: 14px;
+        --ns-radius-sm: 8px;
+        --ns-shadow-sm: 0 1px 2px rgba(15,23,42,.05), 0 2px 8px rgba(15,23,42,.05);
+        --ns-shadow-md: 0 6px 20px rgba(15,23,42,.09);
+        --ns-focus-ring: 0 0 0 .2rem rgba(13,110,253,.18);
+    }
+    body { -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility; }
+
+    /* --- Thẻ nội dung: nhẹ hơn, bo đều, giữ vạch màu nhận diện phía trên --- */
+    .card-custom {
+        border-radius: var(--ns-radius);
+        border-top-width: 3px;
+        box-shadow: var(--ns-shadow-sm);
+    }
+    .card { border-color: var(--ns-border); }
+
+    /* --- Ô nhập liệu & nút: cùng 1 ngôn ngữ (bo góc, viền, vòng focus) --- */
+    .form-control, .form-select {
+        border-color: #cbd5e1;
+        border-radius: var(--ns-radius-sm);
+        transition: border-color .15s ease, box-shadow .15s ease, background-color .15s ease;
+    }
+    .form-control::placeholder { color: #94a3b8; }
+    .form-control:hover:not(:focus):not(:disabled),
+    .form-select:hover:not(:focus):not(:disabled) { border-color: #94a3b8; }
+    .form-control:focus, .form-select:focus {
+        border-color: #86b7fe;
+        box-shadow: var(--ns-focus-ring);
+    }
+    .form-control:disabled, .form-select:disabled { background-color: #f1f5f9; }
+    .btn {
+        border-radius: var(--ns-radius-sm);
+        font-weight: 600;
+        transition: background-color .15s ease, border-color .15s ease, box-shadow .15s ease, color .15s ease;
+    }
+    .btn:focus-visible { box-shadow: var(--ns-focus-ring); outline: none; }
+    .btn:active:not(:disabled) { transform: translateY(1px); }
+    .badge { font-weight: 600; }
+
+    /* --- Bàn phím: viền focus rõ ràng cho mọi phần tử bấm được --- */
+    a:focus-visible, button:focus-visible, [tabindex]:focus-visible, summary:focus-visible {
+        outline: 2px solid #0d6efd;
+        outline-offset: 2px;
+    }
+    .form-control:focus-visible, .form-select:focus-visible, .btn:focus-visible { outline: none; }
+
+    /* --- Bảng: tiêu đề gọn, dễ đọc; đường kẻ dòng mảnh --- */
+    .table { --bs-table-border-color: var(--ns-border-soft); }
+    .table thead th {
+        font-weight: 700 !important;
+        letter-spacing: .03em;
+        line-height: 1.25;
+        box-shadow: inset 0 -2px 0 #cfe0ff;
+    }
+    .table-responsive {
+        border-radius: 10px;
+        scrollbar-width: thin;
+        scrollbar-color: #cbd5e1 transparent;
+    }
+    .table-responsive::-webkit-scrollbar { width: 10px; height: 10px; }
+    .table-responsive::-webkit-scrollbar-track { background: transparent; }
+    .table-responsive::-webkit-scrollbar-thumb {
+        background: #cbd5e1; border-radius: 10px; border: 2px solid #fff;
+    }
+    .table-responsive::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+
+    /* --- Menu dọc: rõ mục đang chọn + chữ nhóm dễ đọc hơn --- */
+    .ns-sidebar-item { position: relative; }
+    .ns-sidebar-item:focus-visible { outline-offset: -2px; }
+    .ns-sidebar-item.mega-active {
+        background: #e8f1ff;
+        color: #0b5ed7;
+    }
+    .ns-sidebar-item.mega-active::before {
+        content: "";
+        position: absolute;
+        left: -8px; top: 8px; bottom: 8px;
+        width: 4px;
+        border-radius: 0 4px 4px 0;
+        background: var(--ns-blue);
+    }
+    .ns-sidebar-item.mega-active .ns-sidebar-icon { color: var(--ns-blue); }
+    .ns-sidebar-group-title { color: var(--ns-muted); font-size: .68rem; }
+    .ns-sidebar { scrollbar-width: thin; scrollbar-color: #cbd5e1 transparent; }
+
+    /* --- Tab con dạng pill (trong từng trang) --- */
+    .nav-pills .nav-link { border: 1px solid var(--ns-border); box-shadow: none; }
+    .nav-pills .nav-link.active { border-color: transparent; }
+
+    /* --- Cửa sổ (modal) --- */
+    .modal-content {
+        border: none;
+        border-radius: 16px;
+        box-shadow: 0 24px 60px rgba(15,23,42,.2);
+    }
+    .modal-header { border-bottom-color: var(--ns-border-soft); }
+    .modal-footer { border-top-color: var(--ns-border-soft); }
+    .dropdown-menu { border-color: var(--ns-border); box-shadow: var(--ns-shadow-md); border-radius: 12px; }
+
+    /* --- Màn hình cảm ứng: vùng bấm đủ lớn (không đụng ô trong bảng để
+           không làm cao dòng) --- */
+    @media (pointer: coarse) {
+        .btn:not(.btn-sm):not(.btn-close) { min-height: 44px; }
+        .btn-sm { min-height: 38px; }
+        .form-control-sm, .form-select-sm { min-height: 38px; }
+        .ns-sidebar-item { min-height: 44px; }
+        td .btn-sm, th .btn-sm, td .form-control-sm, td .form-select-sm { min-height: 0; }
+    }
+
+    /* --- Người dùng tắt hiệu ứng chuyển động trong hệ điều hành --- */
+    @media (prefers-reduced-motion: reduce) {
+        *, *::before, *::after {
+            animation-duration: .01ms !important;
+            animation-iteration-count: 1 !important;
+            transition-duration: .01ms !important;
+            scroll-behavior: auto !important;
+        }
+    }
 </style>
 </head>
 <link rel="manifest" href="/static/manifest.json">
@@ -1270,28 +1402,16 @@
             {% endif %}
         </div>
 
+        <!-- Nhóm "Kho Hàng": mọi thứ liên quan tới HÀNG ĐANG NẰM Ở ĐÂU / CÒN BAO NHIÊU
+             (tra tồn, vị trí, sơ đồ 3D, hàng hư, kiểm kê). Tách khỏi nhóm "Nhập Hàng & Giá"
+             để menu ngắn gọn, đúng theo nghiệp vụ. Toàn bộ nút giữ NGUYÊN onclick /
+             data-target-tab / điều kiện role như cũ. -->
         <div class="ns-sidebar-group">
-            <div class="ns-sidebar-group-title"><span class="ns-label">Quản Lý Kho</span></div>
+            <div class="ns-sidebar-group-title"><span class="ns-label">Kho Hàng</span></div>
             <button type="button" class="ns-sidebar-item" data-target-tab="inventory-tab" onclick="megaNavClick('inventory-tab', this)">
                 <span class="ns-sidebar-icon"><i class="bi bi-boxes"></i></span>
                 <span class="ns-label">{% if role == 'store' %}Tồn Kho &amp; Vị Trí{% else %}Tồn Kho Hệ Thống{% endif %}</span>
             </button>
-            {% if role == 'admin' %}
-            <button type="button" class="ns-sidebar-item" data-target-tab="sales-freq-tab" onclick="megaNavClick('sales-freq-tab', this)">
-                <span class="ns-sidebar-icon"><i class="bi bi-graph-down-arrow"></i></span>
-                <span class="ns-label">Thống Kê Tần Suất Bán</span>
-            </button>
-            {% endif %}
-            {% if role == 'admin' or role == 'store' %}
-            <button type="button" class="ns-sidebar-item" data-target-tab="reorder-tab" onclick="megaNavClick('reorder-tab', this)">
-                <span class="ns-sidebar-icon"><i class="bi bi-cart-plus-fill"></i></span>
-                <span class="ns-label">Gợi Ý Nhập Hàng</span>
-            </button>
-            <button type="button" class="ns-sidebar-item" data-target-tab="body-kit-tab" onclick="megaNavClick('body-kit-tab', this)">
-                <span class="ns-sidebar-icon"><i class="bi bi-palette-fill"></i></span>
-                <span class="ns-label">Bảng Giá Bộ Áo</span>
-            </button>
-            {% endif %}
             {% if role == 'admin' %}
             <button type="button" class="ns-sidebar-item" data-target-tab="location-tab" onclick="megaNavClick('location-tab', this)">
                 <span class="ns-sidebar-icon"><i class="bi bi-geo-alt-fill"></i></span>
@@ -1310,17 +1430,39 @@
                 <span class="ns-label">Hàng Cần Xử Lý</span>
             </button>
             {% endif %}
-            <button type="button" class="ns-sidebar-item" data-target-tab="price-adjustment-tab" onclick="megaNavClick('price-adjustment-tab', this)">
-                <span class="ns-sidebar-icon"><i class="bi bi-graph-up-arrow"></i></span>
-                <span class="ns-label">Đề Xuất Tăng Giá</span>
-            </button>
-
             {% if role == 'admin' %}
             <button type="button" class="ns-sidebar-item" onclick="window.location.href='/stocktake'">
                 <span class="ns-sidebar-icon"><i class="bi bi-clipboard-check"></i></span>
                 <span class="ns-label">Kiểm Kê Kho</span>
             </button>
             {% endif %}
+        </div>
+
+        <!-- Nhóm "Nhập Hàng & Giá": quyết định NHẬP GÌ và BÁN GIÁ BAO NHIÊU. -->
+        <div class="ns-sidebar-group">
+            <div class="ns-sidebar-group-title"><span class="ns-label">Nhập Hàng &amp; Giá</span></div>
+            {% if role == 'admin' or role == 'store' %}
+            <button type="button" class="ns-sidebar-item" data-target-tab="reorder-tab" onclick="megaNavClick('reorder-tab', this)">
+                <span class="ns-sidebar-icon"><i class="bi bi-cart-plus-fill"></i></span>
+                <span class="ns-label">Gợi Ý Nhập Hàng</span>
+            </button>
+            {% endif %}
+            {% if role == 'admin' %}
+            <button type="button" class="ns-sidebar-item" data-target-tab="sales-freq-tab" onclick="megaNavClick('sales-freq-tab', this)">
+                <span class="ns-sidebar-icon"><i class="bi bi-graph-down-arrow"></i></span>
+                <span class="ns-label">Thống Kê Tần Suất Bán</span>
+            </button>
+            {% endif %}
+            {% if role == 'admin' or role == 'store' %}
+            <button type="button" class="ns-sidebar-item" data-target-tab="body-kit-tab" onclick="megaNavClick('body-kit-tab', this)">
+                <span class="ns-sidebar-icon"><i class="bi bi-palette-fill"></i></span>
+                <span class="ns-label">Bảng Giá Bộ Áo</span>
+            </button>
+            {% endif %}
+            <button type="button" class="ns-sidebar-item" data-target-tab="price-adjustment-tab" onclick="megaNavClick('price-adjustment-tab', this)">
+                <span class="ns-sidebar-icon"><i class="bi bi-graph-up-arrow"></i></span>
+                <span class="ns-label">Đề Xuất Tăng Giá</span>
+            </button>
         </div>
 
         <div class="ns-sidebar-group">
