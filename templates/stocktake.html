@@ -243,6 +243,19 @@
     #st-summary-pages .nav-link { padding: .3rem .75rem; font-size: .82rem; }
     .st-tbl .btn-sm { padding: .2rem .5rem; }
     .st-pagehead { font-weight: 700; }
+
+    /* ----- Kiểm đột xuất: khung chọn Nhóm / Khu vực ----- */
+    .st-spot-panel { background: #f8fafc; border: 1px solid var(--ns-border); border-radius: 12px; }
+    .st-scope-list {
+        max-height: 220px; overflow: auto; background: #fff; padding: 4px;
+        border: 1px solid var(--ns-border); border-radius: var(--ns-radius-sm);
+        display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 2px 8px;
+    }
+    .st-scope-item { display: flex; align-items: center; gap: 8px; margin: 0; padding: 6px 8px; border-radius: 6px; cursor: pointer; font-size: .86rem; font-weight: 600; }
+    .st-scope-item:hover { background: #f1f6ff; }
+    .st-scope-item.selected { background: #e7f1ff; color: #0b5ed7; }
+    .st-scope-item .cnt { margin-left: auto; font-size: .72rem; font-weight: 500; color: var(--ns-muted); white-space: nowrap; }
+    .group-chip { display: inline-block; padding: 1px 7px; border-radius: 6px; font-size: .7rem; font-weight: 600; background: #fef3c7; color: #92400e; border: 1px solid #fde68a; white-space: nowrap; }
 </style>
 </head>
 <body>
@@ -270,8 +283,51 @@
                     </select>
                 </div>
                 <div class="col-6 col-md-3">
+                    <label class="form-label small text-secondary mb-1">Loại kiểm kê</label>
+                    <div class="btn-group w-100" role="group" aria-label="Loại kiểm kê">
+                        <input type="radio" class="btn-check" name="st-type" id="st-type-full" value="full" autocomplete="off" checked onchange="onTypeChange()">
+                        <label class="btn btn-outline-primary" for="st-type-full">Tổng kho</label>
+                        <input type="radio" class="btn-check" name="st-type" id="st-type-spot" value="spot" autocomplete="off" onchange="onTypeChange()">
+                        <label class="btn btn-outline-primary" for="st-type-spot">Đột xuất</label>
+                    </div>
+                </div>
+                <div class="col-12 col-md-3">
                     <button type="button" class="btn btn-primary w-100" id="st-start-btn" onclick="startSession()"><i class="bi bi-plus-lg"></i> Bắt Đầu Kiểm Kê</button>
                 </div>
+            </div>
+
+            <!-- Kiểm đột xuất: chọn kiểm theo Nhóm hàng hay theo Khu vực (vị trí kho).
+                 Hệ thống chỉ chụp các mã CÓ TỒN thuộc phạm vi đã chọn và sẽ báo
+                 nếu còn mã chưa quét (xem renderSessionInfo/closeSession). -->
+            <div id="st-spot-panel" class="st-spot-panel p-3 mt-3" style="display:none;">
+                <div class="row g-2 align-items-start">
+                    <div class="col-12 col-md-3">
+                        <label class="form-label small text-secondary mb-1">Kiểm đột xuất theo</label>
+                        <select id="st-scope-type" class="form-select" onchange="onScopeTypeChange()">
+                            <option value="group">Nhóm hàng</option>
+                            <option value="area">Khu vực (vị trí kho)</option>
+                        </select>
+                        <div class="small text-muted mt-2" id="st-scope-hint">Chọn 1 hoặc nhiều nhóm. Quét thiếu mã nào trong nhóm, hệ thống sẽ báo.</div>
+                    </div>
+                    <div class="col-12 col-md-9">
+                        <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-1">
+                            <label class="form-label small text-secondary mb-0">Chọn phạm vi cần kiểm <span id="st-scope-count" class="fw-semibold text-primary"></span></label>
+                            <div class="d-flex gap-1">
+                                <button type="button" class="btn btn-outline-secondary btn-sm" onclick="scopeSelectVisible(true)">Chọn tất cả đang hiện</button>
+                                <button type="button" class="btn btn-outline-secondary btn-sm" onclick="scopeSelectVisible(false)">Bỏ chọn</button>
+                            </div>
+                        </div>
+                        <input type="text" id="st-scope-search" class="form-control form-control-sm mb-2" placeholder="Tìm nhóm / khu vực..." autocomplete="off" oninput="renderScopeList()">
+                        <div id="st-scope-list" class="st-scope-list"><div class="text-muted small p-2">Chọn cửa hàng trước.</div></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Nhóm hàng lấy từ cột C của file Bảng Giá (cột A = mã hàng) -->
+            <div class="d-flex flex-wrap align-items-center gap-2 mt-2">
+                <input type="file" id="st-groups-file" accept=".xlsx,.xls" style="display:none" onchange="importGroupsFile(this)">
+                <button type="button" class="btn btn-outline-secondary btn-sm" id="st-groups-btn" onclick="document.getElementById('st-groups-file').click()" title="Chọn file Bảng Giá: cột A = Mã hàng, cột C = Nhóm hàng"><i class="bi bi-tags"></i> Import Nhóm Hàng (Bảng Giá)</button>
+                <span class="small text-muted" id="st-groups-status"></span>
             </div>
             <div id="st-session-info" class="mt-3"></div>
         </div>
@@ -363,9 +419,15 @@
                  khi phiên vẫn chưa chốt. Lọc ở phía server nên không bị giới hạn
                  trong 10 dòng gần nhất đang hiển thị. -->
             <div class="row g-2 align-items-end mb-2">
-                <div class="col-12 col-md-4">
+                <div class="col-12 col-md-3">
                     <label class="form-label small text-secondary mb-1">Tìm trong nhật ký</label>
                     <input type="text" id="st-log-q" class="form-control form-control-sm" placeholder="Mã hàng, tên hàng hoặc vị trí kho..." autocomplete="off">
+                </div>
+                <div class="col-6 col-md-2">
+                    <label class="form-label small text-secondary mb-1">Nhóm đã kiểm</label>
+                    <select id="st-log-group" class="form-select form-select-sm">
+                        <option value="">-- Tất cả nhóm --</option>
+                    </select>
                 </div>
                 <div class="col-6 col-md-2">
                     <label class="form-label small text-secondary mb-1">Từ ngày</label>
@@ -376,7 +438,7 @@
                     <input type="date" id="st-log-to" class="form-control form-control-sm">
                 </div>
                 <div class="col-6 col-md-2">
-                    <label class="form-label small text-secondary mb-1">Số dòng hiển thị</label>
+                    <label class="form-label small text-secondary mb-1">Số dòng</label>
                     <select id="st-log-limit" class="form-select form-select-sm">
                         <option value="10">10 dòng</option>
                         <option value="50">50 dòng</option>
@@ -385,8 +447,8 @@
                         <option value="500">500 dòng</option>
                     </select>
                 </div>
-                <div class="col-6 col-md-2">
-                    <button type="button" class="btn btn-outline-secondary btn-sm w-100" onclick="clearLogFilters()"><i class="bi bi-x-circle"></i> Xoá lọc</button>
+                <div class="col-6 col-md-1">
+                    <button type="button" class="btn btn-outline-secondary btn-sm w-100" onclick="clearLogFilters()" title="Xoá lọc"><i class="bi bi-x-circle"></i></button>
                 </div>
             </div>
             <div class="table-responsive st-log-scroll">
@@ -416,18 +478,24 @@
             <div class="small text-muted mb-2">Bảng này không tự cập nhật sau mỗi lượt quét (để giữ tốc độ nhập liệu) - bấm "Làm mới" khi cần xem số liệu mới nhất. Nhật Ký Đếm phía trên vẫn cập nhật ngay sau mỗi lượt.</div>
 
             <!-- Bộ lọc: Mã hàng, Vị trí, Chênh lệch, Trạng thái -->
-            <div class="row g-2 align-items-end mb-3">
-                <div class="col-6 col-md-3">
+            <div class="row g-2 align-items-end mb-2">
+                <div class="col-6 col-md">
                     <label class="form-label small text-secondary mb-1">Lọc theo mã hàng</label>
                     <input type="text" id="st-filter-part" class="form-control form-control-sm" placeholder="Nhập mã hàng...">
                 </div>
-                <div class="col-6 col-md-3">
+                <div class="col-6 col-md">
+                    <label class="form-label small text-secondary mb-1">Lọc theo nhóm</label>
+                    <select id="st-filter-group" class="form-select form-select-sm">
+                        <option value="">-- Tất cả nhóm --</option>
+                    </select>
+                </div>
+                <div class="col-6 col-md">
                     <label class="form-label small text-secondary mb-1">Lọc theo vị trí</label>
                     <select id="st-filter-area" class="form-select form-select-sm">
                         <option value="">-- Tất cả vị trí --</option>
                     </select>
                 </div>
-                <div class="col-6 col-md-3">
+                <div class="col-6 col-md">
                     <label class="form-label small text-secondary mb-1">Chênh lệch</label>
                     <select id="st-filter-diff" class="form-select form-select-sm">
                         <option value="">-- Tất cả --</option>
@@ -435,10 +503,11 @@
                         <option value="no_diff">Chỉ mã Đủ (lệch = 0)</option>
                     </select>
                 </div>
-                <div class="col-6 col-md-3">
+                <div class="col-6 col-md">
                     <label class="form-label small text-secondary mb-1">Trạng thái</label>
                     <select id="st-filter-status" class="form-select form-select-sm">
                         <option value="">-- Tất cả --</option>
+                        <option value="counted">Đã đếm (mọi trạng thái)</option>
                         <option value="matched">Đủ</option>
                         <option value="surplus">Dư</option>
                         <option value="shortage">Thiếu</option>
@@ -446,6 +515,8 @@
                     </select>
                 </div>
             </div>
+
+            <div class="small fw-semibold text-primary mb-3" id="st-group-progress"></div>
 
             <!-- Phân trang kiểu tab - mỗi trang tối đa 200 mã, tránh render
                  hàng nghìn dòng cùng lúc gây nặng máy/khó rà soát. -->
@@ -491,6 +562,31 @@
                     <thead class="table-light"><tr><th>Mã</th><th>Cửa Hàng</th><th>Chốt Sổ</th><th>Trạng Thái</th><th>Người Tạo</th><th>Chốt Lúc</th><th></th></tr></thead>
                     <tbody id="st-history-body"></tbody>
                 </table>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Modal Mã Chưa Quét (kiểm đột xuất) -->
+<div class="modal fade" id="st-missing-modal" tabindex="-1">
+    <div class="modal-dialog modal-xl modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h6 class="modal-title fw-semibold"><i class="bi bi-exclamation-triangle-fill text-warning"></i> Mã chưa quét trong phạm vi kiểm</h6>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div id="st-missing-summary" class="small text-muted mb-2"></div>
+                <div class="table-responsive">
+                    <table class="table table-sm st-tbl">
+                        <thead class="table-light"><tr><th>Mã Hàng</th><th>Tên Hàng</th><th>Nhóm</th><th>Vị Trí Kho</th><th style="text-align:right !important;">Tồn Sổ Sách</th></tr></thead>
+                        <tbody id="st-missing-body"></tbody>
+                    </table>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline-secondary btn-sm" onclick="loadMissing()"><i class="bi bi-arrow-clockwise"></i> Làm mới</button>
+                <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Đóng</button>
             </div>
         </div>
     </div>
@@ -542,6 +638,8 @@
         document.getElementById('st-summary-card').style.display = 'none';
         document.getElementById('st-session-info').innerHTML = '';
         currentSession = null;
+        scopeSelected.clear();
+        if (getSessionType() === 'spot') loadScopeOptions();
         if (!store) { loadHistory(); return; }
         loadCurrent(store);
         loadHistory(store);
@@ -581,24 +679,80 @@
         const res = await fetch(`/api/stocktake/current?store_code=${store}`);
         const result = await res.json();
         if (result.session) {
+            const prevMissing = currentSession ? currentSession.missing_parts : null;
             currentSession = result.session;
             renderSessionInfo();
+            // Kiểm đột xuất: vừa quét nốt mã cuối cùng còn thiếu -> báo bằng giọng nói
+            // (đợi ~1s để không đè lên câu "Đã ghi nhận").
+            if (currentSession.session_type === 'spot' && prevMissing > 0 && currentSession.missing_parts === 0) {
+                setTimeout(() => speakText('Đã quét đủ mã', _stBeepFallbackSuccess), 1000);
+            }
         }
+    }
+
+    function esc(v) {
+        return String(v === null || v === undefined ? '' : v)
+            .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+    }
+
+    function scopeText(sess) {
+        if (!sess || sess.session_type !== 'spot') return '';
+        return `${sess.scope_type === 'group' ? 'Nhóm' : 'Khu vực'}: ${(sess.scope_values || []).join(', ')}`;
     }
 
     function renderSessionInfo() {
         if (!currentSession) return;
-        document.getElementById('st-session-info').innerHTML = `
-            <div class="alert alert-info py-2 mb-0 d-flex justify-content-between align-items-center">
-                <div><b>Phiên #${currentSession.id}</b> - Chốt sổ lúc: ${currentSession.cutoff_time} - Đã đếm ${currentSession.counted_parts}/${currentSession.total_parts} mã</div>
-                <span class="badge ${currentSession.status === 'reopened' ? 'bg-warning text-dark' : 'bg-primary'}">${currentSession.status === 'reopened' ? 'Đã mở lại' : 'Đang mở'}</span>
+        const s = currentSession;
+        const isSpot = s.session_type === 'spot';
+        const typeBadge = isSpot
+            ? '<span class="badge bg-warning text-dark me-1">Đột xuất</span>'
+            : '<span class="badge bg-secondary me-1">Tổng kho</span>';
+        let html = `
+            <div class="alert alert-info py-2 mb-0">
+                <div class="d-flex justify-content-between align-items-center">
+                    <div>${typeBadge}<b>Phiên #${s.id}</b> - Chốt sổ lúc: ${s.cutoff_time} - Đã đếm ${s.counted_parts}/${s.total_parts} mã</div>
+                    <span class="badge ${s.status === 'reopened' ? 'bg-warning text-dark' : 'bg-primary'}">${s.status === 'reopened' ? 'Đã mở lại' : 'Đang mở'}</span>
+                </div>
+                ${isSpot ? `<div class="small mt-1">${esc(scopeText(s))}</div>` : ''}
             </div>`;
+        if (isSpot && s.expected_parts !== null && s.expected_parts !== undefined) {
+            const scanned = s.expected_parts - s.missing_parts;
+            const pct = s.expected_parts ? Math.round(scanned * 100 / s.expected_parts) : 100;
+            if (s.missing_parts > 0) {
+                html += `
+                    <div class="alert alert-warning py-2 mt-2 mb-0">
+                        <div class="d-flex flex-wrap justify-content-between align-items-center gap-2">
+                            <div><i class="bi bi-exclamation-triangle-fill"></i> Còn <b>${fmt(s.missing_parts)}</b> mã chưa quét - đã quét ${fmt(scanned)}/${fmt(s.expected_parts)} mã trong phạm vi (${pct}%).</div>
+                            <button type="button" class="btn btn-outline-dark btn-sm" onclick="openMissingModal()"><i class="bi bi-list-check"></i> Xem mã chưa quét</button>
+                        </div>
+                        <div class="progress mt-2" style="height:6px;"><div class="progress-bar bg-warning" style="width:${pct}%"></div></div>
+                    </div>`;
+            } else {
+                html += `<div class="alert alert-success py-2 mt-2 mb-0"><i class="bi bi-check-circle-fill"></i> Đã quét đủ ${fmt(s.expected_parts)}/${fmt(s.expected_parts)} mã trong phạm vi. Có thể chốt kiểm kê.</div>`;
+            }
+        }
+        document.getElementById('st-session-info').innerHTML = html;
     }
 
     async function startSession() {
         const store = document.getElementById('st-store').value;
         if (!store) { alert('Vui lòng chọn cửa hàng.'); return; }
-        if (!confirm(`Bắt đầu kiểm kê cho cửa hàng ${store}? Hệ thống sẽ chụp tồn kho hiện tại làm mốc đối chiếu.`)) return;
+
+        const isSpot = getSessionType() === 'spot';
+        const payload = { store_code: store, session_type: isSpot ? 'spot' : 'full' };
+        let confirmMsg;
+        if (isSpot) {
+            const scopeType = document.getElementById('st-scope-type').value;
+            const values = Array.from(scopeSelected);
+            if (!values.length) { alert(`Vui lòng chọn ít nhất 1 ${scopeType === 'group' ? 'nhóm hàng' : 'khu vực'} cần kiểm.`); return; }
+            payload.scope_type = scopeType;
+            payload.scope_values = values;
+            confirmMsg = `Bắt đầu KIỂM ĐỘT XUẤT cho cửa hàng ${store}?\n${scopeType === 'group' ? 'Nhóm' : 'Khu vực'}: ${values.join(', ')}\n\nHệ thống chụp tồn sổ sách của các mã CÓ TỒN trong phạm vi này và sẽ báo nếu quét thiếu mã.`;
+        } else {
+            confirmMsg = `Bắt đầu kiểm kê TỔNG KHO cho cửa hàng ${store}? Hệ thống sẽ chụp tồn kho hiện tại làm mốc đối chiếu.`;
+        }
+        if (!confirm(confirmMsg)) return;
 
         const btn = document.getElementById('st-start-btn');
         const originalHtml = btn.innerHTML;
@@ -608,7 +762,7 @@
         try {
             const res = await fetch('/api/stocktake/start', {
                 method: 'POST', headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ store_code: store })
+                body: JSON.stringify(payload)
             });
             let result;
             try {
@@ -629,6 +783,198 @@
         } finally {
             btn.disabled = false;
             btn.innerHTML = originalHtml;
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // KIỂM ĐỘT XUẤT: ô chọn Nhóm hàng / Khu vực (vị trí kho) + import nhóm
+    // hàng từ file Bảng Giá + xem mã chưa quét.
+    // ------------------------------------------------------------------
+    let scopeOptions = [];          // [{value, count}] của cửa hàng + kiểu phạm vi đang chọn
+    const scopeSelected = new Set(); // các value đã tick
+    let scopeReqId = 0;             // chống request cũ trả về sau request mới
+
+    function getSessionType() {
+        const el = document.querySelector('input[name="st-type"]:checked');
+        return el ? el.value : 'full';
+    }
+
+    function onTypeChange() {
+        const spot = getSessionType() === 'spot';
+        document.getElementById('st-spot-panel').style.display = spot ? '' : 'none';
+        if (spot) loadScopeOptions();
+    }
+
+    function onScopeTypeChange() {
+        scopeSelected.clear();
+        document.getElementById('st-scope-search').value = '';
+        document.getElementById('st-scope-hint').textContent = document.getElementById('st-scope-type').value === 'group'
+            ? 'Chọn 1 hoặc nhiều nhóm. Quét thiếu mã nào trong nhóm, hệ thống sẽ báo.'
+            : 'Chọn 1 hoặc nhiều khu vực (vị trí kho đã import). Quét thiếu mã nào trong khu vực, hệ thống sẽ báo.';
+        loadScopeOptions();
+    }
+
+    async function loadScopeOptions() {
+        const store = document.getElementById('st-store').value;
+        const type = document.getElementById('st-scope-type').value;
+        const listEl = document.getElementById('st-scope-list');
+        const reqId = ++scopeReqId;
+        scopeOptions = [];
+        if (!store) {
+            listEl.innerHTML = '<div class="text-muted small p-2">Chọn cửa hàng trước.</div>';
+            updateScopeCount();
+            return;
+        }
+        listEl.innerHTML = '<div class="text-muted small p-2">Đang tải...</div>';
+        try {
+            const url = type === 'group'
+                ? `/api/stocktake/groups?store_code=${encodeURIComponent(store)}`
+                : `/api/stocktake/areas?store_code=${encodeURIComponent(store)}`;
+            const res = await fetch(url);
+            const result = await res.json();
+            if (reqId !== scopeReqId) return;
+            if (!res.ok || !result.success) {
+                listEl.innerHTML = `<div class="text-danger small p-2">${esc(result.error || 'Không tải được danh sách.')}</div>`;
+                return;
+            }
+            if (type === 'group') {
+                if (!result.has_data) {
+                    listEl.innerHTML = '<div class="text-danger small p-2">Chưa có dữ liệu nhóm hàng - bấm "Import Nhóm Hàng (Bảng Giá)" bên dưới trước.</div>';
+                    return;
+                }
+                scopeOptions = result.groups;
+            } else {
+                scopeOptions = result.areas;
+            }
+            if (!scopeOptions.length) {
+                listEl.innerHTML = `<div class="text-muted small p-2">Cửa hàng này không có ${type === 'group' ? 'nhóm' : 'khu vực'} nào có mã còn tồn.</div>`;
+                return;
+            }
+            renderScopeList();
+        } catch (e) {
+            if (reqId !== scopeReqId) return;
+            console.error(e);
+            listEl.innerHTML = '<div class="text-danger small p-2">Không kết nối được tới máy chủ.</div>';
+        }
+    }
+
+    function renderScopeList() {
+        const listEl = document.getElementById('st-scope-list');
+        if (!scopeOptions.length) { updateScopeCount(); return; }
+        const q = document.getElementById('st-scope-search').value.trim().toLowerCase();
+        const html = scopeOptions.map((o, i) => {
+            if (q && !o.value.toLowerCase().includes(q)) return '';
+            const on = scopeSelected.has(o.value);
+            return `<label class="st-scope-item ${on ? 'selected' : ''}">
+                <input type="checkbox" class="form-check-input mt-0" ${on ? 'checked' : ''} onchange="toggleScope(${i}, this)">
+                <span>${esc(o.value)}</span><span class="cnt">${fmt(o.count)} mã</span></label>`;
+        }).join('');
+        listEl.innerHTML = html || '<div class="text-muted small p-2">Không có kết quả khớp.</div>';
+        updateScopeCount();
+    }
+
+    function toggleScope(i, checkboxEl) {
+        const v = scopeOptions[i].value;
+        if (checkboxEl.checked) scopeSelected.add(v); else scopeSelected.delete(v);
+        checkboxEl.closest('label').classList.toggle('selected', checkboxEl.checked);
+        updateScopeCount();
+    }
+
+    // Chọn/bỏ chọn tất cả mục ĐANG HIỆN (theo ô tìm) - bỏ chọn khi ô tìm trống = bỏ chọn hết.
+    function scopeSelectVisible(on) {
+        const q = document.getElementById('st-scope-search').value.trim().toLowerCase();
+        scopeOptions.forEach(o => {
+            if (q && !o.value.toLowerCase().includes(q)) return;
+            if (on) scopeSelected.add(o.value); else scopeSelected.delete(o.value);
+        });
+        renderScopeList();
+    }
+
+    function updateScopeCount() {
+        const el = document.getElementById('st-scope-count');
+        if (!scopeSelected.size) { el.textContent = ''; return; }
+        const isGroup = document.getElementById('st-scope-type').value === 'group';
+        let txt = `- đã chọn ${scopeSelected.size}`;
+        if (isGroup) {
+            const total = scopeOptions.filter(o => scopeSelected.has(o.value)).reduce((a, o) => a + o.count, 0);
+            txt += ` nhóm (${fmt(total)} mã có tồn)`;
+        } else {
+            txt += ' khu vực';
+        }
+        el.textContent = txt;
+    }
+
+    async function loadGroupsStatus() {
+        const el = document.getElementById('st-groups-status');
+        try {
+            const res = await fetch('/api/stocktake/groups');
+            const result = await res.json();
+            if (!result.success) { el.textContent = ''; return; }
+            el.innerHTML = result.has_data
+                ? `Đã có nhóm cho ${fmt(result.total_mapped)} mã hàng (cập nhật ${esc(result.imported_at || '')}).`
+                : '<span class="text-danger">Chưa có dữ liệu nhóm hàng - cần import file Bảng Giá để dùng kiểm theo nhóm / lọc theo nhóm.</span>';
+        } catch (e) { el.textContent = ''; }
+    }
+
+    async function importGroupsFile(input) {
+        const file = input.files[0];
+        input.value = '';
+        if (!file) return;
+        const btn = document.getElementById('st-groups-btn');
+        const originalHtml = btn.innerHTML;
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Đang đọc file... (file lớn có thể mất vài chục giây)';
+        try {
+            const fd = new FormData();
+            fd.append('file', file);
+            const res = await fetch('/api/stocktake/groups/import', { method: 'POST', body: fd });
+            const result = await res.json();
+            if (!res.ok || !result.success) { alert('Lỗi: ' + (result.error || 'Không import được.')); return; }
+            alert(`Đã import nhóm cho ${fmt(result.imported)} mã hàng (${result.group_count} nhóm).`);
+            loadGroupsStatus();
+            if (getSessionType() === 'spot') loadScopeOptions();
+            if (currentSession) { loadSummary(); loadLog(); }
+        } catch (e) {
+            console.error(e);
+            alert('Không kết nối được tới máy chủ. Kiểm tra mạng/console.');
+        } finally {
+            btn.disabled = false;
+            btn.innerHTML = originalHtml;
+        }
+    }
+
+    // ----- Xem các mã trong phạm vi mà CHƯA quét -----
+    let missingModal = null;
+    function openMissingModal() {
+        if (!currentSession) return;
+        if (!missingModal) missingModal = new bootstrap.Modal(document.getElementById('st-missing-modal'));
+        missingModal.show();
+        loadMissing();
+    }
+
+    async function loadMissing() {
+        if (!currentSession) return;
+        const body = document.getElementById('st-missing-body');
+        const sum = document.getElementById('st-missing-summary');
+        body.innerHTML = '<tr><td colspan="5" class="text-center text-muted py-3">Đang tải...</td></tr>';
+        try {
+            const res = await fetch(`/api/stocktake/${currentSession.id}/missing`);
+            const result = await res.json();
+            if (!result.success) { body.innerHTML = `<tr><td colspan="5" class="text-danger py-3">${esc(result.error || 'Không tải được.')}</td></tr>`; return; }
+            sum.textContent = result.total_missing === 0
+                ? 'Đã quét đủ - không còn mã nào thiếu.'
+                : `Còn ${fmt(result.total_missing)} mã chưa quét${result.total_missing > result.items.length ? ` (hiển thị ${fmt(result.items.length)} mã đầu, sắp theo vị trí kho)` : ' (sắp theo vị trí kho)'}.`;
+            body.innerHTML = result.items.map(it => `
+                <tr>
+                    <td><span class="part-code">${esc(it.part_code)}</span></td>
+                    <td class="small">${esc(it.part_name || '')}</td>
+                    <td>${it.group_name ? `<span class="group-chip">${esc(it.group_name)}</span>` : '<span class="text-muted small">-</span>'}</td>
+                    <td class="small">${it.location ? `<span class="loc-chip">${esc(it.location)}</span>` : '<span class="text-muted">-</span>'}</td>
+                    <td class="text-end" style="text-align:right !important;">${fmt(it.book_quantity)}</td>
+                </tr>`).join('') || '<tr><td colspan="5" class="text-center text-success py-3"><i class="bi bi-check-circle-fill"></i> Không còn mã nào chưa quét.</td></tr>';
+        } catch (e) {
+            console.error(e);
+            body.innerHTML = '<tr><td colspan="5" class="text-danger py-3">Không kết nối được tới máy chủ.</td></tr>';
         }
     }
 
@@ -684,6 +1030,13 @@
         } else {
             msgEl.innerHTML = '<span class="text-success">Đã ghi nhận.</span>';
             speakSuccess();
+        }
+        if (result.scope_expanded) {
+            // Quét nhầm mã của nhóm khác: server đã tự thêm cả nhóm vào phiên.
+            const ex = result.scope_expanded;
+            msgEl.innerHTML = `<span class="text-warning-emphasis fw-semibold"><i class="bi bi-plus-circle-fill text-warning"></i> Mã thuộc nhóm "${esc(ex.group)}" - đã TỰ THÊM cả nhóm này vào phiên (${fmt(ex.added_parts)} mã có tồn). Các mã này giờ cần được quét.</span>`;
+            setTimeout(() => speakText('Đã thêm nhóm mới', _stBeepFallbackSuccess), 900);
+            loadSummary();
         }
         const store = document.getElementById('st-store').value;
         lastCountInfo = result.count;
@@ -1116,23 +1469,79 @@
         if (sortedAreas.includes(prevValue)) sel.value = prevValue;
     }
 
+    // Ô "Lọc theo nhóm": mỗi nhóm kèm tiến độ (đã đếm/tổng mã), chia 2 cụm
+    // "Nhóm đã kiểm" (đã có ít nhất 1 mã được đếm) và "Nhóm chưa kiểm".
+    function populateGroupFilterOptions(items) {
+        const sel = document.getElementById('st-filter-group');
+        const prevValue = sel.value;
+        const stats = new Map();
+        items.forEach(it => {
+            const g = it.group_name || '__none__';
+            if (!stats.has(g)) stats.set(g, { total: 0, counted: 0 });
+            const st = stats.get(g);
+            st.total++;
+            if (it.counted) st.counted++;
+        });
+        const named = Array.from(stats.entries()).filter(([k]) => k !== '__none__')
+            .sort((a, b) => a[0].localeCompare(b[0], 'vi'));
+        const opt = ([k, v]) => `<option value="${esc(k)}">${esc(k)} (${v.counted}/${v.total})</option>`;
+        const checked = named.filter(([, v]) => v.counted > 0);
+        const unchecked = named.filter(([, v]) => v.counted === 0);
+        let html = '<option value="">-- Tất cả nhóm --</option>';
+        if (checked.length) html += `<optgroup label="Nhóm đã kiểm">${checked.map(opt).join('')}</optgroup>`;
+        if (unchecked.length) html += `<optgroup label="Nhóm chưa kiểm">${unchecked.map(opt).join('')}</optgroup>`;
+        if (stats.has('__none__')) {
+            const v = stats.get('__none__');
+            html += `<option value="__none__">(Chưa có nhóm) (${v.counted}/${v.total})</option>`;
+        }
+        sel.innerHTML = html;
+        if (Array.from(sel.options).some(o => o.value === prevValue)) sel.value = prevValue;
+    }
+
+    // Ô "Nhóm đã kiểm" của Nhật Ký Đếm: chỉ các nhóm đã có mã được đếm.
+    function populateLogGroupOptions(items) {
+        const sel = document.getElementById('st-log-group');
+        const prevValue = sel.value;
+        const names = new Set();
+        let hasNone = false;
+        items.forEach(it => { if (!it.counted) return; if (it.group_name) names.add(it.group_name); else hasNone = true; });
+        let html = '<option value="">-- Tất cả nhóm --</option>' +
+            Array.from(names).sort((a, b) => a.localeCompare(b, 'vi')).map(n => `<option value="${esc(n)}">${esc(n)}</option>`).join('');
+        if (hasNone) html += '<option value="__none__">(Chưa có nhóm)</option>';
+        sel.innerHTML = html;
+        if (Array.from(sel.options).some(o => o.value === prevValue)) sel.value = prevValue;
+    }
+
+    function updateGroupProgress(groupFilter) {
+        const el = document.getElementById('st-group-progress');
+        if (!groupFilter) { el.textContent = ''; return; }
+        const inGroup = summaryItemsRaw.filter(it => (it.group_name || '__none__') === groupFilter);
+        const counted = inGroup.filter(it => it.counted).length;
+        const cnt = st => inGroup.filter(it => it.status === st).length;
+        el.textContent = `${groupFilter === '__none__' ? '(Chưa có nhóm)' : 'Nhóm ' + groupFilter}: đã đếm ${counted}/${inGroup.length} mã - Đủ ${cnt('matched')} - Dư ${cnt('surplus')} - Thiếu ${cnt('shortage')} - Chưa đếm ${cnt('not_counted')}`;
+    }
+
     function applySummaryFilters() {
         const partQuery = document.getElementById('st-filter-part').value.trim().toLowerCase();
+        const groupFilter = document.getElementById('st-filter-group').value;
         const areaQuery = document.getElementById('st-filter-area').value;
         const diffFilter = document.getElementById('st-filter-diff').value;
         const statusFilter = document.getElementById('st-filter-status').value;
 
         summaryFilteredItems = summaryItemsRaw.filter(it => {
             if (partQuery && !it.part_code.toLowerCase().includes(partQuery)) return false;
+            if (groupFilter && (it.group_name || '__none__') !== groupFilter) return false;
             if (areaQuery) {
                 const itemAreas = (it.areas || '').split(',').map(a => a.trim());
                 if (!itemAreas.includes(areaQuery)) return false;
             }
             if (diffFilter === 'has_diff' && !(it.counted && it.diff_quantity !== 0)) return false;
             if (diffFilter === 'no_diff' && !(it.counted && it.diff_quantity === 0)) return false;
-            if (statusFilter && it.status !== statusFilter) return false;
+            if (statusFilter === 'counted') { if (!it.counted) return false; }
+            else if (statusFilter && it.status !== statusFilter) return false;
             return true;
         });
+        updateGroupProgress(groupFilter);
         // Đổi bộ lọc thì quay về trang 1 - tránh trường hợp đang ở trang 5
         // nhưng kết quả lọc mới chỉ còn 1 trang, hiện ra bảng trống vô lý.
         summaryCurrentPage = 1;
@@ -1178,7 +1587,7 @@
         document.getElementById('st-summary-body').innerHTML = items.map(it => `
             <tr class="${it.status === 'shortage' ? 'row-recount' : (it.status === 'surplus' ? 'row-minor' : '')}">
                 <td><span class="part-code">${it.part_code}</span></td>
-                <td class="small">${it.part_name || ''} ${(it.counted && it.book_quantity <= 0) ? '<span class="badge-status badge-minor" title="Mã có trong danh mục nhưng cửa hàng không có tồn sổ sách">Không tồn</span>' : ''} ${it.has_manual_adjustment ? '<i class="bi bi-info-circle-fill text-warning" title="Đã có báo phát sinh"></i>' : ''}</td>
+                <td class="small">${it.part_name || ''} ${it.group_name ? `<span class="group-chip">${esc(it.group_name)}</span>` : ''} ${(it.counted && it.book_quantity <= 0) ? '<span class="badge-status badge-minor" title="Mã có trong danh mục nhưng cửa hàng không có tồn sổ sách">Không tồn</span>' : ''} ${it.has_manual_adjustment ? '<i class="bi bi-info-circle-fill text-warning" title="Đã có báo phát sinh"></i>' : ''}</td>
                 <td>${areaChips(it.areas)}</td>
                 <td class="text-end">${fmt(it.book_quantity)}</td>
                 <td class="text-end">${it.counted ? fmt(it.known_movement_qty) : '-'}</td>
@@ -1191,7 +1600,7 @@
         `).join('') || '<tr><td colspan="10" class="text-center text-muted py-3">Không có mã hàng nào khớp bộ lọc.</td></tr>';
     }
 
-    ['st-filter-diff', 'st-filter-status', 'st-filter-area'].forEach(id => {
+    ['st-filter-diff', 'st-filter-status', 'st-filter-area', 'st-filter-group'].forEach(id => {
         document.getElementById(id).addEventListener('change', applySummaryFilters);
     });
     document.getElementById('st-filter-part').addEventListener('input', applySummaryFilters);
@@ -1206,6 +1615,8 @@
             `Tổng ${result.total_parts} mã - Đã đếm ${result.counted_parts} - Dư ${result.surplus_count} - Thiếu ${result.shortage_count}`;
         summaryItemsRaw = result.items;
         populateAreaFilterOptions(summaryItemsRaw);
+        populateGroupFilterOptions(summaryItemsRaw);
+        populateLogGroupOptions(summaryItemsRaw);
         applySummaryFilters();
     }
 
@@ -1231,6 +1642,7 @@
 
     function logFiltersActive() {
         return !!(document.getElementById('st-log-q').value.trim()
+            || document.getElementById('st-log-group').value
             || document.getElementById('st-log-from').value
             || document.getElementById('st-log-to').value);
     }
@@ -1240,10 +1652,12 @@
         const q = document.getElementById('st-log-q').value.trim();
         const dateFrom = document.getElementById('st-log-from').value;
         const dateTo = document.getElementById('st-log-to').value;
+        const groupSel = document.getElementById('st-log-group').value;
         const chosen = parseInt(document.getElementById('st-log-limit').value, 10) || LOG_DISPLAY_LIMIT;
         const limit = logFiltersActive() ? Math.max(chosen, LOG_SEARCH_MIN_LIMIT) : chosen;
         const params = new URLSearchParams({ limit });
         if (q) params.set('q', q);
+        if (groupSel) params.set('group', groupSel);
         if (dateFrom) params.set('date_from', dateFrom);
         if (dateTo) params.set('date_to', dateTo);
         const res = await fetch(`/api/stocktake/${currentSession.id}/log?${params}`);
@@ -1280,7 +1694,7 @@
             <tr>
                 <td class="small">${renderCountedAtTwoLine(r.counted_at)}</td>
                 <td><span class="part-code">${r.part_code}</span></td>
-                <td class="small">${r.part_name || ''}</td>
+                <td class="small">${r.part_name || ''}${r.group_name ? `<div><span class="group-chip">${esc(r.group_name)}</span></div>` : ''}</td>
                 <td class="text-end fw-semibold">${fmt(r.counted_quantity)}</td>
                 <td class="text-end fw-semibold">${fmt(r.running_total)}</td>
                 <td class="text-end">${fmt(r.book_quantity)}</td>
@@ -1384,11 +1798,12 @@
     // st-log-from, st-log-to, st-log-limit; bộ lọc của Bảng Đối Chiếu chỉ còn
     // áp dụng cho Bảng Đối Chiếu.)
     document.getElementById('st-log-q').addEventListener('input', loadLogDebounced);
-    ['st-log-from', 'st-log-to', 'st-log-limit'].forEach(id => {
+    ['st-log-from', 'st-log-to', 'st-log-limit', 'st-log-group'].forEach(id => {
         document.getElementById(id).addEventListener('change', loadLog);
     });
     function clearLogFilters() {
         document.getElementById('st-log-q').value = '';
+        document.getElementById('st-log-group').value = '';
         document.getElementById('st-log-from').value = '';
         document.getElementById('st-log-to').value = '';
         document.getElementById('st-log-limit').value = '10';
@@ -1429,14 +1844,29 @@
         btn.disabled = true;
         btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Đang chốt... (có thể mất vài giây)';
         try {
-            const res = await fetch(`/api/stocktake/${currentSession.id}/close`, {
-                method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({})
-            });
-            const result = await res.json();
-            if (!result.success) { alert('Lỗi: ' + (result.error || 'Không thể chốt.')); return; }
-            alert('Đã chốt kiểm kê thành công. Tồn kho hệ thống KHÔNG bị thay đổi - bấm "Xuất Excel" để lấy file kết quả.');
-            window.open(`/api/stocktake/${currentSession.id}/export`, '_blank');
-            onStoreChange();
+            let force = false;
+            // Lần 1 chốt bình thường. Nếu là phiên ĐỘT XUẤT còn mã chưa quét, server trả
+            // 409 kèm danh sách -> hỏi xác nhận rồi gửi lại lần 2 với force=true.
+            for (let attempt = 0; attempt < 2; attempt++) {
+                const res = await fetch(`/api/stocktake/${currentSession.id}/close`, {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ force })
+                });
+                const result = await res.json();
+                if (res.status === 409 && result.needs_confirm) {
+                    const sample = (result.sample || []).join(', ');
+                    const more = result.missing_parts > (result.sample || []).length ? ', ...' : '';
+                    try { speakText('Còn mã chưa quét', _stBeepFallbackError); } catch (e) {}
+                    const ok = confirm(`CẢNH BÁO: ${result.error}\n\nVí dụ: ${sample}${more}\n\nNếu vẫn chốt, các mã này sẽ tính tồn = 0 (báo Thiếu).\nBấm OK để VẪN CHỐT, Huỷ để xem danh sách mã chưa quét và quét tiếp.`);
+                    if (!ok) { openMissingModal(); return; }
+                    force = true;
+                    continue;
+                }
+                if (!result.success) { alert('Lỗi: ' + (result.error || 'Không thể chốt.')); return; }
+                alert('Đã chốt kiểm kê thành công. Tồn kho hệ thống KHÔNG bị thay đổi - bấm "Xuất Excel" để lấy file kết quả.');
+                window.open(`/api/stocktake/${currentSession.id}/export`, '_blank');
+                onStoreChange();
+                return;
+            }
         } catch (networkErr) {
             console.error('Lỗi kết nối:', networkErr);
             alert('Không kết nối được tới máy chủ. Kiểm tra mạng/console.');
@@ -1512,7 +1942,9 @@
         if (!result.success) return;
         document.getElementById('st-history-body').innerHTML = result.sessions.map(s => `
             <tr>
-                <td>#${s.id}</td><td>${s.store_code}</td><td class="small">${s.cutoff_time}</td>
+                <td>#${s.id}${s.session_type === 'spot' ? ' <span class="badge bg-warning text-dark" style="font-size:.65rem;">Đột xuất</span>' : ''}</td>
+                <td>${s.store_code}${s.scope_label ? `<div class="text-muted" style="font-size:.72rem;max-width:260px;white-space:normal;">${esc(s.scope_label)}</div>` : ''}</td>
+                <td class="small">${s.cutoff_time}</td>
                 <td><span class="badge ${s.status === 'closed' ? 'bg-secondary' : (s.status === 'reopened' ? 'bg-warning text-dark' : 'bg-primary')}">${s.status}</span></td>
                 <td class="small">${s.created_by || ''}</td>
                 <td class="small">${s.closed_at || '-'}</td>
@@ -1613,6 +2045,7 @@
 
     loadHistory();
     updateSoundToggleBtn();
+    loadGroupsStatus();
 </script>
 </body>
 </html>
