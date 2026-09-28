@@ -335,6 +335,45 @@ def _out_of_scope_message(cursor, sess, part_code):
             f'NGOÀI phạm vi kiểm đột xuất này ({label}). Không ghi nhận.')
 
 
+def _group_of(cursor, part_code):
+    """Tên nhóm của 1 mã hàng (theo bảng part_groups) hoặc None nếu chưa có nhóm."""
+    cursor.execute(
+        "SELECT group_name FROM part_groups WHERE part_key = %s",
+        (_PART_CODE_NORMALIZE_RE.sub('', part_code or '').upper(),)
+    )
+    row = cursor.fetchone()
+    return row['group_name'] if row else None
+
+
+def _expand_group_scope(cursor, sess, group_name):
+    """Phiên đột xuất theo NHÓM: quét nhầm 1 mã của nhóm khác thì THÊM LUÔN cả
+    nhóm đó vào phạm vi - ghi thêm tên nhóm vào scope_values của phiên và chụp
+    tồn sổ sách của TOÀN BỘ mã có tồn thuộc nhóm đó vào snapshot (các mã này
+    hiện ngay trong Bảng Đối Chiếu và tính vào số mã phải quét).
+    Trả về số mã đã thêm vào snapshot."""
+    _, values = _parse_scope(sess)
+    if group_name not in values:
+        values = values + [group_name]
+        cursor.execute(
+            "UPDATE stocktake_sessions SET scope_values = %s WHERE id = %s",
+            (json.dumps(values, ensure_ascii=False), sess['id'])
+        )
+    items = _fetch_scope_inventory(cursor, sess['store_code'], 'group', [group_name])
+    if not items:
+        return 0
+    cursor.execute("SELECT part_code FROM stocktake_snapshot_items WHERE session_id = %s", (sess['id'],))
+    existing = {r['part_code'] for r in cursor.fetchall()}
+    new_items = [it for it in items if it['part_code'] not in existing]
+    if new_items:
+        execute_values(
+            cursor,
+            "INSERT INTO stocktake_snapshot_items (session_id, part_code, part_name, unit, book_quantity) "
+            "VALUES %s ON CONFLICT (session_id, part_code) DO NOTHING",
+            [(sess['id'], it['part_code'], it['part_name'], it['unit'], it['quantity']) for it in new_items]
+        )
+    return len(new_items)
+
+
 def _parse_groups_excel(file_storage):
     """Đọc file Bảng Giá: cột A (vị trí 0) = Mã hàng hóa, cột C (vị trí 2) =
     Loại hàng hóa (nhóm). Trả về list (part_key, part_code, group_name) đã bỏ
@@ -887,6 +926,7 @@ def stocktake_count():
     #   3. Mã KHÔNG có trong danh mục -> báo lỗi "Sai mã", không ghi nhận.
     snap_name = None
     no_stock = False
+    scope_expanded = None
     if part_code:
         cursor.execute(
             "SELECT part_name, book_quantity FROM stocktake_snapshot_items "
@@ -910,14 +950,33 @@ def stocktake_count():
         # cửa hàng không có tồn thì vẫn cho ghi nhận như cũ.
         scope_err = _out_of_scope_message(cursor, row, cat_code)
         if scope_err:
-            cursor.close()
-            return jsonify({'error': scope_err, 'out_of_scope': True}), 400
-        cursor.execute(
-            "INSERT INTO stocktake_snapshot_items (session_id, part_code, part_name, unit, book_quantity, is_extra) "
-            "VALUES (%s, %s, %s, %s, 0, TRUE) ON CONFLICT (session_id, part_code) DO NOTHING",
-            (session_id, cat_code, cat_name, cat_unit)
-        )
-        part_code, snap_name, no_stock = cat_code, cat_name, True
+            # Kiểm theo NHÓM mà quét nhầm mã của nhóm khác (đã có nhóm trong
+            # bảng nhóm hàng): tự thêm CẢ NHÓM đó vào phiên thay vì từ chối.
+            # Mã chưa có nhóm, hoặc phiên kiểm theo KHU VỰC thì vẫn từ chối.
+            scope_type, _vals = _parse_scope(row)
+            new_group = _group_of(cursor, cat_code) if scope_type == 'group' else None
+            if not new_group:
+                cursor.close()
+                return jsonify({'error': scope_err, 'out_of_scope': True}), 400
+            added = _expand_group_scope(cursor, row, new_group)
+            scope_expanded = {'group': new_group, 'added_parts': added}
+            # Sau khi thêm nhóm, mã vừa quét có thể đã nằm trong snapshot (nếu có tồn)
+            part_code, _e = _resolve_part_code(cursor, session_id, raw_part_code)
+            if part_code:
+                cursor.execute(
+                    "SELECT part_name, book_quantity FROM stocktake_snapshot_items WHERE session_id = %s AND part_code = %s",
+                    (session_id, part_code)
+                )
+                snap = cursor.fetchone()
+                snap_name = snap['part_name'] if snap else None
+                no_stock = float((snap['book_quantity'] if snap else 0) or 0) <= 0
+        if not part_code:
+            cursor.execute(
+                "INSERT INTO stocktake_snapshot_items (session_id, part_code, part_name, unit, book_quantity, is_extra) "
+                "VALUES (%s, %s, %s, %s, 0, TRUE) ON CONFLICT (session_id, part_code) DO NOTHING",
+                (session_id, cat_code, cat_name, cat_unit)
+            )
+            part_code, snap_name, no_stock = cat_code, cat_name, True
 
     # "Vị Trí Kho" của lượt đếm này = vị trí ĐÃ IMPORT hiện tại cho đúng mã
     # hàng + cửa hàng của phiên (không còn gõ tay) - xem docstring hàm trên.
@@ -940,7 +999,7 @@ def stocktake_count():
     # số lượng/xoá mà không cần đếm lại) - trước đây route này chỉ trả
     # {'success': True} nên khung đó không bao giờ hiện ra được.
     cursor.close()
-    return jsonify({'success': True, 'no_stock': no_stock, 'count': {
+    return jsonify({'success': True, 'no_stock': no_stock, 'scope_expanded': scope_expanded, 'count': {
         'id': new_row['id'],
         'part_code': part_code,
         'part_name': snap_name,
