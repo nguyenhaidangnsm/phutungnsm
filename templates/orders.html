@@ -261,6 +261,36 @@ input.qe.late { color:#b91c1c; font-weight:800; } input.qe.bad { border-color:#d
         .ns-topbar { padding: .6rem 1rem; }
         .container-main { padding: 0 .75rem; }
     }
+
+    /* ================================================================
+       FORM NHẬP / SỬA ĐƠN - tăng tương phản: thẻ mặt hàng nền trắng, ô nhập
+       nền trắng viền xám-xanh đậm, nhãn đậm; ô chỉ đọc/thành tiền tách màu.
+       ================================================================ */
+    #edBody { background: #f1f5f9; }
+    #edBody .sec { color: #0f172a; font-size: .95rem; border-left-width: 5px; }
+    #edBody .lb, .tot-bar .lb, .item-card .lb { color: #1e293b; font-weight: 700; }
+    #edBody .form-control, #edBody .form-select, .tot-bar .form-control {
+        background: #fff; color: #0f172a; border: 1.5px solid #7c8ba1;
+        box-shadow: none; font-weight: 500;
+    }
+    #edBody .form-control:hover, #edBody .form-select:hover, .tot-bar .form-control:hover {
+        background: #fff; border-color: #475569;
+    }
+    #edBody .form-control:focus, #edBody .form-select:focus, .tot-bar .form-control:focus {
+        background: #fffef5; border-color: var(--ns-blue); box-shadow: 0 0 0 .25rem rgba(13,110,253,.25);
+    }
+    #edBody .form-control::placeholder { color: #94a3b8; font-weight: 400; }
+    #edBody .form-control[readonly], #edBody .form-control:disabled { background: #e2e8f0; color: #475569; border-style: dashed; }
+    .item-card {
+        background: #fff; border: 1.5px solid #94a3b8; border-left: 6px solid var(--ns-blue);
+        box-shadow: 0 2px 6px rgba(15,23,42,.08); padding: .7rem .9rem .8rem; margin-bottom: .75rem;
+    }
+    .item-card:focus-within { background: #fff; border-color: var(--ns-blue); box-shadow: 0 0 0 3px rgba(13,110,253,.18), 0 2px 6px rgba(15,23,42,.08); }
+    .item-card .ic-head { color: #0b5ed7; font-size: .88rem; border-bottom: 1px solid #e2e8f0; padding-bottom: .3rem; margin-bottom: .5rem; }
+    .item-card .line-total { background: #ecfdf5; border: 1.5px solid #6ee7b7; border-radius: 8px; color: #065f46; padding: .3rem .5rem; font-size: .95rem; }
+    .stk button { background: #fff; border: 1.5px solid #64748b; color: #0f172a; }
+    .tot-bar { background: #fff; border-top: 2px solid #94a3b8; }
+    .ac-i b { color: #0b3aa8; } .ac-i em { color: #047857; }
 </style>
 </head>
 <body>

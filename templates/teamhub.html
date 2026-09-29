@@ -1,0 +1,501 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0f1420">
+<script>(function(){var p='auto';try{p=localStorage.getItem('nsm-theme')||'auto'}catch(e){}var l=p==='light'||(p==='auto'&&matchMedia('(prefers-color-scheme:light)').matches);document.documentElement.dataset.theme=l?'light':'dark'})()</script>
+<link rel="manifest" href="/teamhub/manifest.webmanifest">
+<link rel="apple-touch-icon" href="/static/teamhub_icons/icon-180.png">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Nam Sương Motor">
+<title>Nam Sương Motor</title>
+<link rel="icon" href="/static/logo-mark.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#0f1420;--card:#161c2b;--line:#232c40;--text:#e8ecf5;--mute:#8b96ad;--acc:#6b8cff;--accbg:rgba(107,140,255,.14);--red:#e5484d;--r:14px;--onacc:#0b1020;--dtxt:#ff7a7f;--tbg:#2a3350;color-scheme:dark}
+:root[data-theme="light"]{--bg:#f2f4f9;--card:#fff;--line:#dde2ec;--text:#141a2a;--mute:#5b6780;--acc:#3556e0;--accbg:rgba(53,86,224,.1);--red:#d92d33;--onacc:#fff;--dtxt:#c8232a;--tbg:#1f2637;color-scheme:light}
+*{box-sizing:border-box;margin:0}
+html,body{height:100%}
+body{background:var(--bg);color:var(--text);font:15px/1.5 "Be Vietnam Pro",system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+button,input,select{font:inherit;color:inherit}
+button{background:none;border:0;cursor:pointer}
+:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
+.app{min-height:100%;display:block}
+.side,.right{display:none}
+main{padding-bottom:calc(64px + env(safe-area-inset-bottom,0px))}
+.top{position:sticky;top:0;z-index:5;display:flex;align-items:center;justify-content:space-between;padding:calc(10px + env(safe-area-inset-top,0px)) 16px 10px;background:var(--bg);border-bottom:1px solid var(--line)}
+.logo{font-weight:700;font-size:22px;color:var(--acc);display:flex;align-items:center;gap:10px}
+.side .logo{font-size:19px;white-space:nowrap}
+.logo-img{height:34px;width:auto;max-width:120px;object-fit:contain;flex:none}
+
+.icon-btn{position:relative;width:40px;height:40px;border-radius:50%;background:var(--card);font-size:18px}
+.badge{position:absolute;top:-2px;right:-2px;min-width:18px;height:18px;padding:0 5px;border-radius:9px;background:var(--red);color:#fff;font-size:11px;font-weight:600;line-height:18px}
+.badge:empty{display:none}
+.view{display:none;padding:12px 16px}
+.view.on{display:block}
+.chips{display:flex;gap:8px;overflow-x:auto;padding-bottom:12px;scrollbar-width:none}
+.chips::-webkit-scrollbar{display:none}
+.chip{flex:none;padding:7px 16px;border:1px solid var(--line);border-radius:20px;color:var(--mute);background:var(--card)}
+.chip.on{background:var(--acc);border-color:var(--acc);color:var(--onacc);font-weight:600}
+.card{background:var(--card);border:1px solid var(--line);border-radius:var(--r);padding:14px;margin-bottom:12px}
+.av{flex:none;width:44px;height:44px;border-radius:50%;display:grid;place-items:center;font-weight:600;font-size:15px;color:#fff}
+.av.s{width:36px;height:36px;font-size:13px}
+.row{display:flex;gap:12px;align-items:center}
+.composer input{flex:1;min-width:0;padding:11px 16px;border-radius:24px;border:1px solid var(--line);background:var(--bg)}
+.btn{padding:9px 18px;border-radius:20px;background:var(--acc);color:var(--onacc);font-weight:600}
+.btn.ghost{background:var(--accbg);color:var(--acc)}
+.btn.danger{background:rgba(229,72,77,.15);color:var(--dtxt)}
+.name{font-weight:600}
+.meta{color:var(--mute);font-size:13px}
+.tag{margin-left:6px;padding:1px 9px;border-radius:6px;background:var(--accbg);color:var(--acc);font-size:12px;font-weight:600}
+.post-text{margin:10px 0}
+.media{height:190px;border-radius:12px;margin-bottom:10px}
+.stats{display:flex;justify-content:space-between;color:var(--mute);font-size:13px;padding-bottom:10px;border-bottom:1px solid var(--line)}
+.acts{display:flex;justify-content:space-around;padding-top:6px}
+.acts button{padding:8px 12px;color:var(--mute);border-radius:8px}
+.acts button:hover{background:var(--bg)}
+.acts .liked{color:#ff6b7a}
+.cmts{margin-top:10px}
+.cmt{display:flex;gap:10px;margin-bottom:10px}
+.cmt div div{background:var(--bg);border-radius:12px;padding:6px 12px;font-size:14px}
+.cmt b{display:block;font-size:13px}
+.cmtin{display:flex;gap:8px}
+.cmtin input{flex:1;min-width:0;padding:9px 14px;border-radius:20px;border:1px solid var(--line);background:var(--bg)}
+/* chat */
+.chat{display:grid;min-height:calc(100vh - 150px)}
+.clist{display:block}
+.cwin{display:none;flex-direction:column;height:calc(100vh - 150px)}
+.chat.open .clist{display:none}
+.chat.open .cwin{display:flex}
+.citem{display:flex;gap:12px;align-items:center;width:100%;text-align:left;padding:12px;border-radius:12px}
+.citem:hover,.citem.on{background:var(--card)}
+.citem .last{color:var(--mute);font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:220px}
+.chead{display:flex;align-items:center;gap:12px;padding:0 0 12px;border-bottom:1px solid var(--line)}
+.back{font-size:22px;padding:0 6px}
+.msgs{flex:1;overflow-y:auto;padding:14px 0;display:flex;flex-direction:column;gap:8px}
+.m{max-width:78%;padding:9px 14px;border-radius:18px;background:var(--card);border:1px solid var(--line);align-self:flex-start}
+.m.me{align-self:flex-end;background:var(--acc);border-color:var(--acc);color:var(--onacc)}
+.m small{display:block;font-size:11px;opacity:.65;margin-top:2px}
+.empty{color:var(--mute);text-align:center;padding:40px 0}
+/* notif, groups, profile */
+.nt{display:flex;gap:12px;align-items:flex-start;width:100%;text-align:left}
+.dot{width:9px;height:9px;border-radius:50%;background:var(--acc);margin-top:8px;flex:none}
+.nt.read .dot{visibility:hidden}
+.nt.read{opacity:.65}
+.grp{display:flex;justify-content:space-between;align-items:center;gap:12px}
+h2{font-size:18px;margin-bottom:12px}
+.me-top{text-align:center;padding:10px 0 18px}
+.me-top .av{width:76px;height:76px;font-size:26px;margin:0 auto 10px}
+.kpi{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;text-align:center;margin-bottom:12px}
+.kpi b{display:block;font-size:20px}
+.usr{display:flex;align-items:center;gap:12px;padding:8px 0;border-top:1px solid var(--line)}
+.usr:first-of-type{border-top:0}
+.usr .grow{flex:1;min-width:0}
+.usr.gone{opacity:.45}
+/* bottom tabs */
+.tabs{position:fixed;left:0;right:0;bottom:0;z-index:6;display:grid;grid-template-columns:repeat(5,1fr);background:var(--card);border-top:1px solid var(--line);padding-bottom:env(safe-area-inset-bottom,0px)}
+.tabs button{position:relative;padding:8px 0 7px;color:var(--mute);font-size:12px;display:flex;flex-direction:column;align-items:center;gap:1px}
+.tabs button span{font-size:21px;filter:grayscale(1) opacity(.8)}
+.tabs button.on{color:var(--acc);font-weight:600}
+.tabs button.on span{filter:none}
+.tabs .badge{left:calc(50% + 6px);right:auto}
+/* desktop */
+@media(min-width:900px){
+  .app{display:grid;grid-template-columns:250px minmax(0,1fr) 300px;max-width:1280px;margin:0 auto;gap:24px;padding:0 16px}
+  .side{display:flex;flex-direction:column;gap:4px;position:sticky;top:0;height:100vh;padding:20px 0}
+  .side .logo{padding:0 14px 16px}
+  .side .nv{display:flex;align-items:center;gap:14px;padding:12px 14px;border-radius:12px;color:var(--mute);font-weight:500;text-align:left;position:relative}
+  .side .nv span{font-size:20px}
+  .side .nv:hover{background:var(--card)}
+  .side .nv.on{background:var(--accbg);color:var(--acc);font-weight:600}
+  .side .nv .badge{position:static;margin-left:auto}
+  .side .who{margin-top:auto;display:flex;gap:12px;align-items:center;padding:12px;border:1px solid var(--line);border-radius:var(--r);background:var(--card)}
+  main{padding-bottom:24px;border-left:1px solid var(--line);border-right:1px solid var(--line);min-width:0}
+  .top,.tabs{display:none}
+  .view{padding:20px 24px;max-width:680px;margin:0 auto}
+  #v-chat{max-width:none}
+  .right{display:block;position:sticky;top:0;height:100vh;overflow-y:auto;padding:20px 0}
+  .chat{grid-template-columns:300px 1fr;gap:20px;min-height:calc(100vh - 40px)}
+  .clist,.chat.open .clist{display:block}
+  .cwin,.chat.open .cwin{display:flex;height:calc(100vh - 40px);border-left:1px solid var(--line);padding-left:20px}
+  .back{display:none}
+}
+@media(prefers-reduced-motion:no-preference){.view.on{animation:in .18s ease-out}@keyframes in{from{opacity:.4}to{opacity:1}}}
+.post-img{width:100%;max-height:520px;object-fit:cover;border-radius:12px;margin-bottom:10px;display:block}
+.sel{width:100%;margin-bottom:12px;padding:11px 14px;border-radius:12px;border:1px solid var(--line);background:var(--card)}
+.sel option{background:var(--card)}
+.btn:disabled{opacity:.5;cursor:default}
+.tabs .badge{position:absolute}
+#toast{position:fixed;left:50%;bottom:90px;transform:translate(-50%,20px);max-width:88vw;padding:10px 18px;border-radius:12px;background:var(--tbg);color:#f2f4fa;opacity:0;pointer-events:none;transition:.2s;z-index:20;text-align:center}
+#toast.on{opacity:1;transform:translate(-50%,0)}
+.cdel{align-self:flex-start;color:var(--mute);padding:4px 8px;border-radius:6px;font-size:12px}
+.cdel:hover{background:var(--bg);color:var(--dtxt)}
+.pick{display:grid;gap:8px;max-height:180px;overflow-y:auto;margin-top:12px;padding:10px;border:1px solid var(--line);border-radius:12px}
+.pick label{display:flex;gap:10px;align-items:center;cursor:pointer}
+.fc{display:flex;align-items:center;gap:10px;margin:6px 0 4px;padding:9px 12px;border-radius:12px;background:rgba(127,127,127,.14);color:inherit;text-decoration:none;max-width:100%}
+.fc:hover{background:rgba(127,127,127,.24)}
+.fci{font-size:22px;flex:none}
+.fct{min-width:0;overflow-wrap:anywhere;font-weight:500;font-size:14px}
+.m .fct small,.fct small{display:block;font-size:12px;opacity:.65;font-weight:400;margin:0}
+.post-file{margin:0 0 10px}
+.m-img{display:block;max-width:100%;max-height:300px;border-radius:12px;margin:4px 0}
+.pickline{display:flex;align-items:center;gap:8px;margin-top:8px;font-size:13px;color:var(--mute);overflow-wrap:anywhere}
+.pickline[hidden]{display:none}
+.lnk{color:var(--acc);font-weight:600;padding:2px 6px}
+.gpanel{margin-top:12px;padding-top:12px;border-top:1px solid var(--line)}
+.seg{display:flex;gap:8px}
+.seg button{flex:1;padding:10px 6px;border:1px solid var(--line);border-radius:12px;background:var(--bg);color:var(--mute)}
+.seg button.on{border-color:var(--acc);color:var(--acc);background:var(--accbg);font-weight:600}
+html{-webkit-tap-highlight-color:transparent;-webkit-text-size-adjust:100%}
+button,label{touch-action:manipulation}
+.msgs{overscroll-behavior:contain}
+.m{overflow-wrap:anywhere;white-space:pre-wrap}
+@media(max-width:899px){
+  input,select{font-size:16px}
+  .icon-btn,.cdel{min-width:40px;min-height:40px}
+  .chat{min-height:calc(100vh - 150px);min-height:calc(100dvh - 150px)}
+  .cwin{height:calc(100vh - 150px);height:calc(100dvh - 150px)}
+}
+</style>
+</head>
+<body>
+<div class="app">
+  <aside class="side">
+    <div class="logo"><img class="logo-img" src="/static/logo-mark.png" alt=""><span>Nam Sương Motor</span></div>
+    <button class="nv on" data-v="feed"><span>🏠</span>Bảng tin</button>
+    <button class="nv" data-v="groups"><span>👥</span>Nhóm</button>
+    <button class="nv" data-v="chat"><span>💬</span>Chat<i class="badge cb"></i></button>
+    <button class="nv" data-v="notif"><span>🔔</span>Thông báo<i class="badge nb"></i></button>
+    <button class="nv" data-v="me"><span>🙂</span>Cá nhân</button>
+    <button class="nv thm"><span class="ti">☀️</span>Sáng / Tối</button>
+    <div class="who"><div class="me-av" data-s="1"></div><div><div class="name me-name"></div><div class="meta me-role"></div></div></div>
+  </aside>
+
+  <main>
+    <header class="top">
+      <div class="logo"><img class="logo-img" src="/static/logo-mark.png" alt=""><span>Nam Sương Motor</span></div>
+      <div class="row" style="gap:8px">
+        <button class="icon-btn thm" aria-label="Đổi giao diện sáng/tối"><span class="ti">☀️</span></button>
+        <button class="icon-btn" data-v="notif" aria-label="Thông báo">🔔<i class="badge nb"></i></button>
+      </div>
+    </header>
+
+    <section class="view on" id="v-feed">
+      <div class="chips" id="chips"></div>
+      <div class="card composer"><div class="row"><div class="me-av" data-s="1"></div><input id="newpost" placeholder="Bạn muốn chia sẻ điều gì với đồng nghiệp?" maxlength="2000"><label class="icon-btn" style="display:grid;place-items:center;cursor:pointer;flex:none" title="Đính kèm ảnh hoặc tệp" aria-label="Đính kèm ảnh hoặc tệp"><span id="imgic">📎</span><input type="file" id="img" hidden></label><button class="btn" id="postbtn">Đăng</button></div><div class="pickline" id="pickname" hidden></div></div>
+      <div id="feed"></div>
+    </section>
+
+    <section class="view" id="v-groups"><h2>Nhóm</h2><div id="gadmin"></div><div id="groups"></div></section>
+
+    <section class="view" id="v-chat">
+      <div class="chat" id="chat"><div class="clist"><h2>Tin nhắn</h2><select id="newdm" class="sel"><option value="">＋ Nhắn tin cho đồng nghiệp...</option></select><div id="clist"></div></div><div class="cwin" id="cwin"></div></div>
+    </section>
+
+    <section class="view" id="v-notif"><h2>Thông báo</h2><div id="notifs"></div></section>
+
+    <section class="view" id="v-me">
+      <div class="me-top"><div class="me-av"></div><div class="name me-name" style="font-size:18px"></div><div class="meta me-role"></div></div>
+      <div class="card"><h2>Giao diện</h2><div class="seg"><button data-t="light">☀️ Sáng</button><button data-t="dark">🌙 Tối</button><button data-t="auto">📱 Theo máy</button></div></div>
+      <div class="card" id="adm" style="display:none"><h2>Quản lý tài khoản Nam Sương Motor</h2><div id="users"></div></div></section>
+  </main>
+
+  <aside class="right">
+    <div class="card"><h2>Thông báo mới</h2><div id="rnotif"></div></div>
+    <div class="card"><h2>Đồng nghiệp</h2><div id="online"></div></div>
+  </aside>
+</div>
+
+<div id="toast" role="status"></div>
+<nav class="tabs">
+  <button class="on" data-v="feed"><span>🏠</span>Bảng tin</button>
+  <button data-v="groups"><span>👥</span>Nhóm</button>
+  <button data-v="chat"><span>💬</span>Chat<i class="badge cb"></i></button>
+  <button data-v="notif"><span>🔔</span>Thông báo<i class="badge nb"></i></button>
+  <button data-v="me"><span>🙂</span>Cá nhân</button>
+</nav>
+
+<script>
+const $=s=>document.querySelector(s),$$=s=>[...document.querySelectorAll(s)];
+const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const COL=['#e5484d','#22a559','#d9822b','#8e4ec6','#0e9bb5','#c9467a'];
+const av=(n,cls='')=>{n=n||'?';const ini=n.trim().split(/\s+/).slice(-2).map(w=>w[0]).join('').toUpperCase();return `<div class="av ${cls}" style="background:${COL[[...n].reduce((a,c)=>a+c.charCodeAt(0),0)%COL.length]}">${esc(ini)}</div>`};
+const ago=iso=>{if(!iso)return'';const s=(Date.now()-new Date(iso))/1000;if(s<60)return'vừa xong';if(s<3600)return Math.floor(s/60)+' phút trước';if(s<86400)return Math.floor(s/3600)+' giờ trước';if(s<172800)return'Hôm qua';return new Date(iso).toLocaleDateString('vi-VN')};
+const hm=iso=>new Date(iso).toLocaleTimeString('vi-VN',{hour:'2-digit',minute:'2-digit'});
+let toastT;const toast=m=>{const t=$('#toast');t.textContent=m;t.classList.add('on');clearTimeout(toastT);toastT=setTimeout(()=>t.classList.remove('on'),3200)};
+async function api(p,o={}){
+  const r=await fetch('/teamhub/api/'+p,{credentials:'same-origin',...o});
+  if(r.status===401){location.href='/login';throw new Error('login')}
+  let d={};try{d=await r.json()}catch(e){}
+  if(!r.ok)throw new Error(d.error||'Có lỗi xảy ra, hãy thử lại.');
+  return d;
+}
+const post=(p,b)=>api(p,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(b||{})});
+let netT=0;
+const safe=(fn,quiet)=>async(...a)=>{try{return await fn(...a)}catch(e){
+  if(e.message==='login')return;
+  if(e instanceof TypeError){if(!quiet&&Date.now()-netT>20000){netT=Date.now();toast('Mất kết nối tới máy chủ. Hãy kiểm tra mạng rồi thử lại.')}return}
+  toast(e.message)}};
+
+/* ---------- giao diện sáng / tối ---------- */
+const themePref=()=>{try{return localStorage.getItem('nsm-theme')||'auto'}catch(e){return'auto'}};
+function applyTheme(){
+  const p=themePref(),light=p==='light'||(p==='auto'&&matchMedia('(prefers-color-scheme:light)').matches);
+  document.documentElement.dataset.theme=light?'light':'dark';
+  const m=$('meta[name=theme-color]');if(m)m.content=light?'#f2f4f9':'#0f1420';
+  $$('.thm .ti').forEach(e=>e.textContent=light?'🌙':'☀️');
+  $$('.seg button').forEach(b=>b.classList.toggle('on',b.dataset.t===p));
+}
+function setTheme(p){try{localStorage.setItem('nsm-theme',p)}catch(e){}applyTheme()}
+document.addEventListener('click',e=>{
+  if(e.target.closest('.thm'))return setTheme(document.documentElement.dataset.theme==='light'?'dark':'light');
+  const b=e.target.closest('.seg [data-t]');if(b)setTheme(b.dataset.t);
+});
+matchMedia('(prefers-color-scheme:light)').addEventListener?.('change',applyTheme);
+applyTheme();
+
+let ME,CATS=[],cat='Tất cả',view='feed',posts=[],more=false,cur=null,lastMsg=0,convos=[],people=[],groups=[];
+
+/* ---------- điều hướng ---------- */
+function go(v){
+  view=v;
+  $$('.view').forEach(e=>e.classList.toggle('on',e.id==='v-'+v));
+  $$('[data-v]').forEach(b=>{if(b.classList.contains('nv')||b.closest('.tabs'))b.classList.toggle('on',b.dataset.v===v)});
+  ({feed:loadFeed,groups:loadGroups,chat:loadConvos,notif:loadNotifs,me:loadMembers}[v]||(()=>{}))();
+  window.scrollTo(0,0);
+}
+document.addEventListener('click',e=>{const b=e.target.closest('[data-v]');if(b)go(b.dataset.v)});
+
+/* ---------- bảng tin ---------- */
+function renderChips(){$('#chips').innerHTML=['Tất cả',...CATS].map(c=>`<button class="chip ${c===cat?'on':''}" data-c="${esc(c)}">${esc(c)}</button>`).join('')}
+$('#chips').addEventListener('click',e=>{const b=e.target.closest('[data-c]');if(b){cat=b.dataset.c;renderChips();loadFeed()}});
+const loadFeed=safe(async(append=false)=>{
+  const q=`posts?cat=${encodeURIComponent(cat==='Tất cả'?'':cat)}`+(append&&posts.length?`&before=${posts[posts.length-1].id}`:'');
+  const d=await api(q);posts=append?posts.concat(d.posts):d.posts;more=d.more;renderFeed();
+});
+function card(p){
+  const cm=p.open?`<div class="cmts">${(p.cm||[]).map(c=>`<div class="cmt">${av(c.name,'s')}<div><div><b>${esc(c.name)}</b>${esc(c.body)}</div></div>${c.mine||ME.is_admin?`<button class="cdel" data-a="cdel" data-cid="${c.id}" title="Xoá bình luận" aria-label="Xoá bình luận">✕</button>`:''}</div>`).join('')}<div class="cmtin"><input placeholder="Viết bình luận..." maxlength="500"><button class="btn ghost" data-a="send">Gửi</button></div></div>`:'';
+  return `<article class="card" data-id="${p.id}"><div class="row">${av(p.name)}<div style="flex:1;min-width:0"><div><span class="name">${esc(p.name)}</span><span class="tag">${esc(p.category)}</span></div><div class="meta">${esc(p.branch)}${p.branch?' · ':''}${ago(p.created_at)}</div></div>${p.mine||ME.is_admin?'<button class="icon-btn" data-a="del" title="Xoá bài" aria-label="Xoá bài">🗑</button>':''}</div>
+  ${p.body?`<p class="post-text">${esc(p.body)}</p>`:''}${p.image?`<img class="post-img" loading="lazy" src="/static/teamhub_uploads/${esc(p.image)}" alt="">`:''}${p.file_path?`<div class="post-file">${fcHtml(p.file_path,p.file_name,p.file_size)}</div>`:''}
+  <div class="stats"><span>${p.likes?'❤️ '+p.likes:''}</span><span>${p.ncm} bình luận</span></div>
+  <div class="acts"><button class="${p.liked?'liked':''}" data-a="like">${p.liked?'❤️':'🤍'} Thích</button><button data-a="cm">💬 Bình luận</button><button data-a="share">↗ Chia sẻ</button></div>${cm}</article>`;
+}
+function renderFeed(){
+  $('#feed').innerHTML=(posts.length?posts.map(card).join(''):'<div class="empty">Chưa có bài viết nào trong mục này.<br>Hãy là người đăng bài đầu tiên.</div>')+(more?'<button class="btn ghost" id="more" style="display:block;margin:0 auto 16px">Xem bài cũ hơn</button>':'');
+}
+$('#feed').addEventListener('click',safe(async e=>{
+  if(e.target.id==='more')return loadFeed(true);
+  const b=e.target.closest('[data-a]');if(!b)return;
+  const p=posts.find(x=>x.id==b.closest('article').dataset.id),a=b.dataset.a;
+  if(a==='like'){const d=await post(`posts/${p.id}/like`);p.liked=d.liked;p.likes=d.likes}
+  if(a==='cdel'){await post(`comments/${b.dataset.cid}/delete`);p.cm=p.cm.filter(c=>c.id!=b.dataset.cid);p.ncm--}
+  if(a==='del'){if(!confirm('Xoá bài viết này?'))return;await post(`posts/${p.id}/delete`);posts=posts.filter(x=>x!==p)}
+  if(a==='share'){await navigator.clipboard?.writeText(location.origin+'/teamhub#post-'+p.id);toast('Đã sao chép liên kết');return}
+  if(a==='cm'){p.open=!p.open;if(p.open)p.cm=(await api(`posts/${p.id}/comments`)).comments}
+  if(a==='send'){const i=b.previousElementSibling,v=i.value.trim();if(!v)return;const c=await post(`posts/${p.id}/comments`,{body:v});p.cm.push(c);p.ncm++}
+  renderFeed();
+  if(a==='cm'||a==='send')document.querySelector(`[data-id="${p.id}"] .cmtin input`)?.focus();
+}));
+$('#feed').addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.isComposing&&e.target.matches('.cmtin input'))e.target.nextElementSibling.click()});
+
+async function shrink(f){
+  if(!f.type.startsWith('image/')||f.type==='image/gif')return f;
+  try{
+    const bm=await createImageBitmap(f,{imageOrientation:'from-image'}),s=Math.min(1,1280/Math.max(bm.width,bm.height));
+    const c=document.createElement('canvas');c.width=Math.round(bm.width*s);c.height=Math.round(bm.height*s);
+    c.getContext('2d').drawImage(bm,0,0,c.width,c.height);
+    const b=await new Promise(r=>c.toBlob(r,'image/jpeg',.82));
+    return b&&b.size<f.size?new File([b],'photo.jpg',{type:'image/jpeg'}):f;
+  }catch(e){return f}
+}
+const MAXF=200*1024*1024,BAD=/\.(exe|bat|cmd|com|scr|msi|dll|sh|ps1|vbs|js|jar|apk|php|py|html?|svg|lnk|reg)$/i;
+const fsz=n=>n>=1073741824?(n/1073741824).toFixed(1)+' GB':n>=1048576?(n/1048576).toFixed(1)+' MB':Math.max(1,Math.round(n/1024))+' KB';
+const fcHtml=(id,name,size)=>`<a class="fc" href="/teamhub/file/${esc(id)}" download="${esc(name)}"><span class="fci">📎</span><span class="fct">${esc(name)}<small>${fsz(size)}</small></span></a>`;
+/* đưa ảnh/tệp vào FormData; trả về chuỗi lỗi (rỗng nếu ổn) */
+async function prep(fd,f){
+  if(f.size>MAXF)return'Tệp quá lớn, tối đa 200MB.';
+  if(BAD.test(f.name))return'Không gửi được loại tệp này vì lý do an toàn.';
+  if(f.type.startsWith('image/')){const s=await shrink(f);if(s.size>12*1024*1024)return'Ảnh quá lớn, hãy chọn ảnh nhỏ hơn 12MB.';fd.append('image',s)}
+  else fd.append('file',f);
+  return'';
+}
+/* tải lên có phần trăm tiến độ (fetch không có) */
+function up(p,fd,onp){return new Promise((res,rej)=>{
+  const x=new XMLHttpRequest();x.open('POST','/teamhub/api/'+p);x.withCredentials=true;
+  x.upload.onprogress=e=>{if(e.lengthComputable&&onp)onp(Math.round(e.loaded/e.total*100))};
+  x.onerror=()=>rej(new TypeError('net'));
+  x.onload=()=>{
+    if(x.status===401){location.href='/login';return rej(new Error('login'))}
+    let d={};try{d=JSON.parse(x.responseText)}catch(e){}
+    if(x.status>=200&&x.status<300)return res(d);
+    rej(new Error(d.error||(x.status===413?'Tệp lớn hơn mức máy chủ cho phép. Hãy báo Admin.':'Có lỗi xảy ra, hãy thử lại.')));
+  };
+  x.send(fd);
+})}
+function clearPick(){$('#img').value='';$('#pickname').hidden=true;$('#imgic').textContent='📎'}
+const addPost=safe(async()=>{
+  const i=$('#newpost'),f=$('#img').files[0],v=i.value.trim(),b=$('#postbtn');if(!v&&!f)return;
+  const fd=new FormData();fd.append('body',v);
+  fd.append('category',(cat==='Tất cả'||(cat==='Thông báo'&&!ME.is_admin))?'Góc chia sẻ':cat);
+  if(f){const er=await prep(fd,f);if(er)return toast(er)}
+  b.disabled=true;
+  try{await up('posts',fd,p=>{b.textContent=p<100?p+'%':'Đang xử lý…'});i.value='';clearPick();await loadFeed()}finally{b.disabled=false;b.textContent='Đăng'}
+});
+$('#postbtn').onclick=addPost;
+$('#newpost').addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.isComposing)addPost()});
+$('#img').onchange=()=>{
+  const f=$('#img').files[0];if(!f)return clearPick();
+  $('#imgic').textContent='✅';const p=$('#pickname');p.hidden=false;
+  p.innerHTML=`📎 ${esc(f.name)} · ${fsz(f.size)} <button class="lnk" id="pickx">Bỏ</button>`;
+};
+$('#pickname').addEventListener('click',e=>{if(e.target.id==='pickx')clearPick()});
+
+/* ---------- nhóm (riêng tư như Zalo: chủ nhóm/Admin thêm-gỡ thành viên) ---------- */
+const loadMembersOf=async g=>{g.list=(await api(`groups/${g.id}/members`)).members;g.members=g.list.length};
+const loadGroups=safe(async()=>{
+  if(!people.length){people=(await api('people')).people;fillPeople()}
+  groups=(await api('groups')).groups;
+  $('#gadmin').innerHTML=`<div class="card"><div class="cmtin"><input id="gname" placeholder="Tên nhóm mới" maxlength="100"><button class="btn" id="gnew">Tạo nhóm</button></div><div class="pick">${people.map(p=>`<label><input type="checkbox" value="${esc(p.username)}"> ${esc(p.name)}${p.branch?' · '+esc(p.branch):''}</label>`).join('')||'<span class="meta">Chưa có đồng nghiệp nào.</span>'}</div><div class="meta" style="margin-top:8px">Chọn thành viên rồi bấm Tạo nhóm. Bạn sẽ là chủ nhóm.</div></div>`;
+  renderGroups();
+});
+function gpanel(g){
+  const inG=m=>(g.list||[]).some(x=>x.username===m.username);
+  return `<div class="gpanel">${(g.list||[]).map(m=>`<div class="usr">${av(m.name,'s')}<div class="grow"><div class="name">${esc(m.name)}</div><div class="meta">${esc(m.branch)}</div></div>${g.can_manage&&m.username!==ME.username?`<button class="btn danger" data-ga="rm" data-u="${esc(m.username)}">Gỡ</button>`:''}</div>`).join('')}
+  ${g.can_manage?`<select class="sel" data-ga="add" style="margin-top:8px"><option value="">＋ Thêm thành viên...</option>${people.filter(p=>!inG(p)).map(p=>`<option value="${esc(p.username)}">${esc(p.name)}</option>`).join('')}</select>`:''}
+  <div class="row" style="gap:8px;flex-wrap:wrap">${g.joined?'<button class="btn ghost" data-ga="leave">Rời nhóm</button>':''}${g.can_manage&&g.name!=='Toàn công ty'?'<button class="btn danger" data-ga="del">Xoá nhóm</button>':''}</div></div>`;
+}
+function renderGroups(){
+  $('#groups').innerHTML=groups.length?groups.map(g=>`<div class="card" data-gid="${g.id}"><div class="grp"><div class="row">${av(g.name)}<div><div class="name">${esc(g.name)}</div><div class="meta">${g.members} thành viên</div></div></div><div class="row" style="gap:8px">${g.joined?'<button class="btn" data-ga="chat">Nhắn tin</button>':''}<button class="btn ghost" data-ga="mgr">${g.open?'Đóng':'Thành viên'}</button></div></div>${g.open?gpanel(g):''}</div>`).join(''):'<div class="empty">Bạn chưa ở trong nhóm nào.<br>Tạo nhóm mới và chọn đồng nghiệp để bắt đầu.</div>';
+}
+const grpOf=el=>groups.find(x=>x.id==el.closest('[data-gid]').dataset.gid);
+$('#v-groups').addEventListener('click',safe(async e=>{
+  if(e.target.id==='gnew'){
+    const v=$('#gname').value.trim();if(!v)return toast('Hãy nhập tên nhóm.');
+    await post('groups',{name:v,members:$$('.pick input:checked').map(i=>i.value)});toast('Đã tạo nhóm');return loadGroups();
+  }
+  const b=e.target.closest('[data-ga]');if(!b||b.tagName==='SELECT')return;
+  const g=grpOf(b),a=b.dataset.ga;
+  if(a==='chat'){go('chat');await loadConvos();return openChat(g.id)}
+  if(a==='mgr'){g.open=!g.open;if(g.open)await loadMembersOf(g);return renderGroups()}
+  if(a==='rm'){if(!confirm('Gỡ người này khỏi nhóm?'))return;await post(`groups/${g.id}/members/remove`,{username:b.dataset.u});await loadMembersOf(g);return renderGroups()}
+  if(a==='leave'){if(!confirm('Rời khỏi nhóm này?'))return;await post(`groups/${g.id}/members/remove`,{username:ME.username});return loadGroups()}
+  if(a==='del'){if(!confirm(`Xoá nhóm "${g.name}"?\nToàn bộ tin nhắn trong nhóm sẽ mất.`))return;await post(`groups/${g.id}/delete`);return loadGroups()}
+}));
+$('#v-groups').addEventListener('change',safe(async e=>{
+  const s=e.target.closest('select[data-ga="add"]');if(!s||!s.value)return;
+  const g=grpOf(s);await post(`groups/${g.id}/members/add`,{username:s.value});await loadMembersOf(g);renderGroups();
+}));
+
+/* ---------- chat ---------- */
+const loadConvos=safe(async()=>{
+  if(!people.length)people=(await api('people')).people,fillPeople();
+  convos=(await api('convos')).convos;renderConvos();
+  if(!cur&&innerWidth>=900&&convos.length)openChat(convos[0].id);
+});
+function fillPeople(){
+  $('#newdm').innerHTML='<option value="">＋ Nhắn tin cho đồng nghiệp...</option>'+people.map(p=>`<option value="${esc(p.username)}">${esc(p.name)}${p.branch?' · '+esc(p.branch):''}</option>`).join('');
+  $('#online').innerHTML=people.slice(0,8).map(p=>`<button class="row" data-dm="${esc(p.username)}" style="margin-bottom:10px;width:100%;text-align:left">${av(p.name,'s')}<div class="name" style="font-size:14px">${esc(p.name)}</div></button>`).join('');
+}
+function renderConvos(){
+  $('#clist').innerHTML=convos.length?convos.map(c=>`<button class="citem ${c.id===cur?'on':''}" data-i="${c.id}">${av(c.name)}<div style="min-width:0;flex:1"><div class="name">${esc(c.name)}</div><div class="last">${esc(c.last||'Chưa có tin nhắn')}</div></div>${c.unread>0?`<i class="badge" style="position:static">${c.unread}</i>`:''}</button>`).join(''):'<div class="empty">Chưa có cuộc trò chuyện nào.<br>Chọn một đồng nghiệp ở trên để bắt đầu.</div>';
+}
+$('#clist').addEventListener('click',e=>{const b=e.target.closest('[data-i]');if(b)openChat(+b.dataset.i)});
+$('#newdm').onchange=safe(async e=>{const to=e.target.value;e.target.value='';if(to)startDm(to)});
+$('#online').addEventListener('click',e=>{const b=e.target.closest('[data-dm]');if(b)startDm(b.dataset.dm)});
+const startDm=safe(async to=>{const d=await post('dm',{to});go('chat');await loadConvos();openChat(d.id)});
+let CF=null;
+function showCPick(){const p=$('#cpick');if(!p)return;if(!CF){p.hidden=true;return}p.hidden=false;p.innerHTML=`📎 ${esc(CF.name)} · ${fsz(CF.size)} <button class="lnk" id="cpx">Bỏ</button>`}
+const attHtml=m=>!m.att?'':m.att_kind==='image'?`<a href="/teamhub/file/${esc(m.att)}" target="_blank" rel="noopener"><img class="m-img" loading="lazy" src="/teamhub/file/${esc(m.att)}" alt="Ảnh"></a>`:fcHtml(m.att,m.att_name,m.att_size);
+const msgHtml=m=>`<div class="m ${m.mine?'me':''}" data-id="${m.id}">${!m.mine&&cur&&convos.find(c=>c.id===cur)?.kind==='group'?`<b style="font-size:12px">${esc(m.name)}</b><br>`:''}${m.body?`<span>${esc(m.body)}</span>`:''}${attHtml(m)}<small>${hm(m.created_at)}</small></div>`;
+const openChat=safe(async id=>{
+  cur=id;lastMsg=0;CF=null;const c=convos.find(x=>x.id===id)||{name:'Trò chuyện'};
+  $('#chat').classList.add('open');
+  $('#cwin').innerHTML=`<div class="chead"><button class="back" id="back" aria-label="Quay lại">‹</button>${av(c.name,'s')}<div class="name">${esc(c.name)}</div></div><div class="msgs" id="msgs"></div><div class="pickline" id="cpick" hidden></div><div class="cmtin"><label class="icon-btn" style="display:grid;place-items:center;cursor:pointer;flex:none" title="Đính kèm ảnh hoặc tệp" aria-label="Đính kèm ảnh hoặc tệp">📎<input type="file" id="cfile" hidden></label><input id="msgin" placeholder="Nhập tin nhắn..." maxlength="2000"><button class="btn" id="msgsend">Gửi</button></div>`;
+  $('#back').onclick=()=>{cur=null;$('#chat').classList.remove('open');loadConvos()};
+  $('#msgsend').onclick=sendMsg;
+  $('#cfile').onchange=()=>{CF=$('#cfile').files[0]||null;showCPick()};
+  $('#cpick').onclick=e=>{if(e.target.id==='cpx'){CF=null;$('#cfile').value='';showCPick()}};
+  $('#msgin').addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.isComposing)sendMsg()});
+  await pullMsgs();renderConvos();
+});
+const pullMsgs=safe(async()=>{
+  if(!cur)return;
+  const d=await api(`messages?convo=${cur}&after=${lastMsg}`);if(!d.messages.length)return;
+  const box=$('#msgs'),atEnd=box.scrollHeight-box.scrollTop-box.clientHeight<80||!lastMsg;
+  box.insertAdjacentHTML('beforeend',d.messages.map(msgHtml).join(''));
+  lastMsg=d.messages[d.messages.length-1].id;if(atEnd)box.scrollTop=box.scrollHeight;
+},true);
+const sendMsg=safe(async()=>{
+  const i=$('#msgin'),v=i.value.trim(),btn=$('#msgsend');if(!v&&!CF)return;
+  if(!CF){i.value='';await post('messages',{convo:cur,body:v});await pullMsgs();i.focus();return}
+  const fd=new FormData();fd.append('convo',cur);fd.append('body',v);
+  const er=await prep(fd,CF);if(er)return toast(er);
+  btn.disabled=true;
+  try{
+    await up('messages',fd,p=>{btn.textContent=p<100?p+'%':'…'});
+    CF=null;i.value='';const cf=$('#cfile');if(cf)cf.value='';showCPick();await pullMsgs();i.focus();
+  }finally{btn.disabled=false;btn.textContent='Gửi'}
+});
+
+/* ---------- thông báo ---------- */
+const loadNotifs=safe(async()=>{
+  const d=await api('notifs');
+  $('#notifs').innerHTML=(d.notifs.length?'<button class="btn ghost" id="readall" style="margin-bottom:12px">Đánh dấu đã đọc hết</button>':'')+(d.notifs.map(n=>`<button class="card nt ${n.is_read?'read':''}" data-n="${n.id}" style="display:flex"><i class="dot"></i><div><div>${esc(n.text)}</div><div class="meta">${ago(n.created_at)}</div></div></button>`).join('')||'<div class="empty">Chưa có thông báo nào.</div>');
+  $('#rnotif').innerHTML=d.notifs.slice(0,3).map(n=>`<div style="margin-bottom:10px;${n.is_read?'opacity:.6':''}"><div style="font-size:14px">${esc(n.text)}</div><div class="meta">${ago(n.created_at)}</div></div>`).join('')||'<div class="meta">Chưa có thông báo.</div>';
+  pulse();
+});
+$('#notifs').addEventListener('click',safe(async e=>{
+  const b=e.target.closest('[data-n]');
+  if(b)await post('notifs/read',{id:b.dataset.n});else if(e.target.id!=='readall')return;else await post('notifs/read');
+  loadNotifs();
+}));
+
+/* ---------- Admin: gỡ / khôi phục tài khoản khỏi Nam Sương Motor ---------- */
+const loadMembers=safe(async()=>{
+  $('#adm').style.display=ME.is_admin?'':'none';if(!ME.is_admin)return;
+  const d=await api('admin/members');
+  $('#users').innerHTML=d.members.map(u=>`<div class="usr ${u.removed?'gone':''}">${av(u.name,'s')}<div class="grow"><div class="name">${esc(u.name)}</div><div class="meta">${u.removed?'Đã gỡ khỏi Nam Sương Motor':esc((u.role==='admin'?'Quản trị viên':'Nhân viên')+(u.branch?' · '+u.branch:''))}</div></div>${u.username===ME.username||u.username==='admin'?'':u.removed?`<button class="btn ghost" data-u="${esc(u.username)}" data-x="restore">Khôi phục</button>`:`<button class="btn danger" data-u="${esc(u.username)}" data-n="${esc(u.name)}" data-x="remove">Gỡ</button>`}</div>`).join('');
+});
+$('#users').addEventListener('click',safe(async e=>{
+  const b=e.target.closest('[data-x]');if(!b)return;
+  if(b.dataset.x==='remove'&&!confirm(`Gỡ "${b.dataset.n}" khỏi Nam Sương Motor?\nBài viết và tin nhắn cũ vẫn được giữ lại. Tài khoản này vẫn đăng nhập được vào phần quản lý kho.`))return;
+  await post(`admin/members/${encodeURIComponent(b.dataset.u)}/${b.dataset.x}`);loadMembers();
+}));
+
+/* ---------- huy hiệu + làm mới định kỳ ---------- */
+const pulse=safe(async()=>{
+  const d=await api('pulse');
+  $$('.nb').forEach(b=>b.textContent=d.notif||'');$$('.cb').forEach(b=>b.textContent=d.chat||'');
+},true);
+let tk=0;
+setInterval(()=>{
+  if(document.hidden)return;
+  tk++;const open=view==='chat'&&cur;
+  if(open)pullMsgs();                          /* đang mở khung chat: 4 giây/lần */
+  if(tk%(open?3:5)===0){                       /* còn lại: 12-20 giây/lần */
+    pulse();
+    if(view==='chat'){open?(innerWidth>=900&&api('convos').then(d=>{convos=d.convos;renderConvos()}).catch(()=>{})):loadConvos()}
+  }
+},4000);
+document.addEventListener('visibilitychange',()=>{if(!document.hidden){pulse();if(view==='chat')cur?pullMsgs():loadConvos()}});
+if('serviceWorker' in navigator)navigator.serviceWorker.register('/teamhub/sw.js',{scope:'/teamhub'}).catch(()=>{});
+
+/* ---------- khởi động ---------- */
+(async()=>{
+  try{
+    const d=await api('bootstrap');ME=d.me;CATS=d.cats;
+    $$('.me-name').forEach(e=>e.textContent=ME.name);
+    $$('.me-role').forEach(e=>e.textContent=(ME.is_admin?'Quản trị viên':'Nhân viên')+(ME.branch?' · '+ME.branch:''));
+    $$('.me-av').forEach(e=>e.outerHTML=av(ME.name,e.dataset.s?'s':'').replace('class="av ','class="av me-av '));
+    renderChips();loadFeed();pulse();loadNotifs();
+    api('people').then(x=>{people=x.people;fillPeople()}).catch(()=>{});
+  }catch(e){
+    if(e.message!=='login')document.querySelector('.app').innerHTML=`<div class="empty" style="grid-column:1/-1;padding:80px 20px">${esc(e.message)}</div>`;
+  }
+})();
+</script>
+</body>
+</html>

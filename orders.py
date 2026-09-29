@@ -522,6 +522,31 @@ def list_orders():
 
     data = [_rows_to_request(rid, by_req[rid]) for rid in rids if by_req[rid]]
 
+    # Mặt hàng đã lưu nhưng thiếu Tên / Đơn giá -> điền từ danh mục để hiển thị
+    # (chỉ điền chỗ TRỐNG, không đè giá đã chốt với khách).
+    try:
+        need = {_norm_code(it['part_code']) for rq in data for it in rq['items']
+                if it['part_code'] and (not it['part_name'] or it['unit_price'] is None)}
+        need.discard('')
+        if need:
+            mc = get_main_db().cursor()
+            info = _catalog_lookup(mc, list(need))
+            mc.close()
+            for rq in data:
+                for it in rq['items']:
+                    e = info.get(_norm_code(it['part_code']))
+                    if not e:
+                        continue
+                    if not it['part_name'] and e['name']:
+                        it['part_name'] = e['name']
+                    if it['unit_price'] is None and e['price'] is not None:
+                        it['unit_price'] = e['price']
+    except Exception:
+        try:
+            get_main_db().rollback()
+        except Exception:
+            pass
+
     return jsonify({
         'success': True,
         'data': data,
@@ -790,22 +815,17 @@ def import_quote():
     except Exception as e:
         return jsonify({'error': f'Không đọc được file: {e}'}), 400
 
-    # Đối chiếu mã hàng với danh mục hiện có để lấy đúng tên/giá hiện hành.
-    codes = [it['part_code'] for it in data['items']]
+    # Đối chiếu mã hàng với danh mục: giá ĐÃ TĂNG (nếu có) > giá cũ trong danh mục
+    # > giữ giá đọc từ PDF. Tên lấy từ danh mục (đề xuất tăng giá > mã mới > tồn kho).
     found = {}
-    if codes:
-        norm_codes = list(dict.fromkeys(re.sub(r'[^A-Za-z0-9]', '', c).upper() for c in codes))
+    if data['items']:
+        norm_codes = list(dict.fromkeys(_norm_code(it['part_code']) for it in data['items']))
         try:
             cur = get_main_db().cursor()
-            cur.execute(f'''
-                SELECT i.part_code AS code, MAX(i.part_name) AS name, MAX(pp.sale_price) AS price
-                FROM inventory_items i LEFT JOIN part_prices pp ON pp.part_code = i.part_code
-                WHERE {_NORM_SQL} = ANY(%s) GROUP BY i.part_code
-            ''', (norm_codes,))
-            for r in cur.fetchall():
-                found[re.sub(r'[^A-Za-z0-9]', '', r['code']).upper()] = r
+            found = _catalog_lookup(cur, norm_codes)
             cur.close()
         except Exception:
+            found = {}
             try:
                 get_main_db().rollback()
             except Exception:
@@ -813,14 +833,14 @@ def import_quote():
 
     matched = 0
     for it in data['items']:
-        hit = found.get(re.sub(r'[^A-Za-z0-9]', '', it['part_code']).upper())
+        hit = found.get(_norm_code(it['part_code']))
         if hit:
             matched += 1
-            it['part_code'] = hit['code']  # dùng đúng mã trong danh mục (chuẩn hoá hoa/thường)
+            it['part_code'] = hit['code']
             if hit['name']:
                 it['part_name'] = hit['name']
             if hit['price'] is not None:
-                it['unit_price'] = _price_number(hit['price'])
+                it['unit_price'] = hit['price']
 
     return jsonify({
         'success': True,
@@ -868,6 +888,87 @@ def delete_order():
         return jsonify({'error': 'Không tìm thấy đơn (hoặc không thuộc cửa hàng của bạn).'}), 404
     return jsonify({'success': True, 'deleted_items': deleted})
 
+
+# ----------------------------------------------------------------------------
+# TRA CỨU TÊN + GIÁ TỪ DANH MỤC (dùng chung cho gợi ý mã, dán mã, nhập PDF)
+# ----------------------------------------------------------------------------
+def _norm_code(c):
+    return re.sub(r'[^A-Za-z0-9]', '', str(c or '')).upper()
+
+
+def _n_sql(col):
+    return f"regexp_replace(upper({col}), '[^A-Z0-9]', '', 'g')"
+
+
+def _catalog_lookup(cur, norm_codes):
+    """Tra Tên + Giá bán hiện hành của các mã hàng (đã chuẩn hoá), trả
+    {norm: {'code','name','price','adjusted'}}.
+
+    GIÁ (ưu tiên):
+      1. Giá tăng mới nhất (price_adjustment_proposals.gia_ban) -> mã ĐÃ tăng.
+      2. Giá trong danh mục giá (part_prices.sale_price)        -> chưa tăng = giá cũ.
+      3. last_known_price của price_adjustment_new_codes        -> mã mới ngoài tồn kho.
+    TÊN (ưu tiên, giống _find_existing_part_name của price_adjustment.py):
+      đề xuất tăng giá gần nhất > danh mục mã mới > tồn kho (inventory_items).
+    Nhờ vậy mã chỉ có trong danh mục tăng giá (không có ở tồn kho / part_prices)
+    vẫn có đủ tên + giá."""
+    out = {}
+    if not norm_codes:
+        return out
+
+    def slot(n, code):
+        e = out.get(n)
+        if e is None:
+            e = out[n] = {'code': code, 'name': None, 'price': None, 'adjusted': False,
+                          '_inv': None, '_new': None, '_prop': None,
+                          '_p_prop': None, '_p_cat': None, '_p_new': None}
+        return e
+
+    cur.execute(f'''SELECT part_code, MAX(part_name) AS name FROM inventory_items
+                   WHERE {_n_sql('part_code')} = ANY(%s) GROUP BY part_code''', (norm_codes,))
+    for r in cur.fetchall():
+        e = slot(_norm_code(r['part_code']), r['part_code'])
+        e['code'] = r['part_code']          # ưu tiên mã đúng như trong tồn kho
+        e['_inv'] = r['name']
+
+    cur.execute(f'''SELECT part_code, part_name, last_known_price FROM price_adjustment_new_codes
+                   WHERE {_n_sql('part_code')} = ANY(%s)''', (norm_codes,))
+    for r in cur.fetchall():
+        e = slot(_norm_code(r['part_code']), r['part_code'])
+        e['_new'] = r['part_name']
+        e['_p_new'] = _price_number(r['last_known_price'])
+
+    cur.execute(f'''SELECT part_code, sale_price FROM part_prices
+                   WHERE {_n_sql('part_code')} = ANY(%s)''', (norm_codes,))
+    for r in cur.fetchall():
+        e = slot(_norm_code(r['part_code']), r['part_code'])
+        if r['sale_price'] is not None:
+            e['_p_cat'] = _price_number(r['sale_price'])
+
+    cur.execute(f'''SELECT DISTINCT ON (n) n, part_code, part_name, gia_ban FROM (
+                       SELECT {_n_sql('part_code')} AS n, part_code, part_name, gia_ban, created_at
+                       FROM price_adjustment_proposals
+                       WHERE {_n_sql('part_code')} = ANY(%s)
+                   ) t ORDER BY n, created_at DESC''', (norm_codes,))
+    for r in cur.fetchall():
+        e = slot(r['n'], r['part_code'])
+        e['_prop'] = r['part_name']
+        e['_p_prop'] = _price_number(r['gia_ban'])
+        e['adjusted'] = True
+
+    for e in out.values():
+        e['name'] = e['_prop'] or e['_new'] or e['_inv'] or None
+        if e['_p_prop'] is not None and e['_p_prop'] > 0:
+            e['price'] = e['_p_prop']
+        elif e['_p_cat'] is not None:
+            e['price'] = e['_p_cat']
+        else:
+            e['price'] = e['_p_new']
+        for k in ('_inv', '_new', '_prop', '_p_prop', '_p_cat', '_p_new'):
+            del e[k]
+    return out
+
+
 # ----------------------------------------------------------------------------
 # GỢI Ý MÃ HÀNG - tra CSDL CHÍNH: inventory_items (mã, tên) + part_prices (giá bán)
 # ----------------------------------------------------------------------------
@@ -885,23 +986,31 @@ def suggest_parts():
     q = (request.args.get('q') or '').strip()[:60]
     if len(q) < 2:
         return jsonify({'success': True, 'data': []})
-    norm = re.sub(r'[^A-Za-z0-9]', '', q).upper()
+    norm = _norm_code(q)
     try:
         cur = get_main_db().cursor()
+        # Ứng viên = tồn kho + danh mục mã mới + mọi mã đã từng đề xuất tăng giá
         cur.execute(f'''
-            SELECT i.part_code AS code, MAX(i.part_name) AS name, MAX(pp.sale_price) AS price
-            FROM inventory_items i
-            LEFT JOIN part_prices pp ON pp.part_code = i.part_code
-            WHERE {_NORM_SQL} LIKE %s OR i.part_name ILIKE %s
-            GROUP BY i.part_code
-            ORDER BY ({_NORM_SQL} = %s) DESC,
-                     (i.part_code ILIKE %s) DESC, i.part_code
+            SELECT part_code FROM (
+                SELECT part_code, part_name FROM inventory_items
+                UNION SELECT part_code, part_name FROM price_adjustment_new_codes
+                UNION SELECT part_code, part_name FROM price_adjustment_proposals
+            ) u
+            WHERE {_n_sql('part_code')} LIKE %s OR part_name ILIKE %s
+            GROUP BY part_code
+            ORDER BY ({_n_sql('part_code')} = %s) DESC, (part_code ILIKE %s) DESC, part_code
             LIMIT 8
         ''', (f'%{norm}%' if norm else '%', f'%{q}%', norm, f'{norm}%'))
-        rows = cur.fetchall()
+        codes = [r['part_code'] for r in cur.fetchall()]
+        info = _catalog_lookup(cur, list(dict.fromkeys(_norm_code(c) for c in codes)))
         cur.close()
-        return jsonify({'success': True, 'data': [
-            {'code': r['code'], 'name': r['name'], 'price': _price_number(r['price'])} for r in rows]})
+        data = []
+        for c in codes:
+            e = info.get(_norm_code(c))
+            if e and e['code'] not in [d['code'] for d in data]:
+                data.append({'code': e['code'], 'name': e['name'], 'price': e['price'],
+                             'adjusted': e['adjusted']})
+        return jsonify({'success': True, 'data': data})
     except Exception as e:
         try:
             get_main_db().rollback()
@@ -944,14 +1053,10 @@ def parts_bulk():
         return jsonify({'success': True, 'data': {}})
     try:
         cur = get_main_db().cursor()
-        cur.execute(f'''
-            SELECT i.part_code AS code, MAX(i.part_name) AS name, MAX(pp.sale_price) AS price
-            FROM inventory_items i LEFT JOIN part_prices pp ON pp.part_code = i.part_code
-            WHERE {_NORM_SQL} = ANY(%s) GROUP BY i.part_code
-        ''', (codes,))
-        rows = cur.fetchall()
+        info = _catalog_lookup(cur, codes)
         cur.close()
-        out = {re.sub(r'[^A-Za-z0-9]', '', r['code']).upper(): {'code': r['code'], 'name': r['name'], 'price': _price_number(r['price'])} for r in rows}
+        out = {n: {'code': e['code'], 'name': e['name'], 'price': e['price'], 'adjusted': e['adjusted']}
+               for n, e in info.items()}
         return jsonify({'success': True, 'data': out})
     except Exception as e:
         try:

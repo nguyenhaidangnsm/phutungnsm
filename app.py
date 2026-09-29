@@ -253,7 +253,7 @@ def _track_online_user():
 # Các request ghi KHÔNG làm cache phản hồi ở trên bị cũ: (đăng nhập/đăng xuất,
 # đánh dấu đã đọc thông báo, đổi mật khẩu - không đụng tới dữ liệu tồn
 # kho/vị trí/phiếu luân chuyển).
-_WRITE_EPOCH_IGNORED_PREFIXES = ('/api/notifications/', '/api/change-password', '/login', '/logout', '/api/login-geo')
+_WRITE_EPOCH_IGNORED_PREFIXES = ('/api/notifications/', '/api/change-password', '/login', '/logout', '/api/login-geo', '/teamhub/')
 
 
 @app.after_request
@@ -1339,6 +1339,9 @@ def init_db():
         # 9b. Bảng cho tính năng KIỂM KÊ KHO - tách trong stocktake.py để
         # khỏi làm app.py dài thêm (xem hướng dẫn ở đầu file stocktake.py).
         init_stocktake_tables(cursor)
+
+        # 9b-2. Bảng cho TeamHub / menu "Kết nối" (mạng xã hội nội bộ) - xem teamhub.py
+        init_teamhub_tables(cursor)
 
         # 9c. Bảng cho tính năng ĐỀ XUẤT TĂNG GIÁ - tách trong
         # price_adjustment.py cùng lý do (xem hướng dẫn ở đầu file đó).
@@ -8673,6 +8676,13 @@ app.register_blueprint(dashboard_bp)
 # có gọi init_warehouse3d_tables()).
 from warehouse3d import warehouse3d_bp, init_warehouse3d_tables
 app.register_blueprint(warehouse3d_bp)
+
+# Import + đăng ký blueprint TeamHub (menu "Kết nối", route /teamhub) - cùng lý do/vị trí
+# như các blueprint ở trên: teamhub.py import ngược get_db/SUPER_ADMIN_USERNAME từ app,
+# và phải đứng TRƯỚC lời gọi _init_db_with_retry() bên dưới (init_db() có gọi
+# init_teamhub_tables()).
+from teamhub import teamhub_bp, init_teamhub_tables
+app.register_blueprint(teamhub_bp)
 
 # Tự động gọi khởi tạo bảng khi chạy app (gọi SAU khi đã đăng ký blueprint
 # ở trên, vì init_db() bên trong có gọi init_stocktake_tables()).
