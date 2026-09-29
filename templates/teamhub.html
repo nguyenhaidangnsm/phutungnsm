@@ -159,12 +159,21 @@ button,label{touch-action:manipulation}
   .chat{min-height:calc(100vh - 150px);min-height:calc(100dvh - 150px)}
   .cwin{height:calc(100vh - 150px);height:calc(100dvh - 150px)}
 }
+
+/* Nút quay về giao diện tra cứu phụ tùng */
+.home-pill{flex:none;display:inline-flex;align-items:center;gap:4px;padding:8px 12px;border-radius:999px;background:var(--accbg);color:var(--acc);font-weight:600;font-size:13px;text-decoration:none;white-space:nowrap}
+.home-pill:active{opacity:.7}
+.top .logo span{white-space:nowrap}
+@media (max-width:380px){.top .logo span{display:none}}
+.side .back-home{margin-bottom:6px;border:1px dashed var(--line);text-decoration:none}
+.side .back-home:hover{border-color:var(--acc);color:var(--acc)}
 </style>
 </head>
 <body>
 <div class="app">
   <aside class="side">
     <div class="logo"><img class="logo-img" src="/static/logo-mark.png" alt=""><span>Nam Sương Motor</span></div>
+    <a class="nv back-home" href="/" title="Quay về tra cứu phụ tùng"><span>←</span>Tra cứu phụ tùng</a>
     <button class="nv on" data-v="feed"><span>🏠</span>Bảng tin</button>
     <button class="nv" data-v="groups"><span>👥</span>Nhóm</button>
     <button class="nv" data-v="chat"><span>💬</span>Chat<i class="badge cb"></i></button>
@@ -176,6 +185,7 @@ button,label{touch-action:manipulation}
 
   <main>
     <header class="top">
+      <a class="home-pill" href="/" aria-label="Quay về tra cứu phụ tùng">← Tra cứu</a>
       <div class="logo"><img class="logo-img" src="/static/logo-mark.png" alt=""><span>Nam Sương Motor</span></div>
       <div class="row" style="gap:8px">
         <button class="icon-btn thm" aria-label="Đổi giao diện sáng/tối"><span class="ti">☀️</span></button>
