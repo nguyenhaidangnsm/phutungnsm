@@ -263,34 +263,70 @@ input.qe.late { color:#b91c1c; font-weight:800; } input.qe.bad { border-color:#d
     }
 
     /* ================================================================
-       FORM NHẬP / SỬA ĐƠN - tăng tương phản: thẻ mặt hàng nền trắng, ô nhập
-       nền trắng viền xám-xanh đậm, nhãn đậm; ô chỉ đọc/thành tiền tách màu.
+       FORM NHẬP / SỬA ĐƠN - thứ bậc đậm/nhạt rõ ràng:
+         tiêu đề mục  : đậm (font thương hiệu)
+         nhãn ô       : nhỏ, xám, nhạt hơn giá trị
+         giá trị ô    : chữ thường, đen
+         chỉ nhấn đậm : Tên KH, Mã hàng, SL, Đơn giá, Thành tiền
+         viền ô mảnh, nhạt; chỉ đậm lên khi focus
+       Ô nhập & nhãn dùng font hệ thống (font thương hiệu chỉ có 1 độ đậm nên
+       không thể tạo chênh lệch đậm/nhạt).
        ================================================================ */
-    #edBody { background: #f1f5f9; }
-    #edBody .sec { color: #0f172a; font-size: .95rem; border-left-width: 5px; }
-    #edBody .lb, .tot-bar .lb, .item-card .lb { color: #1e293b; font-weight: 700; }
+    #edBody { background: #f8fafc; }
+    #edBody, .tot-bar { --f-ui: system-ui, -apple-system, 'Segoe UI', Roboto, Arial, sans-serif; }
+    #edBody .sec { font-size: .92rem; font-weight: 800; color: #0f172a; border-left: 4px solid var(--ns-blue); margin: 1.3rem 0 .6rem; }
+    #edBody .sec:first-child { margin-top: 0; }
+    #edBody .tag { font-family: var(--f-ui); font-weight: 500; color: #64748b; background: #eef2f7; }
+
+    /* Nhãn: nhỏ, xám, không in hoa cứng */
+    #edBody .lb, .tot-bar .lb, .item-card .lb {
+        font-family: var(--f-ui); font-size: .74rem; font-weight: 600; color: #64748b;
+        text-transform: none; letter-spacing: 0; margin-bottom: 3px;
+    }
+    #edBody .lb .fw-normal, .item-card .lb span { font-weight: 400; color: #94a3b8; }
+
+    /* Ô nhập: nền trắng, viền mảnh nhạt, chữ thường */
     #edBody .form-control, #edBody .form-select, .tot-bar .form-control {
-        background: #fff; color: #0f172a; border: 1.5px solid #7c8ba1;
-        box-shadow: none; font-weight: 500;
+        font-family: var(--f-ui); font-size: .92rem; font-weight: 400; color: #0f172a;
+        background: #fff; border: 1px solid #cbd5e1; box-shadow: none;
     }
-    #edBody .form-control:hover, #edBody .form-select:hover, .tot-bar .form-control:hover {
-        background: #fff; border-color: #475569;
-    }
+    #edBody .form-control:hover, #edBody .form-select:hover, .tot-bar .form-control:hover { background: #fff; border-color: #94a3b8; }
     #edBody .form-control:focus, #edBody .form-select:focus, .tot-bar .form-control:focus {
-        background: #fffef5; border-color: var(--ns-blue); box-shadow: 0 0 0 .25rem rgba(13,110,253,.25);
+        background: #fff; border-color: var(--ns-blue); box-shadow: 0 0 0 .2rem rgba(13,110,253,.16);
     }
-    #edBody .form-control::placeholder { color: #94a3b8; font-weight: 400; }
-    #edBody .form-control[readonly], #edBody .form-control:disabled { background: #e2e8f0; color: #475569; border-style: dashed; }
+    #edBody .form-control::placeholder { color: #b6c0ce; font-weight: 400; }
+    #edBody .form-control[readonly], #edBody .form-control:disabled { background: #f1f5f9; color: #64748b; border-style: solid; }
+
+    /* Chỉ những ô quan trọng mới đậm */
+    #edBody .form-control.fw-bold, #edBody [data-f="customer_name"],
+    #edBody [data-f="part_code"], #edBody [data-f="quantity"], #edBody [data-f="unit_price"] { font-weight: 600; }
+    #edBody [data-f="part_name"] { font-weight: 400; }
+
+    /* Thẻ mặt hàng: nền trắng, viền mảnh, vạch xanh trái làm điểm nhấn duy nhất */
     .item-card {
-        background: #fff; border: 1.5px solid #94a3b8; border-left: 6px solid var(--ns-blue);
-        box-shadow: 0 2px 6px rgba(15,23,42,.08); padding: .7rem .9rem .8rem; margin-bottom: .75rem;
+        background: #fff; border: 1px solid #dbe3ee; border-left: 4px solid var(--ns-blue);
+        box-shadow: 0 1px 3px rgba(15,23,42,.05); padding: .65rem .85rem .75rem; margin-bottom: .7rem;
     }
-    .item-card:focus-within { background: #fff; border-color: var(--ns-blue); box-shadow: 0 0 0 3px rgba(13,110,253,.18), 0 2px 6px rgba(15,23,42,.08); }
-    .item-card .ic-head { color: #0b5ed7; font-size: .88rem; border-bottom: 1px solid #e2e8f0; padding-bottom: .3rem; margin-bottom: .5rem; }
-    .item-card .line-total { background: #ecfdf5; border: 1.5px solid #6ee7b7; border-radius: 8px; color: #065f46; padding: .3rem .5rem; font-size: .95rem; }
-    .stk button { background: #fff; border: 1.5px solid #64748b; color: #0f172a; }
-    .tot-bar { background: #fff; border-top: 2px solid #94a3b8; }
-    .ac-i b { color: #0b3aa8; } .ac-i em { color: #047857; }
+    .item-card:focus-within { background: #fff; border-color: #bcd4ff; border-left-color: var(--ns-blue); box-shadow: 0 0 0 3px rgba(13,110,253,.08); }
+    .item-card .ic-head { font-family: var(--f-ui); font-size: .8rem; font-weight: 700; color: var(--ns-blue); border: 0; padding: 0; margin-bottom: .35rem; }
+    .item-card .line-total {
+        font-family: var(--f-ui); font-size: .95rem; font-weight: 700; color: #0f172a;
+        background: transparent; border: 0; padding: .4rem .2rem;
+    }
+    .stk { font-family: var(--f-ui); }
+    .stk button { font-weight: 600; font-size: .78rem; background: #fff; border: 1px solid #cbd5e1; color: #334155; }
+    .stk button:hover, .stk button.on { background: #6d28d9; border-color: #6d28d9; color: #fff; }
+
+    /* Thanh tổng tiền */
+    .tot-bar { background: #fff; border-top: 1px solid #dbe3ee; }
+    .tot-bar .form-control { font-weight: 600; }
+    #remain { font-family: var(--f-ui); font-weight: 700; }
+    .tot-bar .small, .tot-bar .text-muted, .tot-bar .text-secondary { font-family: var(--f-ui); color: #64748b !important; }
+
+    /* Nút thêm mặt hàng / dán mã: nhẹ hơn */
+    #edBody .btn-sm { font-family: var(--f-ui); font-weight: 600; }
+    .ac { font-family: var(--f-ui); }
+    .ac-i b { color: #0b3aa8; font-weight: 700; } .ac-i em { color: #047857; font-weight: 600; }
 </style>
 </head>
 <body>
