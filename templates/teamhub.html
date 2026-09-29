@@ -67,7 +67,7 @@ main{padding-bottom:calc(64px + env(safe-area-inset-bottom,0px))}
 /* chat */
 .chat{display:grid;min-height:calc(100vh - 150px)}
 .clist{display:block}
-.cwin{display:none;flex-direction:column;height:calc(100vh - 150px)}
+.cwin{min-width:0;display:none;flex-direction:column;height:calc(100vh - 150px)}
 .chat.open .clist{display:none}
 .chat.open .cwin{display:flex}
 .citem{display:flex;gap:12px;align-items:center;width:100%;text-align:left;padding:12px;border-radius:12px}
@@ -118,10 +118,15 @@ h2{font-size:18px;margin-bottom:12px}
   .view{padding:20px 24px;max-width:680px;margin:0 auto}
   #v-chat{max-width:none}
   .right{display:block;position:sticky;top:0;height:100vh;overflow-y:auto;padding:20px 0}
-  .chat{grid-template-columns:300px 1fr;gap:20px;min-height:calc(100vh - 40px)}
+  .chat{grid-template-columns:300px minmax(0,1fr);gap:20px;min-height:calc(100vh - 40px)}
   .clist,.chat.open .clist{display:block}
   .cwin,.chat.open .cwin{display:flex;height:calc(100vh - 40px);border-left:1px solid var(--line);padding-left:20px}
   .back{display:none}
+}
+/* laptop nhỏ: bỏ cột phải để khung chat đủ rộng, không bị tràn/che */
+@media(min-width:900px) and (max-width:1199px){
+  .app{grid-template-columns:250px minmax(0,1fr)}
+  .right{display:none}
 }
 @media(prefers-reduced-motion:no-preference){.view.on{animation:in .18s ease-out}@keyframes in{from{opacity:.4}to{opacity:1}}}
 .post-img{width:100%;max-height:520px;object-fit:cover;border-radius:12px;margin-bottom:10px;display:block}
