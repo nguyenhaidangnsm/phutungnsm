@@ -36,6 +36,7 @@ ACCEL_PREFIX = os.environ.get('TEAMHUB_ACCEL_PREFIX', '')   # ví dụ /_teamhub
 FILE_NAME_RE = re.compile(r'[0-9a-f]{32}(\.[a-z0-9]{1,10})?')
 BLOCKED_EXT = {'exe', 'bat', 'cmd', 'com', 'scr', 'msi', 'dll', 'sh', 'ps1', 'vbs', 'js', 'jar', 'apk',
                'php', 'py', 'html', 'htm', 'svg', 'lnk', 'reg'}
+ALLOW_REMOVE_MEMBER = False   # False = TẮT chức năng Admin "Gỡ" tài khoản khỏi TeamHub (vẫn cho "Khôi phục"). Đặt True để bật lại.
 MAX_IMG = 12 * 1024 * 1024   # ảnh tải lên tối đa 12MB (app.py nên đặt MAX_CONTENT_LENGTH >= mức này)
 
 
@@ -651,6 +652,8 @@ def admin_members(me):
 @teamhub_bp.route('/teamhub/api/admin/members/<username>/<act>', methods=['POST'])
 @_api(admin=True)
 def admin_member_act(me, username, act):
+    if act == 'remove' and not ALLOW_REMOVE_MEMBER:
+        return jsonify(error='Chức năng gỡ tài khoản đang tạm tắt.'), 403
     if username == me or username == SUPER_ADMIN_USERNAME:
         return jsonify(error='Không thể gỡ tài khoản này.'), 400
     if not _run('SELECT 1 FROM users WHERE username=%s', (username,), 'one'):

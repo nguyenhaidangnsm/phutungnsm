@@ -457,7 +457,7 @@ $('#notifs').addEventListener('click',safe(async e=>{
 const loadMembers=safe(async()=>{
   $('#adm').style.display=ME.is_admin?'':'none';if(!ME.is_admin)return;
   const d=await api('admin/members');
-  $('#users').innerHTML=d.members.map(u=>`<div class="usr ${u.removed?'gone':''}">${av(u.name,'s')}<div class="grow"><div class="name">${esc(u.name)}</div><div class="meta">${u.removed?'Đã gỡ khỏi Nam Sương Motor':esc((u.role==='admin'?'Quản trị viên':'Nhân viên')+(u.branch?' · '+u.branch:''))}</div></div>${u.username===ME.username||u.username==='admin'?'':u.removed?`<button class="btn ghost" data-u="${esc(u.username)}" data-x="restore">Khôi phục</button>`:`<button class="btn danger" data-u="${esc(u.username)}" data-n="${esc(u.name)}" data-x="remove">Gỡ</button>`}</div>`).join('');
+  $('#users').innerHTML=d.members.map(u=>`<div class="usr ${u.removed?'gone':''}">${av(u.name,'s')}<div class="grow"><div class="name">${esc(u.name)}</div><div class="meta">${u.removed?'Đã gỡ khỏi Nam Sương Motor':esc((u.role==='admin'?'Quản trị viên':'Nhân viên')+(u.branch?' · '+u.branch:''))}</div></div>${u.username===ME.username||u.username==='admin'?'':u.removed?`<button class="btn ghost" data-u="${esc(u.username)}" data-x="restore">Khôi phục</button>`:''}</div>`).join('');
 });
 $('#users').addEventListener('click',safe(async e=>{
   const b=e.target.closest('[data-x]');if(!b)return;
