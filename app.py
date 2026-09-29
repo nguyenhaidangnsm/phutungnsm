@@ -8786,6 +8786,12 @@ def _init_body_kit_with_retry(max_attempts=5, base_delay_seconds=3):
 
 _init_body_kit_with_retry()
 
+# Trợ lý AI (khung chat nổi, chỉ đọc dữ liệu) - xem assistant.py. PHẢI đặt
+# ở CUỐI file (sau Compress(app) và sau khi mọi blueprint đã đăng ký) để hook
+# after_request chèn <script> chạy TRƯỚC bước nén gzip.
+from assistant import init_assistant
+init_assistant(app)
+
 if __name__ == '__main__':
     # LƯU Ý: không chạy file này trực tiếp (`python3 app.py`) - hãy chạy
     # `python3 run.py` ở thư mục gốc. Xem giải thích chi tiết trong run.py

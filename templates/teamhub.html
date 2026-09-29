@@ -12,14 +12,14 @@
 <meta name="apple-mobile-web-app-title" content="Nam Sương Motor">
 <title>Nam Sương Motor</title>
 <link rel="icon" href="/static/logo-mark.png">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="preload" href="/static/fonts/SVN-MonaSans-SemiBoldWide.woff" as="font" type="font/woff" crossorigin>
 <style>
 :root{--bg:#0f1420;--card:#161c2b;--line:#232c40;--text:#e8ecf5;--mute:#8b96ad;--acc:#6b8cff;--accbg:rgba(107,140,255,.14);--red:#e5484d;--r:14px;--onacc:#0b1020;--dtxt:#ff7a7f;--tbg:#2a3350;color-scheme:dark}
 :root[data-theme="light"]{--bg:#f2f4f9;--card:#fff;--line:#dde2ec;--text:#141a2a;--mute:#5b6780;--acc:#3556e0;--accbg:rgba(53,86,224,.1);--red:#d92d33;--onacc:#fff;--dtxt:#c8232a;--tbg:#1f2637;color-scheme:light}
 *{box-sizing:border-box;margin:0}
 html,body{height:100%}
-body{background:var(--bg);color:var(--text);font:15px/1.5 "Be Vietnam Pro",system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+@font-face{font-family:"SVN-MonaSans";src:url("/static/fonts/SVN-MonaSans-SemiBoldWide.woff") format("woff"),url("/static/fonts/SVN-MonaSans-SemiBoldWide.otf") format("opentype");font-weight:100 900;font-style:normal;font-display:swap}
+body{background:var(--bg);color:var(--text);font:14px/1.5 "SVN-MonaSans",system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif;font-synthesis:none;-webkit-font-smoothing:antialiased}
 button,input,select{font:inherit;color:inherit}
 button{background:none;border:0;cursor:pointer}
 :focus-visible{outline:2px solid var(--acc);outline-offset:2px}
@@ -167,6 +167,13 @@ button,label{touch-action:manipulation}
 @media (max-width:380px){.top .logo span{display:none}}
 .side .back-home{margin-bottom:6px;border:1px dashed var(--line);text-decoration:none}
 .side .back-home:hover{border-color:var(--acc);color:var(--acc)}
+
+/* Font SVN-MonaSans chỉ có 1 độ đậm -> phân cấp bằng cỡ chữ + màu */
+.meta,.time,small{color:var(--mute)}
+.meta{font-size:12px}
+input::placeholder,textarea::placeholder{color:var(--mute);opacity:.55}
+.name{font-size:14px;color:var(--text)}
+h2{font-size:20px}
 </style>
 </head>
 <body>
