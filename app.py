@@ -253,7 +253,8 @@ def _track_online_user():
 # Các request ghi KHÔNG làm cache phản hồi ở trên bị cũ: (đăng nhập/đăng xuất,
 # đánh dấu đã đọc thông báo, đổi mật khẩu - không đụng tới dữ liệu tồn
 # kho/vị trí/phiếu luân chuyển).
-_WRITE_EPOCH_IGNORED_PREFIXES = ('/api/notifications/', '/api/change-password', '/login', '/logout', '/api/login-geo', '/teamhub/')
+_WRITE_EPOCH_IGNORED_PREFIXES = ('/api/notifications/', '/api/change-password', '/login', '/logout', '/api/login-geo', '/teamhub/',
+                                '/api/gom-don-hang/')   # Gôm đơn hàng không đụng tới tồn kho/vị trí/phiếu luân chuyển
 
 
 @app.after_request
@@ -8683,6 +8684,12 @@ app.register_blueprint(warehouse3d_bp)
 # init_teamhub_tables()).
 from teamhub import teamhub_bp, init_teamhub_tables
 app.register_blueprint(teamhub_bp)
+
+# Gôm đơn hàng (import Tổng hợp tồn kho 2 mẫu -> đề xuất đặt -> loại đơn Định kỳ/Khẩn/Đơn 26
+# + Dashboard đơn hàng) - gom_don_hang.py. Bảng gdh_batches/gdh_lines tự tạo ở lần dùng đầu
+# tiên nên KHÔNG cần init_..._tables(). Thay cho purchase_summary.py và "Lập đơn nháp" cũ.
+from gom_don_hang import gom_don_hang_bp
+app.register_blueprint(gom_don_hang_bp)
 
 # Tự động gọi khởi tạo bảng khi chạy app (gọi SAU khi đã đăng ký blueprint
 # ở trên, vì init_db() bên trong có gọi init_stocktake_tables()).

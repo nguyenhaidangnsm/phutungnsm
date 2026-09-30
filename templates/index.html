@@ -1461,6 +1461,10 @@
             </button>
             {% endif %}
             {% if role == 'admin' or role == 'store' %}
+            <button type="button" class="ns-sidebar-item" data-target-tab="gdh-tab" onclick="megaNavClick('gdh-tab', this)">
+                <span class="ns-sidebar-icon"><i class="bi bi-boxes"></i></span>
+                <span class="ns-label">Gôm Đơn Hàng</span>
+            </button>
             <button type="button" class="ns-sidebar-item" data-target-tab="body-kit-tab" onclick="megaNavClick('body-kit-tab', this)">
                 <span class="ns-sidebar-icon"><i class="bi bi-palette-fill"></i></span>
                 <span class="ns-label">Bảng Giá Bộ Áo</span>
@@ -1552,6 +1556,11 @@
     <li class="nav-item" role="presentation">
         <button class="nav-link" id="reorder-tab" data-bs-toggle="pill" data-bs-target="#reorder-pane" onclick="loadReorderSuggestions(); {% if role == 'admin' %}loadLowStockSettings();{% endif %}">
             <i class="bi bi-cart-plus-fill me-2"></i>Gợi Ý Nhập Hàng
+        </button>
+    </li>
+    <li class="nav-item" role="presentation">
+        <button class="nav-link" id="gdh-tab" data-bs-toggle="pill" data-bs-target="#gdh-pane" onclick="gdhTabOpened()">
+            <i class="bi bi-boxes me-2"></i>Gôm Đơn Hàng
         </button>
     </li>
     <li class="nav-item" role="presentation">
@@ -2215,6 +2224,217 @@
 {% endif %}
 
        {% if role == 'admin' or role == 'store' %}
+<!-- GÔM ĐƠN HÀNG (import tồn kho -> đề xuất -> loại đơn) + DASHBOARD ĐƠN HÀNG - /api/gom-don-hang/* -->
+<div class="tab-pane fade" id="gdh-pane">
+    <ul class="nav nav-pills mb-3 gap-1">
+        <li class="nav-item"><button type="button" class="nav-link active py-1 px-3" id="gdhBtnGom" onclick="gdhSwitchView('gom')"><i class="bi bi-boxes me-1"></i>Gôm đơn hàng</button></li>
+        <li class="nav-item"><button type="button" class="nav-link py-1 px-3" id="gdhBtnDash" onclick="gdhSwitchView('dash')"><i class="bi bi-bar-chart-line me-1"></i>Dashboard đơn hàng</button></li>
+    </ul>
+
+    <!-- ===== GÔM ĐƠN HÀNG ===== -->
+    <style>
+        #gdh-pane { --gdh-font: 'Segoe UI', Roboto, 'Helvetica Neue', Arial, 'Noto Sans', sans-serif; --bs-body-font-family: var(--gdh-font); font-family: var(--gdh-font); }
+        #gdh-pane .form-control, #gdh-pane .form-select, #gdh-pane .btn, #gdh-pane .badge, #gdh-pane table { font-family: var(--gdh-font); }
+        #gdh-pane .gdh-head { display:flex; flex-wrap:wrap; justify-content:space-between; align-items:center; gap:.5rem; margin-bottom:.75rem; }
+        #gdh-pane .gdh-bar { display:flex; flex-wrap:wrap; align-items:center; gap:.5rem; padding:.6rem .75rem; background:#f8fafc; border:1px solid #e2e8f0; border-radius:.6rem; margin-bottom:.6rem; }
+        #gdh-pane .gdh-bar .gdh-sep { width:1px; align-self:stretch; background:#cbd5e1; margin:0 .25rem; }
+        #gdh-pane .gdh-settings { display:flex; flex-wrap:wrap; align-items:center; gap:.5rem .6rem; margin-bottom:.4rem; }
+        #gdh-pane .gdh-settings label { margin:0; color:#64748b; font-size:.85rem; }
+        #gdh-pane .gdh-stat { border:1px solid #e2e8f0; border-radius:.6rem; padding:.5rem .75rem; height:100%; background:#fff; }
+        #gdh-pane .gdh-stat-t { font-size:.72rem; font-weight:700; color:#64748b; text-transform:uppercase; letter-spacing:.03em; }
+        #gdh-pane .gdh-stat-v { font-size:1.2rem; font-weight:700; line-height:1.3; color:#0f172a; }
+        #gdh-pane .gdh-stat-v small { font-size:.78rem; font-weight:500; color:#64748b; }
+        #gdh-pane .gdh-stat-s { font-size:.78rem; color:#64748b; }
+        #gdh-pane .gdh-filters { display:flex; flex-wrap:wrap; align-items:center; gap:.5rem; margin:.6rem 0; }
+        #gdh-pane .gdh-scroll { height:max(420px, calc(100vh - 470px)); overflow:auto; border:1px solid #e2e8f0; border-radius:.6rem; background:#fff; }
+        #gdh-pane.gdh-top-collapsed .gdh-scroll { height:max(420px, calc(100vh - 260px)); }
+        #gdh-pane.gdh-top-collapsed .gdh-top { display:none; }
+        /* bảng: layout tự co theo nội dung (không còn ép cứng làm cột Tên hàng bị bóp) */
+        #gdh-pane table.gdh-table { font-size:.86rem; font-variant-numeric:tabular-nums; width:100%; min-width:1300px; margin:0; border-collapse:separate; border-spacing:0; }
+        #gdh-pane .gdh-table th { position:sticky; top:0; z-index:3; background:#eef2f7; color:#334155; font-size:.72rem; font-weight:700; text-transform:uppercase; letter-spacing:.02em; padding:.5rem .55rem; border-bottom:2px solid #cbd5e1; white-space:nowrap; }
+        #gdh-pane .gdh-table td { padding:.35rem .55rem; border-bottom:1px solid #eef2f7; vertical-align:middle; background:#fff; }
+        #gdh-pane .gdh-table tbody tr:hover td { background:#f8fafc; }
+        #gdh-pane .gdh-table .gdh-sticky { position:sticky; left:0; z-index:2; white-space:nowrap; }
+        #gdh-pane .gdh-table th.gdh-sticky { z-index:4; background:#eef2f7; }
+        #gdh-pane .gdh-table tr.gdh-on td.gdh-sticky { box-shadow:inset 4px 0 0 #198754; }
+        #gdh-pane .gdh-code { font-weight:700; color:#0f172a; letter-spacing:.01em; font-size:.84rem; }
+        #gdh-pane .gdh-name { min-width:230px; max-width:340px; white-space:normal; line-height:1.3; }
+        #gdh-pane .gdh-sub { font-size:.76rem; color:#64748b; }
+        #gdh-pane .gdh-num { text-align:right; white-space:nowrap; }
+        #gdh-pane th.gdh-num { text-align:right; }
+        #gdh-pane .gdh-cell-sug { background:#e8f4fd !important; font-weight:600; }
+        #gdh-pane .gdh-cell-fin { background:#e6f4ea !important; font-weight:700; }
+        #gdh-pane .gdh-diff { color:#b45309; font-weight:700; }
+        #gdh-pane .gdh-in { height:30px; padding:2px 8px; font-size:.86rem; scroll-margin-top:48px; }
+        #gdh-pane .gdh-in-adj { text-align:right; width:72px; margin-left:auto; }
+        #gdh-pane .gdh-in-type { width:112px; }
+        #gdh-pane .gdh-in-note { width:100%; min-width:170px; }
+        #gdh-pane .gdh-in:focus { border-color:#0d6efd; box-shadow:0 0 0 .18rem rgba(13,110,253,.18); }
+        #gdh-pane .gdh-in::placeholder { color:#b6c0cc; }
+        #gdh-pane .gdh-st { min-width:46px; background:#e8eef7 !important; line-height:1.15; }
+        #gdh-pane .gdh-st0 { border-left:1px solid #cbd5e1; }
+        #gdh-pane td.gdh-hs { background:#fff7e0 !important; font-weight:700; }
+        #gdh-pane th.gdh-hs { background:#ffe9a8 !important; }
+        #gdh-pane .gdh-chips { display:flex; flex-wrap:wrap; gap:3px; min-width:150px; max-width:210px; }
+        #gdh-pane .gdh-chip { display:inline-block; font-size:.72rem; line-height:1; padding:3px 6px; border-radius:999px; background:#eef2f7; color:#334155; white-space:nowrap; }
+        #gdh-pane .gdh-chip b { color:#0f172a; }
+        #gdh-pane .gdh-ord { min-width:150px; line-height:1.25; }
+        #gdh-pane .gdh-ord .gdh-pc { font-weight:700; color:#0d6efd; }
+        #gdh-pane .gdh-tag { display:inline-block; font-size:.68rem; font-weight:600; padding:1px 6px; border-radius:4px; background:#e0e7ff; color:#3730a3; }
+    </style>
+    <div id="gdhGomView">
+        <div class="card card-custom p-3 mb-3">
+            <div class="gdh-head">
+                <div class="d-flex align-items-center gap-2">
+                    <h5 class="mb-0"><i class="bi bi-boxes me-2 text-primary"></i>Gôm Đơn Hàng</h5>
+                    <span id="gdhDirty" class="badge d-none"></span>
+                </div>
+                <div class="d-flex flex-wrap gap-2">
+                    <button class="btn btn-outline-secondary btn-sm" id="gdhTopBtn" onclick="gdhToggleTop()" title="Thu gọn / mở rộng phần thống kê để xem được nhiều mã hơn"><i class="bi bi-arrows-collapse me-1"></i><span>Thu gọn</span></button>
+                    <button class="btn btn-primary btn-sm" onclick="gdhSave()"><i class="bi bi-save me-1"></i>Lưu</button>
+                    <button class="btn btn-outline-success btn-sm" onclick="gdhExport('full')"><i class="bi bi-file-earmark-excel me-1"></i>Xuất bảng gôm</button>
+                    <button class="btn btn-success btn-sm" onclick="gdhExport('hvn')"><i class="bi bi-send me-1"></i>Xuất file đặt hàng</button>
+                </div>
+            </div>
+
+            <div class="gdh-bar">
+                {% if role == 'admin' %}
+                <select class="form-select form-select-sm" style="width:auto;" id="gdhStore" onchange="gdhLoadBatches()">
+                    <option value="">-- Chọn chi nhánh --</option>
+                    <option value="NS1">NS1</option><option value="NS2">NS2</option><option value="NS3">NS3</option>
+                    <option value="NS4">NS4</option><option value="NS5">NS5</option><option value="NSM1">NSM1</option>
+                </select>
+                {% endif %}
+                <select class="form-select form-select-sm" style="width:auto;min-width:300px;" id="gdhBatch" onchange="gdhBatchChanged()"></select>
+                <button class="btn btn-outline-danger btn-sm" onclick="gdhDeleteBatch()" title="Xoá đợt gôm đang chọn"><i class="bi bi-trash"></i></button>
+                <span class="gdh-sep"></span>
+                <label class="btn btn-outline-primary btn-sm mb-0"><i class="bi bi-upload me-1"></i>Import file Tổng hợp tồn kho
+                    <input type="file" accept=".xlsx,.xls,.csv" class="d-none" onchange="gdhImport(this)"></label>
+                <button type="button" class="btn btn-link btn-sm text-decoration-none p-0" onclick="document.getElementById('gdhImpPeriod').classList.toggle('d-none')">Chọn kỳ thủ công</button>
+                <span id="gdhImpPeriod" class="d-none"><span class="d-flex align-items-center gap-2">
+                    <input type="date" class="form-control form-control-sm" style="width:auto;" id="gdhImpFrom" title="Từ ngày">
+                    <span class="text-muted">→</span>
+                    <input type="date" class="form-control form-control-sm" style="width:auto;" id="gdhImpTo" title="Đến ngày">
+                    <span class="gdh-sub">Bỏ trống = tự đọc kỳ từ file</span>
+                </span></span>
+                <span class="gdh-sep"></span>
+                {% if role == 'admin' %}
+                <label class="btn btn-outline-secondary btn-sm mb-0" title="File Mã cha / Mã con / Số lượng quy đổi"><i class="bi bi-diagram-3 me-1"></i>Import mã quy cách
+                    <input type="file" accept=".xlsx,.xls,.csv" class="d-none" onchange="gdhBundleImport(this)"></label>
+                {% endif %}
+                <span class="gdh-sub" id="gdhBundleInfo"></span>
+            </div>
+
+            <div class="gdh-top">
+                <div class="gdh-settings">
+                    <label>Số bán từ ngày</label>
+                    <input type="date" class="form-control form-control-sm" style="width:auto;" id="gdhFrom" onchange="gdhSettingsChanged()">
+                    <label>đến ngày</label>
+                    <input type="date" class="form-control form-control-sm" style="width:auto;" id="gdhTo" onchange="gdhSettingsChanged()">
+                    <label class="ms-2">Số tuần dự kiến</label>
+                    <input type="number" min="1" max="12" class="form-control form-control-sm" style="width:72px;" id="gdhWeeks" value="3" onchange="gdhSettingsChanged()">
+                </div>
+                <div class="gdh-sub mb-2" id="gdhInfo"></div>
+                <div id="gdhWarn" class="mb-2"></div>
+                <div class="row g-2 mb-1" id="gdhSummary"></div>
+            </div>
+
+            <div class="gdh-filters">
+                <select class="form-select form-select-sm" style="width:auto;" id="gdhGroup" onchange="gdhLoad(1)">
+                    <option value="">Mọi tần suất</option><option value="TX">TX - Thường xuyên</option><option value="TB">TB - Trung bình</option>
+                    <option value="CB">CB - Chậm bán</option><option value="HET">Hết tồn</option>
+                </select>
+                <select class="form-select form-select-sm" style="width:auto;" id="gdhTypeFilter" onchange="gdhLoad(1)">
+                    <option value="">Mọi loại đơn</option><option value="-">Chưa chọn loại đơn</option>
+                    <option value="Định kỳ">Định kỳ</option><option value="Khẩn">Khẩn</option><option value="Đơn 26">Đơn 26</option>
+                </select>
+                <div class="form-check mb-0"><input class="form-check-input" type="checkbox" id="gdhOnly" checked onchange="gdhLoad(1)"><label class="form-check-label small" for="gdhOnly">Chỉ mã cần đặt</label></div>
+                <input type="search" class="form-control form-control-sm" style="width:240px;" id="gdhQ" placeholder="Tìm mã / tên hàng / ghi chú..." oninput="clearTimeout(window._gdhT);window._gdhT=setTimeout(()=>gdhLoad(1),350)">
+                <span class="ms-auto"></span>
+                <span class="small text-muted">Gán nhanh loại đơn cho các mã chưa chọn:</span>
+                <select class="form-select form-select-sm" style="width:auto;" id="gdhBulkType">
+                    <option value="Định kỳ">Định kỳ</option><option value="Khẩn">Khẩn</option><option value="Đơn 26">Đơn 26</option>
+                </select>
+                <button class="btn btn-outline-secondary btn-sm" onclick="gdhAssignType()">Gán</button>
+                <span class="small fw-semibold text-body-secondary ms-2" id="gdhCount"></span>
+            </div>
+
+            <div class="gdh-scroll" id="gdhScroll">
+                <table class="table table-sm align-middle gdh-table">
+                    <thead>
+                        <tr>
+                            <th class="gdh-sticky">Mã hàng</th><th>Tên hàng</th><th>Tần suất bán</th>
+                            <th class="gdh-num gdh-hs" id="gdhThSys" title="Tồn kho hệ thống của chi nhánh đang gôm">Tồn HT</th>
+                            <th class="gdh-num gdh-st gdh-st0" data-st="NS1" title="Tồn kho hệ thống NS1"><span class="gdh-sub">Tồn</span><br>NS1</th>
+                            <th class="gdh-num gdh-st" data-st="NS2" title="Tồn kho hệ thống NS2"><span class="gdh-sub">Tồn</span><br>NS2</th>
+                            <th class="gdh-num gdh-st" data-st="NS3" title="Tồn kho hệ thống NS3"><span class="gdh-sub">Tồn</span><br>NS3</th>
+                            <th class="gdh-num gdh-st" data-st="NS4" title="Tồn kho hệ thống NS4"><span class="gdh-sub">Tồn</span><br>NS4</th>
+                            <th class="gdh-num gdh-st" data-st="NS5" title="Tồn kho hệ thống NS5"><span class="gdh-sub">Tồn</span><br>NS5</th>
+                            <th class="gdh-num gdh-st" data-st="NSM1" title="Tồn kho hệ thống NSM1"><span class="gdh-sub">Tồn</span><br>NSM1</th>
+                            <th class="gdh-num gdh-st0" title="Số lượng xuất/bán trong kỳ">Xuất</th><th class="gdh-num" title="Tồn cuối kỳ theo file import">Cuối kỳ</th>
+                            <th class="gdh-num">Đề xuất</th><th class="gdh-num">+/− thêm</th><th class="gdh-num">SL cuối</th>
+                            <th>Loại đơn</th><th title="Mã và số lượng thực tế đưa vào file đặt hàng (quy mã con → mã cha, mã thay thế)">Đặt hàng</th><th>Ghi chú</th><th class="gdh-num">Thành tiền</th>
+                        </tr>
+                    </thead>
+                    <tbody id="gdh-body"><tr><td colspan="19" class="text-center py-4 text-muted">Chọn hoặc import một đợt tồn kho để bắt đầu.</td></tr></tbody>
+                </table>
+            </div>
+            <div class="d-none" id="gdhPager"><div class="d-flex justify-content-between align-items-center mt-2">
+                <button class="btn btn-outline-secondary btn-sm" onclick="gdhLoad(_gdhPage-1)">&laquo; Trước</button>
+                <span class="small text-muted" id="gdhPageInfo"></span>
+                <button class="btn btn-outline-secondary btn-sm" onclick="gdhLoad(_gdhPage+1)">Sau &raquo;</button>
+            </div></div>
+        </div>
+    </div>
+
+    <!-- ===== DASHBOARD ĐƠN HÀNG ===== -->
+    <div id="gdhDashView" class="d-none">
+        <div class="card card-custom p-3 mb-3">
+            <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-2">
+                <h5 class="mb-0"><i class="bi bi-bar-chart-line me-2 text-primary"></i>Dashboard Đơn Hàng</h5>
+                <button class="btn btn-outline-success btn-sm" onclick="gdhDashExport()"><i class="bi bi-file-earmark-excel me-1"></i>Xuất Excel</button>
+            </div>
+            <div class="d-flex flex-wrap gap-2 align-items-center mb-2">
+                {% if role == 'admin' %}
+                <select class="form-select form-select-sm" style="width:auto;" id="gdhDStore" onchange="gdhDashLoad()">
+                    <option value="">Tất cả chi nhánh</option>
+                    <option value="NS1">NS1</option><option value="NS2">NS2</option><option value="NS3">NS3</option>
+                    <option value="NS4">NS4</option><option value="NS5">NS5</option><option value="NSM1">NSM1</option>
+                </select>
+                {% endif %}
+                <label class="small text-muted mb-0">Số bán từ ngày</label>
+                <input type="date" class="form-control form-control-sm" style="width:auto;" id="gdhDFrom" onchange="gdhDashLoad()">
+                <label class="small text-muted mb-0">đến ngày</label>
+                <input type="date" class="form-control form-control-sm" style="width:auto;" id="gdhDTo" onchange="gdhDashLoad()">
+                <select class="form-select form-select-sm" style="width:auto;" id="gdhDType" onchange="gdhDashLoad()">
+                    <option value="">Tất cả loại đơn</option><option value="Định kỳ">Định kỳ</option>
+                    <option value="Khẩn">Khẩn</option><option value="Đơn 26">Đơn 26</option>
+                </select>
+            </div>
+            <div class="small text-muted mb-2">Chỉ tính các đợt gôm có kỳ số bán nằm trọn trong khoảng ngày đã chọn; mã "đã đặt" là mã có loại đơn và SL cuối &gt; 0.</div>
+            <div class="row g-2 mb-3" id="gdhDCards"></div>
+            <div class="small text-muted mb-3" id="gdhDBatches"></div>
+
+            <h6 class="fw-bold">Theo chi nhánh</h6>
+            <div class="table-responsive mb-3">
+                <table class="table table-sm align-middle mb-0 text-nowrap">
+                    <thead class="table-light"><tr><th>Chi nhánh</th><th class="text-end">Số mã</th><th class="text-end">Tổng SL</th>
+                        <th class="text-end">Định kỳ</th><th class="text-end">Khẩn</th><th class="text-end">Đơn 26</th><th class="text-end">Thành tiền</th></tr></thead>
+                    <tbody id="gdhDStoreBody"></tbody>
+                </table>
+            </div>
+
+            <h6 class="fw-bold" id="gdhDPartsTitle">Các mã đã đặt</h6>
+            <div class="table-responsive" style="max-height:55vh;">
+                <table class="table table-sm table-hover align-middle mb-0 text-nowrap">
+                    <thead class="table-light" style="position:sticky;top:0;z-index:2;"><tr id="gdhDPartsHead"></tr></thead>
+                    <tbody id="gdhDPartsBody"></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+
 <!-- REORDER SUGGESTIONS PANE (Gợi Ý Nhập Hàng Tự Động) - admin xem toàn hệ
      thống (lọc được theo kho/cửa hàng); user cửa hàng CHỈ xem đúng gợi ý
      của cửa hàng mình (không có bộ lọc kho, không sửa được ngưỡng cảnh
@@ -5190,6 +5410,355 @@
             if (overlay) overlay.style.display = 'none';
         }
     }
+
+    // ------------------------------------------------------------------
+    // GÔM ĐƠN HÀNG + DASHBOARD ĐƠN HÀNG (/api/gom-don-hang/*)
+    // ------------------------------------------------------------------
+    let _gdhPage = 1, _gdhTotal = 0, _gdhPageSize = 100, _gdhRows = [], _gdhDirty = false, _gdhEdited = {};
+    let _gdhBatchId = null, _gdhTypes = ['Định kỳ', 'Khẩn', 'Đơn 26'];
+    const _gdhFmt = (v, d) => (v === null || v === undefined || v === '') ? '' : Number(v).toLocaleString('vi-VN', {maximumFractionDigits: d === undefined ? 2 : d});
+    const _gdhEsc = (s) => String(s ?? '').replace(/[&<>"']/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));
+    const _gdhDate = (iso) => iso ? iso.split('-').reverse().join('/') : '';
+    const _gdhGrpCls = {TX: 'bg-success', TB: 'bg-info text-dark', CB: 'bg-secondary', HET: 'bg-danger'};
+    function _gdhStore() { return CURRENT_ROLE === 'admin' ? (document.getElementById('gdhStore')?.value || '') : ''; }
+    function _gdhMarkDirty(f) { _gdhDirty = f; if (f) _gdhBadge('Chưa lưu', 'bg-warning text-dark'); else document.getElementById('gdhDirty').classList.add('d-none'); }
+    async function _gdhJson(url, opts) {
+        const res = await fetch(url, opts);
+        const j = await res.json().catch(() => ({}));
+        if (!res.ok || j.error) { const e = new Error(j.error || ('Lỗi ' + res.status)); e.data = j; throw e; }
+        return j;
+    }
+    function _gdhConfirmLeave() {
+        return !_gdhDirty || confirm('Có thay đổi chưa lưu. Tiếp tục sẽ mất các thay đổi này. Tiếp tục?');
+    }
+    function gdhTabOpened() {
+        const now = new Date(), y = now.getFullYear(), m = now.getMonth();
+        const iso = d => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+        if (!document.getElementById('gdhDFrom').value) document.getElementById('gdhDFrom').value = iso(new Date(y, m, 1));
+        if (!document.getElementById('gdhDTo').value) document.getElementById('gdhDTo').value = iso(new Date(y, m + 1, 0));
+        gdhBundleInfo();
+        if (!document.getElementById('gdhDashView').classList.contains('d-none')) gdhDashLoad(); else gdhLoadBatches(_gdhBatchId);
+    }
+    function gdhSwitchView(v) {
+        const dash = v === 'dash';
+        if (dash && !_gdhConfirmLeave()) return;
+        document.getElementById('gdhGomView').classList.toggle('d-none', dash);
+        document.getElementById('gdhDashView').classList.toggle('d-none', !dash);
+        document.getElementById('gdhBtnGom').classList.toggle('active', !dash);
+        document.getElementById('gdhBtnDash').classList.toggle('active', dash);
+        if (dash) { _gdhMarkDirty(false); gdhDashLoad(); } else gdhLoadBatches(_gdhBatchId);
+    }
+
+    // ---------- Đợt gôm ----------
+    async function gdhLoadBatches(selectId) {
+        const sel = document.getElementById('gdhBatch');
+        if (CURRENT_ROLE === 'admin' && !_gdhStore()) {
+            sel.innerHTML = ''; _gdhBatchId = null; _gdhRows = [];
+            document.getElementById('gdh-body').innerHTML = '<tr><td colspan="19" class="text-center py-4 text-muted">Vui lòng chọn chi nhánh.</td></tr>';
+            ['gdhSummary', 'gdhInfo', 'gdhWarn', 'gdhCount', 'gdhPageInfo'].forEach(id => document.getElementById(id).innerHTML = '');
+            return;
+        }
+        try {
+            const j = await _gdhJson('/api/gom-don-hang/batches?store=' + encodeURIComponent(_gdhStore()));
+            _gdhTypes = j.order_types || _gdhTypes;
+            sel.innerHTML = j.data.length ? j.data.map(b => `<option value="${b.id}">${_gdhDate(b.from)} - ${_gdhDate(b.to)} · ${b.total_parts} mã · ${b.typed_parts} đã chọn loại đơn</option>`).join('')
+                                          : '<option value="">(Chưa có đợt nào - hãy import file tồn kho)</option>';
+            const want = j.data.find(b => String(b.id) === String(selectId)) ? selectId : (j.data[0] && j.data[0].id);
+            _gdhBatchId = want || null;
+            if (want) sel.value = String(want);
+            _gdhMarkDirty(false); _gdhEdited = {};
+            if (_gdhBatchId) await gdhLoad(1);
+            else {
+                _gdhRows = [];
+                document.getElementById('gdh-body').innerHTML = '<tr><td colspan="19" class="text-center py-4 text-muted">Chưa có dữ liệu. Bấm "Chọn file Tổng hợp tồn kho" để import.</td></tr>';
+                ['gdhSummary', 'gdhInfo', 'gdhWarn', 'gdhCount', 'gdhPageInfo'].forEach(id => document.getElementById(id).innerHTML = '');
+            }
+        } catch (e) { alert(e.message); }
+    }
+    function gdhBatchChanged() {
+        const sel = document.getElementById('gdhBatch');
+        if (!_gdhConfirmLeave()) { sel.value = String(_gdhBatchId); return; }
+        _gdhBatchId = sel.value || null; _gdhEdited = {}; _gdhMarkDirty(false); gdhLoad(1);
+    }
+    async function gdhDeleteBatch() {
+        if (!_gdhBatchId) return;
+        if (!confirm('Xoá đợt gôm đang chọn cùng toàn bộ loại đơn/số lượng đã chọn? Không khôi phục được.')) return;
+        try {
+            await _gdhJson('/api/gom-don-hang/delete-batch', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({batch_id: _gdhBatchId})});
+            _gdhBatchId = null; _gdhMarkDirty(false); gdhLoadBatches();
+        } catch (e) { alert(e.message); }
+    }
+    async function gdhImport(input) {
+        const file = input.files[0]; if (!file) return;
+        if (CURRENT_ROLE === 'admin' && !_gdhStore()) { alert('Vui lòng chọn chi nhánh trước.'); input.value = ''; return; }
+        if (!_gdhConfirmLeave()) { input.value = ''; return; }
+        const fd = new FormData();
+        fd.append('file', file); fd.append('store', _gdhStore());
+        const pf = document.getElementById('gdhImpFrom').value, pt = document.getElementById('gdhImpTo').value;
+        if (pf && pt) { fd.append('period_from', pf); fd.append('period_to', pt); }
+        input.value = '';
+        try {
+            const j = await _gdhJson('/api/gom-don-hang/import', {method: 'POST', body: fd});
+            let msg = `Đã import ${j.total_parts} mã, kỳ ${_gdhDate(j.period_from)} - ${_gdhDate(j.period_to)}.\n(${j.period_note})`;
+            if (j.template === '1') msg += '\n\nLưu ý: file mẫu có giá trị chỉ có cột "Xuất kho" (gồm cả xuất chuyển kho...), thường lớn hơn số bán thật. Import thêm file mẫu "SL bán hàng" cho cùng kỳ để có số bán chính xác.';
+            alert(msg);
+            _gdhMarkDirty(false); await gdhLoadBatches(j.batch_id);
+        } catch (e) {
+            alert(e.message);
+            if (e.data && e.data.need_period) { document.getElementById('gdhImpPeriod').classList.remove('d-none'); document.getElementById('gdhImpFrom').focus(); }
+        }
+    }
+
+    // ---------- Bảng gôm ----------
+    let _gdhBatchMeta = null, _gdhSaveT = null, _gdhFlashT = null;
+    function _gdhBadge(txt, cls) {
+        const el = document.getElementById('gdhDirty');
+        el.className = 'badge ' + cls; el.textContent = txt;
+    }
+    function _gdhScheduleSave() {          // tự lưu sau 1,5 giây ngừng gõ -> không cần bấm Lưu / không mất dữ liệu khi lọc, đổi trang
+        clearTimeout(_gdhSaveT);
+        _gdhSaveT = setTimeout(() => { if (_gdhDirty) gdhSave(true); }, 1500);
+    }
+    function gdhToggleTop() {
+        const pane = document.getElementById('gdh-pane');
+        const collapsed = pane.classList.toggle('gdh-top-collapsed');
+        const b = document.getElementById('gdhTopBtn');
+        b.querySelector('span').textContent = collapsed ? 'Mở rộng' : 'Thu gọn';
+        b.querySelector('i').className = 'bi me-1 ' + (collapsed ? 'bi-arrows-expand' : 'bi-arrows-collapse');
+    }
+    async function gdhBundleInfo() {
+        try {
+            const j = await _gdhJson('/api/gom-don-hang/bundle-info');
+            const el = document.getElementById('gdhBundleInfo'); if (!el) return;
+            el.textContent = j.count ? `Quy cách: ${_gdhFmt(j.count, 0)} mã con → mã cha · ${j.filename || ''} · ${j.uploaded_at || ''}` : 'Chưa có file quy cách mã con → mã cha';
+            el.title = (j.warnings || []).join('\n');
+        } catch (e) { /* bỏ qua */ }
+    }
+    async function gdhBundleImport(input) {
+        const file = input.files[0]; if (!file) return;
+        const fd = new FormData(); fd.append('file', file); input.value = '';
+        try {
+            const j = await _gdhJson('/api/gom-don-hang/bundle-import', {method: 'POST', body: fd});
+            alert(`Đã import ${j.count} mã quy cách (ghi đè file cũ).` + (j.warnings.length ? '\n\nLưu ý:\n- ' + j.warnings.join('\n- ') : ''));
+            gdhBundleInfo(); if (_gdhBatchId) gdhLoad(_gdhPage);
+        } catch (e) { alert(e.message); }
+    }
+    function gdhKey(ev, el) {              // Enter / ↓ = xuống dòng dưới cùng cột, ↑ = lên dòng trên (như Excel)
+        const k = ev.key;
+        if (k !== 'Enter' && k !== 'ArrowDown' && k !== 'ArrowUp') return;
+        ev.preventDefault();
+        const i = parseInt(el.dataset.i, 10) + (k === 'ArrowUp' ? -1 : 1);
+        const nx = document.querySelector(`.gdh-in[data-col="${el.dataset.col}"][data-i="${i}"]`);
+        if (nx) { nx.focus(); if (nx.select) nx.select(); nx.scrollIntoView({block: 'nearest'}); }
+    }
+    function gdhAdjInput(i, el) {          // chỉ cho gõ số nguyên (có thể âm)
+        const v = el.value.replace(/[^\d-]/g, '').replace(/(?!^)-/g, '');
+        if (v !== el.value) el.value = v;
+        const n = parseInt(v, 10);
+        gdhEdit(i, 'adj', isNaN(n) ? 0 : n);
+    }
+    function _gdhOrdHtml(r) {              // ô "Đặt hàng": mã + SL thực tế (đã quy cha / thay thế)
+        const code = r.bundle_parent || (r.locked && r.lock_replace ? r.lock_replace : null);
+        if (!code) return '<span class="text-muted">–</span>';
+        if (r.qty_final <= 0) return `<div class="gdh-ord"><span class="gdh-tag">${r.bundle_parent ? 'Quy cách' : 'Thay thế'}</span> <span class="gdh-pc">${_gdhEsc(code)}</span>` +
+                                     (r.bundle_parent ? `<div class="gdh-sub">1 = ${_gdhFmt(r.bundle_ratio, 2)} mã con</div>` : '') + '</div>';
+        if (!r.bundle_parent) return `<div class="gdh-ord"><span class="gdh-tag">Thay thế</span> <span class="gdh-pc">${_gdhEsc(code)}</span><div class="gdh-sub">SL <b>${_gdhFmt(r.qty_final, 0)}</b></div></div>`;
+        const q = Math.ceil(r.qty_final / r.bundle_ratio - 1e-9), extra = q * r.bundle_ratio - r.qty_final;
+        return `<div class="gdh-ord"><span class="gdh-tag">Quy cách</span> <span class="gdh-pc">${_gdhEsc(code)}</span>` +
+               `<div class="gdh-sub">Đặt <b class="text-body">${_gdhFmt(q, 0)}</b> (1 = ${_gdhFmt(r.bundle_ratio, 2)})` +
+               (extra > 0 ? ` · <span class="gdh-diff">dư ${_gdhFmt(extra, 0)}</span>` : '') + '</div></div>';
+    }
+    const _GDH_STORES = ['NS1', 'NS2', 'NS3', 'NS4', 'NS5', 'NSM1'];
+    function _gdhStockCells(r) {           // Tồn HT (chi nhánh đang gôm, cam nếu lệch Cuối kỳ) + tồn từng chi nhánh (cột của chi nhánh đang gôm bị ẩn)
+        let hs = '<span class="text-muted">–</span>';
+        if (r.sys_stock !== null && r.sys_stock !== undefined) {
+            const diff = r.closing !== null && Math.abs(r.sys_stock - r.closing) > 0.0001;
+            hs = `<span class="${diff ? 'gdh-diff' : ''}" ${diff ? `title="Khác Cuối kỳ trong file (${_gdhFmt(r.closing)})"` : ''}>${_gdhFmt(r.sys_stock)}</span>`;
+        }
+        return `<td class="gdh-num gdh-hs">${hs}</td>` + _GDH_STORES.map((k, n) => {
+            const v = (r.stock_by_store || {})[k];
+            const inner = (v === undefined || v === null) ? '<span class="text-muted">·</span>' : (v === 0 ? '<span class="text-muted">0</span>' : _gdhFmt(v));
+            return `<td class="gdh-num gdh-st-td ${n === 0 ? 'gdh-st0' : ''}" data-st="${k}">${inner}</td>`;
+        }).join('');
+    }
+    function _gdhBundleTag(r) {            // dưới tên hàng: mã cha + số quy đổi (luôn nhìn thấy, không cần cuộn ngang)
+        if (!r.bundle_parent) return '';
+        return `<div class="mt-1"><span class="gdh-tag">Quy cách</span> <span class="gdh-sub">→ mã cha <b class="text-primary">${_gdhEsc(r.bundle_parent)}</b> · 1 = ${_gdhFmt(r.bundle_ratio, 2)}</span></div>`;
+    }
+    function gdhRowHtml(r, i, optT) {
+        const lock = r.locked
+            ? `<div class="mt-1"><span class="badge bg-danger me-1">Khoá đặt hàng</span>` +
+              (r.lock_replace ? `<span class="gdh-sub">thay bằng <b class="text-body">${_gdhEsc(r.lock_replace)}</b></span>` : `<span class="text-danger gdh-sub">chưa có mã thay thế</span>`) + `</div>`
+            : '';
+        const tip = r.sold !== null && r.out_qty !== null ? 'SL bán ' + _gdhFmt(r.sold) + ' · Xuất kho ' + _gdhFmt(r.out_qty)
+                  : (r.sold !== null ? 'SL bán hàng' : 'Xuất kho (gồm cả xuất chuyển kho...)');
+        return `<tr id="gdh-row-${i}" class="${r.qty_final > 0 ? 'gdh-on' : ''}">
+            <td class="gdh-sticky gdh-code">${_gdhEsc(r.part_code)}</td>
+            <td class="gdh-name">${_gdhEsc(r.part_name)}${lock}${_gdhBundleTag(r)}</td>
+            <td style="white-space:nowrap"><span class="badge ${_gdhGrpCls[r.group] || 'bg-secondary'}">${r.group}</span><div class="gdh-sub">${_gdhFmt(r.avg_month, 1)}/tháng · ${_gdhFmt(r.avg_week, 0)}/tuần</div></td>
+            ${_gdhStockCells(r)}
+            <td class="gdh-num gdh-st0" title="${tip}">${_gdhFmt(r.sales)}</td><td class="gdh-num">${_gdhFmt(r.closing)}</td>
+            <td class="gdh-num ${r.suggest > 0 ? 'gdh-cell-sug' : ''}">${_gdhFmt(r.suggest)}</td>
+            <td><input type="text" inputmode="numeric" autocomplete="off" class="form-control form-control-sm gdh-in gdh-in-adj" data-col="adj" data-i="${i}"
+                       placeholder="0" value="${r.adj ? r.adj : ''}" onfocus="this.select()" oninput="gdhAdjInput(${i},this)" onkeydown="gdhKey(event,this)"></td>
+            <td class="gdh-num ${r.qty_final > 0 ? 'gdh-cell-fin' : ''}" id="gdh-fin-${i}">${_gdhFmt(r.qty_final)}</td>
+            <td><select class="form-select form-select-sm gdh-in gdh-in-type" onchange="gdhEdit(${i},'order_type',this.value)">${optT(r.order_type)}</select></td>
+            <td id="gdh-ord-${i}">${_gdhOrdHtml(r)}</td>
+            <td><input type="text" maxlength="500" autocomplete="off" class="form-control form-control-sm gdh-in gdh-in-note" data-col="note" data-i="${i}"
+                       placeholder="Ghi chú..." title="${_gdhEsc(r.note)}" value="${_gdhEsc(r.note)}" oninput="gdhEdit(${i},'note',this.value)" onkeydown="gdhKey(event,this)"></td>
+            <td class="gdh-num"><div id="gdh-amt-${i}">${_gdhFmt(r.amount, 0)}</div><div class="gdh-sub">${r.cost === null ? '' : 'GV ' + _gdhFmt(r.cost, 0)}</div></td></tr>`;
+    }
+    async function gdhLoad(page) {
+        if (!_gdhBatchId) return;
+        const tb = document.getElementById('gdh-body');
+        if (page < 1) page = 1;
+        if (_gdhDirty && !(await gdhSave(true))) return;     // tự lưu thay đổi dở dang thay vì hỏi/mất dữ liệu
+        tb.innerHTML = '<tr><td colspan="19" class="text-center py-4 text-muted">Đang tải...</td></tr>';
+        const g = id => document.getElementById(id).value;
+        const p = new URLSearchParams({batch_id: _gdhBatchId, page, page_size: 1000, q: g('gdhQ').trim(), group: g('gdhGroup'),
+                                       order_type: g('gdhTypeFilter'), only_order: document.getElementById('gdhOnly').checked ? '1' : '0'});
+        try {
+            const j = await _gdhJson('/api/gom-don-hang/lines?' + p);
+            _gdhPage = j.page; _gdhTotal = j.total_rows; _gdhPageSize = j.page_size; _gdhTypes = j.order_types;
+            _gdhEdited = {}; _gdhMarkDirty(false);
+            _gdhBatchMeta = j.batch;
+            gdhRenderHeader(j.batch, j.totals);
+            _gdhRows = j.data;
+            const optT = v => '<option value=""></option>' + _gdhTypes.map(t => `<option value="${_gdhEsc(t)}" ${t === v ? 'selected' : ''}>${_gdhEsc(t)}</option>`).join('');
+            tb.innerHTML = _gdhRows.length ? _gdhRows.map((r, i) => gdhRowHtml(r, i, optT)).join('')
+                : '<tr><td colspan="19" class="text-center py-4 text-muted">Không có mã nào khớp bộ lọc.</td></tr>';
+            document.getElementById('gdhScroll').scrollTop = 0;
+            document.getElementById('gdhCount').textContent = _gdhFmt(_gdhTotal, 0) + ' mã';
+            document.getElementById('gdhPager').classList.toggle('d-none', _gdhTotal <= _gdhPageSize);
+            document.getElementById('gdhPageInfo').textContent = 'Trang ' + _gdhPage + '/' + Math.max(1, Math.ceil(_gdhTotal / _gdhPageSize));
+        } catch (e) { tb.innerHTML = `<tr><td colspan="19" class="text-center py-4 text-danger">${_gdhEsc(e.message)}</td></tr>`; }
+    }
+    function gdhRenderHeader(b, t) {
+        document.getElementById('gdhFrom').value = b.from; document.getElementById('gdhTo').value = b.to;
+        document.getElementById('gdhWeeks').value = b.forecast_weeks;
+        document.getElementById('gdhInfo').textContent = `Kỳ ${b.days} ngày ≈ ${b.weeks} tuần / ${_gdhFmt(b.months, 2)} tháng · File: ${b.filenames || ''} · ${b.uploaded_by || ''} ${b.uploaded_at || ''}`;
+        document.getElementById('gdhThSys').title = 'Tồn kho hệ thống ' + b.store + (b.inv_at ? ' (cập nhật ' + b.inv_at + ')' : '') + ' - cam nếu khác Cuối kỳ trong file';
+        let st = document.getElementById('gdhHideStore');
+        if (!st) { st = document.createElement('style'); st.id = 'gdhHideStore'; document.head.appendChild(st); }
+        st.textContent = `#gdh-pane [data-st="${b.store}"] { display: none; }`;   // chi nhánh đang gôm đã có cột Tồn HT
+        gdhRenderSummary(b, t);
+    }
+    function gdhRenderSummary(b, t) {      // cảnh báo + thẻ tổng; gọi lại sau mỗi lần lưu (không đụng tới ô ngày / số tuần đang gõ)
+        const warn = [];
+        if (!b.sold_lines) warn.push('Chưa có file mẫu "SL bán hàng" cho kỳ này: đang dùng cột Xuất kho (gồm cả xuất chuyển kho...) nên số bán và đề xuất có thể cao hơn thực tế.');
+        if (!b.cost_lines) warn.push('Chưa có giá vốn từ file (mẫu có Giá trị): thành tiền lấy theo giá nhập trong hệ thống, mã không có giá sẽ để trống.');
+        if (t.unassigned_type) warn.push(`${_gdhFmt(t.unassigned_type, 0)} mã cần đặt CHƯA chọn loại đơn (sẽ không vào file đặt hàng / dashboard).`);
+        if (t.locked_no_replace) warn.push(`${_gdhFmt(t.locked_no_replace, 0)} mã cần đặt đang bị khoá đặt hàng và chưa có mã thay thế.`);
+        document.getElementById('gdhWarn').innerHTML = warn.map(w => `<div class="alert alert-warning py-1 px-2 small mb-1"><i class="bi bi-exclamation-triangle me-1"></i>${_gdhEsc(w)}</div>`).join('');
+        const card = (title, main, sub) => `<div class="col-6 col-xl-3"><div class="gdh-stat"><div class="gdh-stat-t">${title}</div><div class="gdh-stat-v">${main}</div><div class="gdh-stat-s">${sub}</div></div></div>`;
+        const freq = Object.entries(t.freq).map(([k, v]) => `${k} ${_gdhFmt(v, 0)}`).join(' · ');
+        document.getElementById('gdhSummary').innerHTML =
+            card('Mã cần đặt', `${_gdhFmt(t.to_order, 0)} <small>mã</small>`, freq + ' (toàn đợt)') +
+            _gdhTypes.map(x => { const v = t.by_type[x] || {parts: 0, qty: 0, amount: 0}; return card(_gdhEsc(x), `${_gdhFmt(v.parts, 0)} <small>mã</small>`, `SL ${_gdhFmt(v.qty, 0)} · ${_gdhFmt(v.amount, 0)} đ`); }).join('');
+    }
+    function gdhEdit(i, field, val) {
+        const r = _gdhRows[i]; if (!r) return;
+        const e = (_gdhEdited[r.part_code] = _gdhEdited[r.part_code] || {adj: r.adj, order_type: r.order_type, note: r.note || ''});
+        if (field === 'adj') { const n = parseFloat(val); e.adj = isNaN(n) ? 0 : n; r.adj = e.adj; }
+        else if (field === 'note') { e.note = val; r.note = val; }
+        else { e.order_type = val; r.order_type = val; }
+        r.qty_final = Math.max(0, Math.round(r.suggest + r.adj));
+        r.amount = r.cost === null ? null : r.cost * r.qty_final;
+        const fin = document.getElementById('gdh-fin-' + i);
+        fin.textContent = _gdhFmt(r.qty_final); fin.classList.toggle('gdh-cell-fin', r.qty_final > 0);
+        document.getElementById('gdh-amt-' + i).textContent = _gdhFmt(r.amount, 0);
+        document.getElementById('gdh-ord-' + i).innerHTML = _gdhOrdHtml(r);
+        document.getElementById('gdh-row-' + i).classList.toggle('gdh-on', r.qty_final > 0);
+        _gdhMarkDirty(true); _gdhScheduleSave();
+    }
+    async function gdhSave(silent) {
+        if (!_gdhBatchId) return false;
+        clearTimeout(_gdhSaveT);
+        const snap = _gdhEdited; _gdhEdited = {};              // chụp lại để các thay đổi gõ thêm trong lúc lưu không bị mất
+        const items = Object.entries(snap).map(([code, e]) => ({part_code: code, adj: e.adj, order_type: e.order_type, note: e.note}));
+        const body = {batch_id: _gdhBatchId, items, forecast_weeks: document.getElementById('gdhWeeks').value,
+                      period_from: document.getElementById('gdhFrom').value, period_to: document.getElementById('gdhTo').value};
+        if (items.length) { clearTimeout(_gdhFlashT); _gdhBadge('Đang lưu…', 'bg-secondary'); }
+        try {
+            const j = await _gdhJson('/api/gom-don-hang/save', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)});
+            if (j.totals && _gdhBatchMeta) gdhRenderSummary(_gdhBatchMeta, j.totals);
+            if (Object.keys(_gdhEdited).length) { _gdhMarkDirty(true); _gdhScheduleSave(); }
+            else {
+                _gdhDirty = false;
+                if (items.length) { _gdhBadge('Đã lưu ✓', 'bg-success'); clearTimeout(_gdhFlashT); _gdhFlashT = setTimeout(() => { if (!_gdhDirty) document.getElementById('gdhDirty').classList.add('d-none'); }, 2000); }
+                else document.getElementById('gdhDirty').classList.add('d-none');
+            }
+            if (!silent) await gdhLoadBatches(_gdhBatchId);
+            return true;
+        } catch (e) {
+            _gdhEdited = Object.assign({}, snap, _gdhEdited); _gdhMarkDirty(true);
+            alert(e.message); return false;
+        }
+    }
+    async function gdhSettingsChanged() {
+        if (await gdhSave(true)) await gdhLoadBatches(_gdhBatchId);
+    }
+    async function gdhAssignType() {
+        if (!_gdhBatchId) return;
+        if (_gdhDirty && !(await gdhSave(true))) return;
+        const ot = document.getElementById('gdhBulkType').value;
+        if (!confirm(`Gán loại đơn "${ot}" cho mọi mã cần đặt (SL cuối > 0) chưa có loại đơn?`)) return;
+        try {
+            const j = await _gdhJson('/api/gom-don-hang/assign-type', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({batch_id: _gdhBatchId, order_type: ot})});
+            alert('Đã gán cho ' + j.assigned + ' mã.'); await gdhLoadBatches(_gdhBatchId);
+        } catch (e) { alert(e.message); }
+    }
+    async function _gdhDownload(url) {
+        const res = await fetch(url);
+        if (!res.ok) { const j = await res.json().catch(() => ({})); alert(j.error || 'Không xuất được file.'); return; }
+        const blob = await res.blob();
+        const cd = res.headers.get('Content-Disposition') || '';
+        const m = /filename\*?=(?:UTF-8'')?"?([^";]+)"?/i.exec(cd);
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob); a.download = m ? decodeURIComponent(m[1]) : 'gom-don-hang.xlsx';
+        document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+    }
+    async function gdhExport(kind) {
+        if (!_gdhBatchId) { alert('Chưa chọn đợt gôm.'); return; }
+        if (_gdhDirty && !(await gdhSave(true))) return;      // tự lưu trước khi xuất
+        _gdhDownload('/api/gom-don-hang/export?kind=' + kind + '&batch_id=' + _gdhBatchId);
+    }
+
+    // ---------- Dashboard ----------
+    function _gdhDashQuery() {
+        const g = id => document.getElementById(id)?.value || '';
+        const p = new URLSearchParams({from: g('gdhDFrom'), to: g('gdhDTo'), order_type: g('gdhDType')});
+        if (CURRENT_ROLE === 'admin' && g('gdhDStore')) p.set('store', g('gdhDStore'));
+        return p;
+    }
+    async function gdhDashLoad() {
+        try {
+            const j = await _gdhJson('/api/gom-don-hang/dashboard?' + _gdhDashQuery());
+            const sel = j.order_type;
+            document.getElementById('gdhDCards').innerHTML = j.by_type.map(t => `<div class="col-6 col-md-3"><div class="p-2 rounded-3 border ${sel === t.order_type ? 'border-primary bg-primary bg-opacity-10' : ''}" style="cursor:pointer" onclick="gdhDashPickType('${_gdhEsc(t.order_type)}')">
+                <div class="small text-muted">${_gdhEsc(t.order_type)}</div><div class="fw-bold">${_gdhFmt(t.parts, 0)} mã · SL ${_gdhFmt(t.qty, 0)}</div><div class="small">${_gdhFmt(t.amount, 0)} đ</div></div></div>`).join('') +
+                `<div class="col-6 col-md-3"><div class="p-2 rounded-3 border bg-light"><div class="small text-muted">Tổng ${sel ? '(' + _gdhEsc(sel) + ')' : ''}</div><div class="fw-bold">${_gdhFmt(j.totals.parts, 0)} mã · SL ${_gdhFmt(j.totals.qty, 0)}</div><div class="small">${_gdhFmt(j.totals.amount, 0)} đ</div></div></div>`;
+            document.getElementById('gdhDBatches').innerHTML = j.batches.length
+                ? 'Các đợt gôm được tính: ' + j.batches.map(b => `${_gdhEsc(b.store)} ${_gdhDate(b.from)}-${_gdhDate(b.to)} (${b.parts} mã)`).join(' · ')
+                : 'Không có đợt gôm nào có kỳ số bán nằm trong khoảng ngày này.';
+            document.getElementById('gdhDStoreBody').innerHTML = j.by_store.length ? j.by_store.map(s => `<tr><td class="fw-semibold">${_gdhEsc(s.store)}</td><td class="text-end">${_gdhFmt(s.parts, 0)}</td><td class="text-end">${_gdhFmt(s.qty, 0)}</td>` +
+                j.order_types.map(t => `<td class="text-end">${_gdhFmt(s.types[t].qty, 0)} <span class="text-muted small">(${_gdhFmt(s.types[t].amount, 0)})</span></td>`).join('') +
+                `<td class="text-end fw-bold">${_gdhFmt(s.amount, 0)}</td></tr>`).join('') : '<tr><td colspan="7" class="text-center text-muted py-3">Chưa có dữ liệu.</td></tr>';
+            const multi = j.stores.length > 1;
+            document.getElementById('gdhDPartsTitle').textContent = 'Các mã đã đặt' + (sel ? ' - ' + sel : '') + ' (' + j.parts.length + ')' + (j.parts_truncated ? ' - chỉ hiện các mã giá trị lớn nhất, xuất Excel để xem đủ' : '');
+            document.getElementById('gdhDPartsHead').innerHTML = '<th>Loại đơn</th><th>Mã hàng</th><th>Tên hàng</th><th>ĐVT</th>' + (multi ? j.stores.map(s => `<th class="text-end">${_gdhEsc(s)}</th>`).join('') : '') + '<th class="text-end">Tổng SL</th><th class="text-end">Thành tiền</th>';
+            document.getElementById('gdhDPartsBody').innerHTML = j.parts.length ? j.parts.map(p => `<tr><td>${_gdhEsc(p.order_type)}</td><td class="fw-semibold">${_gdhEsc(p.part_code)}</td><td>${_gdhEsc(p.part_name)}</td><td>${_gdhEsc(p.unit)}</td>` +
+                (multi ? j.stores.map(s => `<td class="text-end">${_gdhFmt(p.stores[s] || 0, 0)}</td>`).join('') : '') +
+                `<td class="text-end fw-bold">${_gdhFmt(p.qty, 0)}</td><td class="text-end">${p.no_cost ? '<span class="text-muted" title="Thiếu giá vốn">*</span> ' : ''}${_gdhFmt(p.amount, 0)}</td></tr>`).join('')
+                : `<tr><td colspan="${6 + (multi ? j.stores.length : 0)}" class="text-center text-muted py-3">Chưa có mã nào đã đặt.</td></tr>`;
+        } catch (e) { alert(e.message); }
+    }
+    function gdhDashPickType(t) {
+        const el = document.getElementById('gdhDType');
+        el.value = el.value === t ? '' : t; gdhDashLoad();
+    }
+    function gdhDashExport() { _gdhDownload('/api/gom-don-hang/dashboard/export?' + _gdhDashQuery()); }
+    window.addEventListener('beforeunload', e => { if (_gdhDirty) { e.preventDefault(); e.returnValue = ''; } });
 
     // ------------------------------------------------------------------
     // GỢI Ý NHẬP HÀNG TỰ ĐỘNG + CÀI ĐẶT NGƯỠNG CẢNH BÁO HẾT HÀNG.
