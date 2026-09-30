@@ -44,7 +44,11 @@ from flask import Blueprint, request, jsonify, session, send_file
 from psycopg2.extras import execute_values
 
 from app import (get_db, _valid_store_codes, classify_sales_frequency,
-                 get_store_data_version, compute_result_for_store_cached)
+                 get_store_data_version, compute_result_for_store_cached,
+                 _is_excluded_from_reorder, EXCLUDED_REORDER_PART_CODE_PREFIXES)
+
+# Mã không được đặt (vd khung xe 50100...) - dùng CHUNG quy tắc với app.py, sửa 1 chỗ là áp dụng cho cả hai.
+_EXCL_LIKE = [p + '%' for p in EXCLUDED_REORDER_PART_CODE_PREFIXES]
 
 gom_don_hang_bp = Blueprint('gom_don_hang', __name__)
 _VN_TZ = ZoneInfo('Asia/Ho_Chi_Minh')
@@ -354,7 +358,7 @@ def compute_rows(cur, batch, order_only=False, with_extra=False):
     if order_only:
         sql += ' AND order_type IS NOT NULL'
     cur.execute(sql + ' ORDER BY part_code', (batch['id'],))
-    lines = cur.fetchall()
+    lines = [l for l in cur.fetchall() if not _is_excluded_from_reorder(l['part_code'])]
     codes = [l['part_code'] for l in lines]
     locks = {}
     if codes:
@@ -537,10 +541,11 @@ def gdh_batches():
             return err
         cur.execute('''
             SELECT b.*,
-                   (SELECT COUNT(*) FROM gdh_lines l WHERE l.batch_id = b.id) AS total_parts,
-                   (SELECT COUNT(*) FROM gdh_lines l WHERE l.batch_id = b.id AND l.order_type IS NOT NULL) AS typed_parts,
-                   EXISTS (SELECT 1 FROM gdh_lines l WHERE l.batch_id = b.id AND l.sold IS NOT NULL) AS has_sold
-            FROM gdh_batches b WHERE b.store_code = %s ORDER BY b.period_to DESC, b.id DESC''', (store,))
+                   (SELECT COUNT(*) FROM gdh_lines l WHERE l.batch_id = b.id AND NOT (l.part_code LIKE ANY(%s))) AS total_parts,
+                   (SELECT COUNT(*) FROM gdh_lines l WHERE l.batch_id = b.id AND l.order_type IS NOT NULL AND NOT (l.part_code LIKE ANY(%s))) AS typed_parts,
+                   EXISTS (SELECT 1 FROM gdh_lines l WHERE l.batch_id = b.id AND l.sold IS NOT NULL AND NOT (l.part_code LIKE ANY(%s))) AS has_sold
+            FROM gdh_batches b WHERE b.store_code = %s ORDER BY b.period_to DESC, b.id DESC''',
+                    (_EXCL_LIKE, _EXCL_LIKE, _EXCL_LIKE, store))
         data = [_batch_json(b, {'total_parts': b['total_parts'], 'typed_parts': b['typed_parts'],
                                 'has_sold': bool(b['has_sold'])}) for b in cur.fetchall()]
     finally:
@@ -557,7 +562,7 @@ def gdh_import():
         parsed = parse_stock_file(f)
     except Exception as e:
         return jsonify({'error': f'Không đọc được file: {e}'}), 400
-    rows = parsed['rows']
+    rows = {c: r for c, r in parsed['rows'].items() if not _is_excluded_from_reorder(c)}
     if not rows:
         return jsonify({'error': 'File không có dòng dữ liệu hợp lệ.'}), 400
     pf, pt, note = parsed['period']
@@ -617,7 +622,7 @@ def gdh_lines():
         rows = compute_rows(cur, batch, with_extra=True)
         cur.execute('''SELECT COUNT(*) FILTER (WHERE sold IS NOT NULL) AS sold_lines,
                               COUNT(*) FILTER (WHERE unit_cost IS NOT NULL) AS cost_lines
-                       FROM gdh_lines WHERE batch_id = %s''', (batch['id'],))
+                       FROM gdh_lines WHERE batch_id = %s AND NOT (part_code LIKE ANY(%s))''', (batch['id'], _EXCL_LIKE))
         cnt = cur.fetchone()
         inv_at = None
         try:

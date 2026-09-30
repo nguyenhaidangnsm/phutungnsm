@@ -5563,10 +5563,9 @@
         if (r.qty_final <= 0) return `<div class="gdh-ord"><span class="gdh-tag">${r.bundle_parent ? 'Quy cách' : 'Thay thế'}</span> <span class="gdh-pc">${_gdhEsc(code)}</span>` +
                                      (r.bundle_parent ? `<div class="gdh-sub">1 = ${_gdhFmt(r.bundle_ratio, 2)} mã con</div>` : '') + '</div>';
         if (!r.bundle_parent) return `<div class="gdh-ord"><span class="gdh-tag">Thay thế</span> <span class="gdh-pc">${_gdhEsc(code)}</span><div class="gdh-sub">SL <b>${_gdhFmt(r.qty_final, 0)}</b></div></div>`;
-        const q = Math.ceil(r.qty_final / r.bundle_ratio - 1e-9), extra = q * r.bundle_ratio - r.qty_final;
+        const q = Math.ceil(r.qty_final / r.bundle_ratio - 1e-9);
         return `<div class="gdh-ord"><span class="gdh-tag">Quy cách</span> <span class="gdh-pc">${_gdhEsc(code)}</span>` +
-               `<div class="gdh-sub">Đặt <b class="text-body">${_gdhFmt(q, 0)}</b> (1 = ${_gdhFmt(r.bundle_ratio, 2)})` +
-               (extra > 0 ? ` · <span class="gdh-diff">dư ${_gdhFmt(extra, 0)}</span>` : '') + '</div></div>';
+               `<div class="gdh-sub">Đặt <b class="text-body">${_gdhFmt(q, 0)}</b> (1 = ${_gdhFmt(r.bundle_ratio, 2)})</div></div>`;
     }
     const _GDH_STORES = ['NS1', 'NS2', 'NS3', 'NS4', 'NS5', 'NSM1'];
     function _gdhStockCells(r) {           // Tồn HT (chi nhánh đang gôm, cam nếu lệch Cuối kỳ) + tồn từng chi nhánh (cột của chi nhánh đang gôm bị ẩn)
