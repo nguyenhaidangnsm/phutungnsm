@@ -2251,7 +2251,7 @@
         #gdh-pane.gdh-top-collapsed .gdh-top { display:none; }
         /* bảng: layout tự co theo nội dung (không còn ép cứng làm cột Tên hàng bị bóp) */
         #gdh-pane table.gdh-table { font-size:.86rem; font-variant-numeric:tabular-nums; width:100%; min-width:1300px; margin:0; border-collapse:separate; border-spacing:0; }
-        #gdh-pane .gdh-table th { position:sticky; top:0; z-index:3; background:#eef2f7; color:#334155; font-size:.72rem; font-weight:700; text-transform:uppercase; letter-spacing:.02em; padding:.5rem .55rem; border-bottom:2px solid #cbd5e1; white-space:nowrap; }
+        #gdh-pane .gdh-table th { text-align:left; position:sticky; top:0; z-index:3; background:#eef2f7; color:#334155; font-size:.72rem; font-weight:700; text-transform:uppercase; letter-spacing:.02em; padding:.5rem .55rem; border-bottom:2px solid #cbd5e1; white-space:nowrap; }
         #gdh-pane .gdh-table td { padding:.35rem .55rem; border-bottom:1px solid #eef2f7; vertical-align:middle; background:#fff; }
         #gdh-pane .gdh-table tbody tr:hover td { background:#f8fafc; }
         #gdh-pane .gdh-table .gdh-sticky { position:sticky; left:0; z-index:2; white-space:nowrap; }
@@ -2264,7 +2264,9 @@
         #gdh-pane th.gdh-num { text-align:right; }
         #gdh-pane .gdh-cell-sug { background:#e8f4fd !important; font-weight:600; }
         #gdh-pane .gdh-cell-fin { background:#e6f4ea !important; font-weight:700; }
-        #gdh-pane .gdh-diff { color:#b45309; font-weight:700; }
+        #gdh-pane .gdh-diff { color:#b45309; font-weight:700; border-bottom:1px dotted #b45309; cursor:help; }
+        #gdh-pane .gdh-zero { color:#b4bfcc; font-weight:400; }                      /* số 0 mờ đi để số thật nổi lên */
+        #gdh-pane .gdh-table tr.gdh-on td { background:#f3faf5; }                     /* dòng cần đặt: nền xanh rất nhạt cả hàng */
         #gdh-pane .gdh-in { height:30px; padding:2px 8px; font-size:.86rem; scroll-margin-top:48px; }
         #gdh-pane .gdh-in-adj { text-align:right; width:72px; margin-left:auto; }
         #gdh-pane .gdh-in-type { width:112px; }
@@ -2273,14 +2275,67 @@
         #gdh-pane .gdh-in::placeholder { color:#b6c0cc; }
         #gdh-pane .gdh-st { min-width:46px; background:#e8eef7 !important; line-height:1.15; }
         #gdh-pane .gdh-st0 { border-left:1px solid #cbd5e1; }
-        #gdh-pane td.gdh-hs { background:#fff7e0 !important; font-weight:700; }
-        #gdh-pane th.gdh-hs { background:#ffe9a8 !important; }
+        #gdh-pane td.gdh-hs { background:#fffaeb !important; font-weight:700; }
+        #gdh-pane th.gdh-hs { background:#fdf0c4 !important; }
+        /* ===== Phóng to khu vực soạn đơn (nút ở đầu trang, bấm Esc để thu nhỏ) ===== */
+        #gdh-pane.gdh-max #gdhGomView > .card { position:fixed; top:0; left:0; right:0; bottom:0; z-index:1060; margin:0 !important; border-radius:0; display:flex; flex-direction:column; overflow:hidden; padding:.6rem .9rem !important; }
+        #gdh-pane.gdh-max #gdhGomView > .card > * { flex-shrink:0; }
+        #gdh-pane.gdh-max #gdhGomView > .card > .gdh-scroll { flex:1 1 0; height:auto !important; min-height:0; overscroll-behavior:contain; }
+        #gdh-pane.gdh-max .gdh-bar, #gdh-pane.gdh-max .gdh-top > :not(.gdh-settings), #gdh-pane.gdh-max #gdhTopBtn { display:none !important; }
+        #gdh-pane.gdh-max .gdh-top { display:block !important; }
         #gdh-pane .gdh-chips { display:flex; flex-wrap:wrap; gap:3px; min-width:150px; max-width:210px; }
         #gdh-pane .gdh-chip { display:inline-block; font-size:.72rem; line-height:1; padding:3px 6px; border-radius:999px; background:#eef2f7; color:#334155; white-space:nowrap; }
         #gdh-pane .gdh-chip b { color:#0f172a; }
         #gdh-pane .gdh-ord { min-width:150px; line-height:1.25; }
         #gdh-pane .gdh-ord .gdh-pc { font-weight:700; color:#0d6efd; }
         #gdh-pane .gdh-tag { display:inline-block; font-size:.68rem; font-weight:600; padding:1px 6px; border-radius:4px; background:#e0e7ff; color:#3730a3; }
+
+        /* ===== Đóng băng cột: Mã hàng | Tên hàng | Tần suất bán | Tồn - luôn thấy khi kéo ngang ===== */
+        #gdh-pane { --gdh-w1:140px; --gdh-w2:230px; --gdh-w3:135px; }
+        #gdh-pane .gdh-table th.gdh-sticky, #gdh-pane .gdh-table td.gdh-sticky { width:var(--gdh-w1); min-width:var(--gdh-w1); max-width:var(--gdh-w1); }
+        #gdh-pane .gdh-table .gdh-fz2 { position:sticky; left:var(--gdh-w1); width:var(--gdh-w2); min-width:var(--gdh-w2); max-width:var(--gdh-w2); z-index:2; }
+        #gdh-pane .gdh-table .gdh-fz3 { position:sticky; left:calc(var(--gdh-w1) + var(--gdh-w2)); width:var(--gdh-w3); min-width:var(--gdh-w3); max-width:var(--gdh-w3); z-index:2; }
+        #gdh-pane .gdh-table .gdh-hs  { position:sticky; left:calc(var(--gdh-w1) + var(--gdh-w2) + var(--gdh-w3)); min-width:64px; z-index:2; box-shadow:4px 0 6px -2px rgba(15,23,42,.18); }
+        #gdh-pane .gdh-table th.gdh-fz2, #gdh-pane .gdh-table th.gdh-fz3, #gdh-pane .gdh-table th.gdh-hs { z-index:4; }
+        #gdh-pane .gdh-table th.gdh-fz2, #gdh-pane .gdh-table th.gdh-fz3 { background:#eef2f7; }
+        @media (max-width: 991.98px) {   /* màn hình nhỏ: chỉ đóng băng Mã hàng để không chiếm hết chiều ngang */
+            #gdh-pane .gdh-table td.gdh-fz2, #gdh-pane .gdh-table td.gdh-fz3, #gdh-pane .gdh-table td.gdh-hs { position:static; box-shadow:none; }
+            #gdh-pane .gdh-table th.gdh-fz2, #gdh-pane .gdh-table th.gdh-fz3, #gdh-pane .gdh-table th.gdh-hs { left:auto; z-index:3; box-shadow:none; }
+        }
+
+        /* ===== Highlight khu vực Gôm đơn hàng: thẻ tổng + bộ lọc + tiêu đề cột ===== */
+        #gdh-pane { --gdh-c-total:#0f766e; --gdh-c-periodic:#2563eb; --gdh-c-urgent:#dc2626; --gdh-c-d26:#7c3aed; --gdh-c-other:#64748b; }
+        /* Thẻ tổng: viền trái + chấm màu theo loại đơn; thẻ 0 mã thì mờ đi */
+        #gdh-pane .gdh-stat { --c:var(--gdh-c-other); position:relative; border-left:4px solid var(--c); background:linear-gradient(90deg, color-mix(in srgb, var(--c) 7%, #fff), #fff 55%); transition:opacity .15s, box-shadow .15s; }
+        #gdh-pane .gdh-stat:hover { box-shadow:0 2px 8px rgba(15,23,42,.08); }
+        #gdh-pane .gdh-stat.gdh-s-total    { --c:var(--gdh-c-total); }
+        #gdh-pane .gdh-stat.gdh-s-periodic { --c:var(--gdh-c-periodic); }
+        #gdh-pane .gdh-stat.gdh-s-urgent   { --c:var(--gdh-c-urgent); }
+        #gdh-pane .gdh-stat.gdh-s-d26      { --c:var(--gdh-c-d26); }
+        #gdh-pane .gdh-stat .gdh-stat-t { color:var(--c); display:flex; align-items:center; gap:.4rem; }
+        #gdh-pane .gdh-stat .gdh-stat-t::before { content:""; width:8px; height:8px; border-radius:50%; background:var(--c); flex-shrink:0; }
+        #gdh-pane .gdh-stat .gdh-stat-v { color:var(--c); }
+        #gdh-pane .gdh-stat.gdh-s-zero { opacity:.55; border-left-color:#cbd5e1; background:#fff; }
+        #gdh-pane .gdh-stat.gdh-s-zero .gdh-stat-t, #gdh-pane .gdh-stat.gdh-s-zero .gdh-stat-v { color:#64748b; }
+        #gdh-pane .gdh-stat.gdh-s-zero .gdh-stat-t::before { background:#cbd5e1; }
+        /* Bộ lọc: ô đang lọc (khác mặc định) được tô xanh để biết bảng đang bị lọc */
+        #gdh-pane .gdh-filters .gdh-f-on { border-color:#2563eb; background-color:#eff6ff; color:#1d4ed8; font-weight:600; box-shadow:0 0 0 .15rem rgba(37,99,235,.12); }
+        #gdh-pane .gdh-filters input.gdh-f-on { background-image:none; }
+        /* Gán nhanh: ô chọn loại + nút Gán đổi màu theo loại đơn đang chọn */
+        #gdh-pane #gdhBulkType { --c:var(--gdh-c-periodic); border-color:var(--c); color:var(--c); font-weight:600; background-color:color-mix(in srgb, var(--c) 8%, #fff); }
+        #gdh-pane #gdhBulkType[data-t="Khẩn"]   { --c:var(--gdh-c-urgent); }
+        #gdh-pane #gdhBulkType[data-t="Đơn 26"] { --c:var(--gdh-c-d26); }
+        #gdh-pane #gdhAssignBtn { border-color:#94a3b8; color:#334155; font-weight:600; }
+        #gdh-pane #gdhAssignBtn:hover { background:#0f766e; border-color:#0f766e; color:#fff; }
+        #gdh-pane #gdhCount { background:#e2e8f0; color:#0f172a; border-radius:999px; padding:.2rem .65rem; }
+        /* Tiêu đề bảng: chia nhóm màu - Tồn (vàng/xanh xám có sẵn) | Xuất-Nợ-VC | Quyết định đặt */
+        #gdh-pane .gdh-table th.gdh-h-out  { background:#dff3ef; color:#0f5c53; border-bottom-color:#14b8a6; }
+        #gdh-pane .gdh-table th.gdh-h-debt { background:#fde8e8; color:#991b1b; border-bottom-color:#ef4444; }
+        #gdh-pane .gdh-table th.gdh-h-ship { background:#e0ecff; color:#1e40af; border-bottom-color:#3b82f6; }
+        #gdh-pane .gdh-table th.gdh-h-dec  { background:#dcf3e3; color:#14532d; border-bottom-color:#22c55e; }
+        #gdh-pane .gdh-table th.gdh-h-fin  { background:#198754; color:#fff; border-bottom-color:#146c43; }
+        #gdh-pane .gdh-table th.gdh-h-ord  { background:#ede9fe; color:#4c1d95; border-bottom-color:#8b5cf6; }
+        #gdh-pane .gdh-table th.gdh-hs     { border-bottom-color:#f59e0b; color:#7c4a03; }
     </style>
     <div id="gdhGomView">
         <div class="card card-custom p-3 mb-3">
@@ -2290,6 +2345,7 @@
                     <span id="gdhDirty" class="badge d-none"></span>
                 </div>
                 <div class="d-flex flex-wrap gap-2">
+                    <button type="button" class="btn btn-outline-secondary btn-sm" id="gdhMaxBtn" onclick="gdhToggleMax()" title="Phóng to khu vực soạn đơn (bấm Esc để thu nhỏ)"><i class="bi bi-arrows-fullscreen me-1"></i><span>Phóng to</span></button>
                     <button class="btn btn-outline-secondary btn-sm" id="gdhTopBtn" onclick="gdhToggleTop()" title="Thu gọn / mở rộng phần thống kê để xem được nhiều mã hơn"><i class="bi bi-arrows-collapse me-1"></i><span>Thu gọn</span></button>
                     <button class="btn btn-primary btn-sm" onclick="gdhSave()"><i class="bi bi-save me-1"></i>Lưu</button>
                     <button class="btn btn-outline-success btn-sm" onclick="gdhExport('full')"><i class="bi bi-file-earmark-excel me-1"></i>Xuất bảng gôm</button>
@@ -2352,10 +2408,10 @@
                 <input type="search" class="form-control form-control-sm" style="width:240px;" id="gdhQ" placeholder="Tìm mã / tên hàng / ghi chú..." oninput="clearTimeout(window._gdhT);window._gdhT=setTimeout(()=>gdhLoad(1),350)">
                 <span class="ms-auto"></span>
                 <span class="small text-muted">Gán nhanh loại đơn cho các mã chưa chọn:</span>
-                <select class="form-select form-select-sm" style="width:auto;" id="gdhBulkType">
+                <select class="form-select form-select-sm" style="width:auto;" id="gdhBulkType" data-t="Định kỳ" onchange="this.dataset.t=this.value">
                     <option value="Định kỳ">Định kỳ</option><option value="Khẩn">Khẩn</option><option value="Đơn 26">Đơn 26</option>
                 </select>
-                <button class="btn btn-outline-secondary btn-sm" onclick="gdhAssignType()">Gán</button>
+                <button class="btn btn-outline-secondary btn-sm" id="gdhAssignBtn" onclick="gdhAssignType()">Gán</button>
                 <span class="small fw-semibold text-body-secondary ms-2" id="gdhCount"></span>
             </div>
 
@@ -2363,7 +2419,7 @@
                 <table class="table table-sm align-middle gdh-table">
                     <thead>
                         <tr>
-                            <th class="gdh-sticky">Mã hàng</th><th>Tên hàng</th><th>Tần suất bán</th>
+                            <th class="gdh-sticky">Mã hàng</th><th class="gdh-fz2">Tên hàng</th><th class="gdh-fz3">Tần suất bán</th>
                             <th class="gdh-num gdh-hs" id="gdhThSys" title="Tồn kho của chi nhánh đang gôm">Tồn</th>
                             <th class="gdh-num gdh-st gdh-st0" data-st="NS1" title="Tồn kho hệ thống NS1"><span class="gdh-sub">Tồn</span><br>NS1</th>
                             <th class="gdh-num gdh-st" data-st="NS2" title="Tồn kho hệ thống NS2"><span class="gdh-sub">Tồn</span><br>NS2</th>
@@ -2371,9 +2427,9 @@
                             <th class="gdh-num gdh-st" data-st="NS4" title="Tồn kho hệ thống NS4"><span class="gdh-sub">Tồn</span><br>NS4</th>
                             <th class="gdh-num gdh-st" data-st="NS5" title="Tồn kho hệ thống NS5"><span class="gdh-sub">Tồn</span><br>NS5</th>
                             <th class="gdh-num gdh-st" data-st="NSM1" title="Tồn kho hệ thống NSM1"><span class="gdh-sub">Tồn</span><br>NSM1</th>
-                            <th class="gdh-num gdh-st0" title="Số lượng xuất/bán trong kỳ">Xuất</th><th class="gdh-num" title="Hàng đã đặt nhưng chưa có dòng nhận hàng (bảng đối soát PO của chi nhánh đang gôm)">Nợ (BO)</th><th class="gdh-num" title="Hàng đang vận chuyển - dòng nhận hàng đang OPEN (bảng đối soát PO)">Đang VC</th>
-                            <th class="gdh-num">Đề xuất</th><th class="gdh-num">+/− thêm</th><th class="gdh-num">SL cuối</th>
-                            <th>Loại đơn</th><th title="Mã và số lượng thực tế đưa vào file đặt hàng (quy mã con → mã cha, mã thay thế)">Đặt hàng</th><th>Ghi chú</th><th class="gdh-num">Thành tiền</th>
+                            <th class="gdh-num gdh-st0 gdh-h-out" title="Số lượng xuất/bán trong kỳ">Xuất</th><th class="gdh-num gdh-h-debt" title="Hàng đã đặt nhưng chưa có dòng nhận hàng (bảng đối soát PO của chi nhánh đang gôm)">Nợ (BO)</th><th class="gdh-num gdh-h-ship" title="Hàng đang vận chuyển - dòng nhận hàng đang OPEN (bảng đối soát PO)">Đang VC</th>
+                            <th class="gdh-num gdh-h-dec">Đề xuất</th><th class="gdh-num gdh-h-dec">+/− thêm</th><th class="gdh-num gdh-h-fin">SL cuối</th>
+                            <th class="gdh-h-ord">Loại đơn</th><th class="gdh-h-ord" title="Mã và số lượng thực tế đưa vào file đặt hàng (quy mã con → mã cha, mã thay thế)">Mã quy cách</th><th>Ghi chú</th><th class="gdh-num">Thành tiền</th>
                         </tr>
                     </thead>
                     <tbody id="gdh-body"><tr><td colspan="20" class="text-center py-4 text-muted">Chọn hoặc import một đợt tồn kho để bắt đầu.</td></tr></tbody>
@@ -5442,6 +5498,7 @@
     function gdhSwitchView(v) {
         const dash = v === 'dash';
         if (dash && !_gdhConfirmLeave()) return;
+        if (dash) gdhToggleMax(false);
         document.getElementById('gdhGomView').classList.toggle('d-none', dash);
         document.getElementById('gdhDashView').classList.toggle('d-none', !dash);
         document.getElementById('gdhBtnGom').classList.toggle('active', !dash);
@@ -5519,6 +5576,19 @@
         clearTimeout(_gdhSaveT);
         _gdhSaveT = setTimeout(() => { if (_gdhDirty) gdhSave(true); }, 1500);
     }
+    function gdhToggleMax(force) {         // phóng to khu vực soạn đơn kín màn hình; Esc hoặc bấm lại để thu nhỏ
+        const pane = document.getElementById('gdh-pane'); if (!pane) return;
+        const on = typeof force === 'boolean' ? force : !pane.classList.contains('gdh-max');
+        pane.classList.toggle('gdh-max', on);
+        const b = document.getElementById('gdhMaxBtn');
+        if (b) { b.querySelector('span').textContent = on ? 'Thu nhỏ (Esc)' : 'Phóng to'; b.querySelector('i').className = 'bi me-1 ' + (on ? 'bi-fullscreen-exit' : 'bi-arrows-fullscreen'); }
+    }
+    document.addEventListener('keydown', ev => {
+        if (ev.key !== 'Escape') return;
+        const pane = document.getElementById('gdh-pane');
+        if (pane && pane.classList.contains('gdh-max')) { ev.preventDefault(); gdhToggleMax(false); }
+    });
+    document.getElementById('gdh-tab')?.addEventListener('hidden.bs.tab', () => gdhToggleMax(false));   // rời tab Gôm đơn thì tự thu nhỏ
     function gdhToggleTop() {
         const pane = document.getElementById('gdh-pane');
         const collapsed = pane.classList.toggle('gdh-top-collapsed');
@@ -5572,17 +5642,17 @@
         let hs = '<span class="text-muted">–</span>';
         if (r.sys_stock !== null && r.sys_stock !== undefined) {
             const diff = r.closing !== null && Math.abs(r.sys_stock - r.closing) > 0.0001;
-            hs = `<span class="${diff ? 'gdh-diff' : ''}" ${diff ? `title="Khác Cuối kỳ trong file (${_gdhFmt(r.closing)})"` : ''}>${_gdhFmt(r.sys_stock)}</span>`;
+            hs = `<span class="${diff ? 'gdh-diff' : ''}" ${diff ? `title="Khác Tồn cuối kỳ trong file import (${_gdhFmt(r.closing)}) - Đề xuất đang tính theo số này"` : ''}>${_gdhFmt(r.sys_stock)}</span>`;
         }
         return `<td class="gdh-num gdh-hs">${hs}</td>` + _GDH_STORES.map((k, n) => {
             const v = (r.stock_by_store || {})[k];
-            const inner = (v === undefined || v === null) ? '<span class="text-muted">·</span>' : (v === 0 ? '<span class="text-muted">0</span>' : _gdhFmt(v));
+            const inner = (v === undefined || v === null) ? '<span class="text-muted">·</span>' : (v === 0 ? '<span class="gdh-zero">0</span>' : _gdhFmt(v));
             return `<td class="gdh-num gdh-st-td ${n === 0 ? 'gdh-st0' : ''}" data-st="${k}">${inner}</td>`;
         }).join('');
     }
     function _gdhPoCell(own, par, ratio, cls) {   // số nợ / đang VC của mã; mã con có PO đặt bằng mã cha thì ghi thêm dòng nhỏ
         if (own === null || own === undefined) return '<td class="gdh-num"><span class="text-muted">–</span></td>';
-        const main = own > 0 ? `<b class="${cls}">${_gdhFmt(own, 0)}</b>` : '<span class="text-muted">0</span>';
+        const main = own > 0 ? `<b class="${cls}">${_gdhFmt(own, 0)}</b>` : '<span class="gdh-zero">0</span>';
         const sub = par > 0 ? `<div class="gdh-sub" title="PO đặt bằng mã cha, quy đổi ra mã con">+cha ${_gdhFmt(par, 0)} (=${_gdhFmt(par * ratio, 0)} con)</div>` : '';
         return `<td class="gdh-num">${main}${sub}</td>`;
     }
@@ -5603,21 +5673,29 @@
                   : (r.sold !== null ? 'SL bán hàng' : 'Xuất kho (gồm cả xuất chuyển kho...)');
         return `<tr id="gdh-row-${i}" class="${r.qty_final > 0 ? 'gdh-on' : ''}">
             <td class="gdh-sticky gdh-code">${_gdhEsc(r.part_code)}</td>
-            <td class="gdh-name">${_gdhEsc(r.part_name)}${lock}${_gdhBundleTag(r)}</td>
-            <td style="white-space:nowrap"><span class="badge ${_gdhGrpCls[r.group] || 'bg-secondary'}">${r.group}</span><div class="gdh-sub">${_gdhFmt(r.avg_month, 1)}/tháng · ${_gdhFmt(r.avg_week, 0)}/tuần</div></td>
+            <td class="gdh-name gdh-fz2">${_gdhEsc(r.part_name)}${lock}${_gdhBundleTag(r)}</td>
+            <td class="gdh-fz3" style="white-space:nowrap"><span class="badge ${_gdhGrpCls[r.group] || 'bg-secondary'}">${r.group}</span><div class="gdh-sub">${_gdhFmt(r.avg_month, 1)}/tháng · ${_gdhFmt(r.avg_week, 0)}/tuần</div></td>
             ${_gdhStockCells(r)}
-            <td class="gdh-num gdh-st0" title="${tip}">${_gdhFmt(r.sales)}</td>${_gdhPoCells(r)}
-            <td class="gdh-num ${r.suggest > 0 ? 'gdh-cell-sug' : ''}">${_gdhFmt(r.suggest)}</td>
+            <td class="gdh-num gdh-st0 ${r.sales > 0 ? '' : 'gdh-zero'}" title="${tip}">${_gdhFmt(r.sales)}</td>${_gdhPoCells(r)}
+            <td class="gdh-num ${r.suggest > 0 ? 'gdh-cell-sug' : 'gdh-zero'}">${_gdhFmt(r.suggest)}</td>
             <td><input type="text" inputmode="numeric" autocomplete="off" class="form-control form-control-sm gdh-in gdh-in-adj" data-col="adj" data-i="${i}"
                        placeholder="0" value="${r.adj ? r.adj : ''}" onfocus="this.select()" oninput="gdhAdjInput(${i},this)" onkeydown="gdhKey(event,this)"></td>
-            <td class="gdh-num ${r.qty_final > 0 ? 'gdh-cell-fin' : ''}" id="gdh-fin-${i}">${_gdhFmt(r.qty_final)}</td>
+            <td class="gdh-num ${r.qty_final > 0 ? 'gdh-cell-fin' : 'gdh-zero'}" id="gdh-fin-${i}">${_gdhFmt(r.qty_final)}</td>
             <td><select class="form-select form-select-sm gdh-in gdh-in-type" onchange="gdhEdit(${i},'order_type',this.value)">${optT(r.order_type)}</select></td>
             <td id="gdh-ord-${i}">${_gdhOrdHtml(r)}</td>
             <td><input type="text" maxlength="500" autocomplete="off" class="form-control form-control-sm gdh-in gdh-in-note" data-col="note" data-i="${i}"
                        placeholder="Ghi chú..." title="${_gdhEsc(r.note)}" value="${_gdhEsc(r.note)}" oninput="gdhEdit(${i},'note',this.value)" onkeydown="gdhKey(event,this)"></td>
-            <td class="gdh-num"><div id="gdh-amt-${i}">${_gdhFmt(r.amount, 0)}</div><div class="gdh-sub">${r.cost === null ? '' : 'GV ' + _gdhFmt(r.cost, 0)}</div></td></tr>`;
+            <td class="gdh-num"><div id="gdh-amt-${i}" class="${r.amount ? '' : 'gdh-zero'}">${_gdhFmt(r.amount, 0)}</div><div class="gdh-sub">${r.cost === null ? '' : 'GV ' + _gdhFmt(r.cost, 0)}</div></td></tr>`;
+    }
+    function gdhMarkFilters() {          // tô xanh ô lọc đang có giá trị khác mặc định
+        const on = (id, v) => { const e = document.getElementById(id); if (e) e.classList.toggle('gdh-f-on', !!v); };
+        on('gdhGroup', document.getElementById('gdhGroup').value);
+        on('gdhTypeFilter', document.getElementById('gdhTypeFilter').value);
+        on('gdhScope', document.getElementById('gdhScope').value === 'all');
+        on('gdhQ', document.getElementById('gdhQ').value.trim());
     }
     async function gdhLoad(page) {
+        gdhMarkFilters();
         if (!_gdhBatchId) return;
         const tb = document.getElementById('gdh-body');
         if (page < 1) page = 1;
@@ -5665,7 +5743,7 @@
         document.getElementById('gdhFrom').value = b.from; document.getElementById('gdhTo').value = b.to;
         document.getElementById('gdhWeeks').value = b.forecast_weeks;
         document.getElementById('gdhInfo').textContent = `Kỳ ${b.days} ngày ≈ ${b.weeks} tuần / ${_gdhFmt(b.months, 2)} tháng · File: ${b.filenames || ''} · ${b.uploaded_by || ''} ${b.uploaded_at || ''}`;
-        document.getElementById('gdhThSys').title = 'Tồn kho hệ thống ' + b.store + (b.inv_at ? ' (cập nhật ' + b.inv_at + ')' : '') + ' - cam nếu khác Cuối kỳ trong file';
+        document.getElementById('gdhThSys').title = 'Tồn kho ' + b.store + (b.inv_at ? ' (cập nhật ' + b.inv_at + ')' : '') + '. Số màu cam gạch chân = khác Tồn cuối kỳ trong file import (Đề xuất tính theo Tồn cuối kỳ của file).';
         let st = document.getElementById('gdhHideStore');
         if (!st) { st = document.createElement('style'); st.id = 'gdhHideStore'; document.head.appendChild(st); }
         st.textContent = `#gdh-pane [data-st="${b.store}"] { display: none; }`;   // chi nhánh đang gôm đã có cột Tồn HT
@@ -5678,11 +5756,12 @@
         if (t.unassigned_type) warn.push(`${_gdhFmt(t.unassigned_type, 0)} mã cần đặt CHƯA chọn loại đơn (sẽ không vào file đặt hàng / dashboard).`);
         if (t.locked_no_replace) warn.push(`${_gdhFmt(t.locked_no_replace, 0)} mã cần đặt đang bị khoá đặt hàng và chưa có mã thay thế.`);
         document.getElementById('gdhWarn').innerHTML = warn.map(w => `<div class="alert alert-warning py-1 px-2 small mb-1"><i class="bi bi-exclamation-triangle me-1"></i>${_gdhEsc(w)}</div>`).join('');
-        const card = (title, main, sub) => `<div class="col-6 col-xl-3"><div class="gdh-stat"><div class="gdh-stat-t">${title}</div><div class="gdh-stat-v">${main}</div><div class="gdh-stat-s">${sub}</div></div></div>`;
+        const _sCls = {'Định kỳ':'gdh-s-periodic','Khẩn':'gdh-s-urgent','Đơn 26':'gdh-s-d26'};
+        const card = (title, main, sub, cls) => `<div class="col-6 col-xl-3"><div class="gdh-stat ${cls || ''}"><div class="gdh-stat-t">${title}</div><div class="gdh-stat-v">${main}</div><div class="gdh-stat-s">${sub}</div></div></div>`;
         const freq = Object.entries(t.freq).map(([k, v]) => `${k} ${_gdhFmt(v, 0)}`).join(' · ');
         document.getElementById('gdhSummary').innerHTML =
-            card('Mã cần đặt', `${_gdhFmt(t.to_order, 0)} <small>mã</small>`, freq + ' (toàn đợt)') +
-            _gdhTypes.map(x => { const v = t.by_type[x] || {parts: 0, qty: 0, amount: 0}; return card(_gdhEsc(x), `${_gdhFmt(v.parts, 0)} <small>mã</small>`, `SL ${_gdhFmt(v.qty, 0)} · ${_gdhFmt(v.amount, 0)} đ`); }).join('');
+            card('Mã cần đặt', `${_gdhFmt(t.to_order, 0)} <small>mã</small>`, freq + ' (toàn đợt)', t.to_order > 0 ? 'gdh-s-total' : 'gdh-s-zero') +
+            _gdhTypes.map(x => { const v = t.by_type[x] || {parts: 0, qty: 0, amount: 0}; return card(_gdhEsc(x), `${_gdhFmt(v.parts, 0)} <small>mã</small>`, `SL ${_gdhFmt(v.qty, 0)} · ${_gdhFmt(v.amount, 0)} đ`, v.parts > 0 ? (_sCls[x] || '') : 'gdh-s-zero'); }).join('');
     }
     function gdhEdit(i, field, val) {
         const r = _gdhRows[i]; if (!r) return;
@@ -5693,8 +5772,8 @@
         r.qty_final = Math.max(0, Math.round(r.suggest + r.adj));
         r.amount = r.cost === null ? null : r.cost * r.qty_final;
         const fin = document.getElementById('gdh-fin-' + i);
-        fin.textContent = _gdhFmt(r.qty_final); fin.classList.toggle('gdh-cell-fin', r.qty_final > 0);
-        document.getElementById('gdh-amt-' + i).textContent = _gdhFmt(r.amount, 0);
+        fin.textContent = _gdhFmt(r.qty_final); fin.classList.toggle('gdh-cell-fin', r.qty_final > 0); fin.classList.toggle('gdh-zero', r.qty_final <= 0);
+        const am = document.getElementById('gdh-amt-' + i); am.textContent = _gdhFmt(r.amount, 0); am.classList.toggle('gdh-zero', !r.amount);
         document.getElementById('gdh-ord-' + i).innerHTML = _gdhOrdHtml(r);
         document.getElementById('gdh-row-' + i).classList.toggle('gdh-on', r.qty_final > 0);
         _gdhMarkDirty(true); _gdhScheduleSave();
