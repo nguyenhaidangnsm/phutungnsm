@@ -34,6 +34,7 @@ from datetime import datetime
 from flask import Blueprint, request, jsonify, session, g, render_template, redirect, url_for
 import psycopg2
 from psycopg2 import pool as pg_pool, sql
+from part_code_utils import norm_code, n_sql, norm_index_sql
 from psycopg2.extras import RealDictCursor, execute_values
 
 # Import lại vài hàm/hằng số dùng chung từ app.py chính. AN TOÀN vì
@@ -125,7 +126,9 @@ def _get_orders_pool():
                 "này trên Render (Settings > Environment)."
             )
         # max=5: đây là tính năng phụ, không cần pool lớn như CSDL chính (10).
-        _orders_pool = pg_pool.SimpleConnectionPool(1, 5, ORDERS_DATABASE_URL, cursor_factory=RealDictCursor)
+        # ThreadedConnectionPool (không dùng SimpleConnectionPool): giống pool CSDL chính ở
+        # app.py - SimpleConnectionPool không an toàn khi nhiều luồng cùng getconn()/putconn().
+        _orders_pool = pg_pool.ThreadedConnectionPool(1, 5, ORDERS_DATABASE_URL, cursor_factory=RealDictCursor)
     return _orders_pool
 
 
@@ -263,6 +266,7 @@ def init_orders_tables():
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_bo_orders_store ON bo_orders(store_code)')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_bo_orders_status ON bo_orders(status)')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_bo_orders_part_code ON bo_orders(part_code)')
+        cursor.execute(norm_index_sql('bo_orders'))   # tra 'khách đang chờ mã' theo mã chuẩn hoá
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_bo_orders_request ON bo_orders(request_id)')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_bo_orders_store_seq ON bo_orders(store_code, seq_no)')
         db.commit()
@@ -892,12 +896,10 @@ def delete_order():
 # ----------------------------------------------------------------------------
 # TRA CỨU TÊN + GIÁ TỪ DANH MỤC (dùng chung cho gợi ý mã, dán mã, nhập PDF)
 # ----------------------------------------------------------------------------
-def _norm_code(c):
-    return re.sub(r'[^A-Za-z0-9]', '', str(c or '')).upper()
-
-
-def _n_sql(col):
-    return f"regexp_replace(upper({col}), '[^A-Z0-9]', '', 'g')"
+# Hàm chuẩn hoá mã hàng DÙNG CHUNG cho mọi module (xem part_code_utils.py) - giữ tên cũ
+# _norm_code/_n_sql để không phải sửa các chỗ gọi bên dưới.
+_norm_code = norm_code
+_n_sql = n_sql
 
 
 def _catalog_lookup(cur, norm_codes):

@@ -30,6 +30,7 @@ from datetime import datetime
 
 import openpyxl
 from flask import Blueprint, request, jsonify, session
+from part_code_utils import norm_index_sql
 from psycopg2.extras import execute_values
 
 from app import get_db, vn_now, _current_actor_name, invalidate_inventory_cache
@@ -92,6 +93,8 @@ def init_price_adjustment_tables(cursor):
     # trọng khi bảng phình to sau khi import hàng loạt (hàng chục nghìn dòng
     # / lần import).
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_price_adj_proposals_part_created ON price_adjustment_proposals(part_code, created_at DESC)')
+    cursor.execute(norm_index_sql('price_adjustment_proposals'))   # tra theo mã chuẩn hoá (orders.py/body_kit.py)
+    cursor.execute(norm_index_sql('price_adjustment_new_codes'))
 
 
 _GIA_TANG_RATE = 0.05  # Mức % tăng giá MẶC ĐỊNH áp dụng ở Bước 2 của form đề

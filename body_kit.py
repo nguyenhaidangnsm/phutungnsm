@@ -50,6 +50,11 @@ from psycopg2 import Binary
 from psycopg2.extras import execute_values
 
 from orders import get_orders_db, _get_orders_pool, ORDERS_DATABASE_URL
+# Chuẩn hoá mã hàng dùng chung (part_code_utils.py): so khớp không phân biệt hoa/thường,
+# dấu gạch, khoảng trắng - vì mã trong bộ áo có thể nhập tay/từ Excel khác cách viết với
+# mã trong tồn kho/giá bán.
+from part_code_utils import n_sql, norm_index_sql, group_by_norm, assign_by_norm
+from part_code_utils import norm_code as norm_code_of
 from body_kit_import import (
     parse_body_kit_excel, parse_model_category_excel,
     classify_group_label, _extract_year,
@@ -199,6 +204,7 @@ def init_body_kit_tables():
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_body_kit_groups_family ON body_kit_groups(vehicle_family, sub_model)')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_body_kit_parts_group ON body_kit_parts(group_id)')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_body_kit_parts_code ON body_kit_parts(part_code)')
+        cursor.execute(norm_index_sql('body_kit_parts'))
 
         # Bảng tra "Mã xe" -> "Dòng xe/Đời xe" CHUẨN (nhập riêng từ 1 file
         # Excel khác - xem parse_model_category_excel trong body_kit_import.py),
@@ -684,14 +690,17 @@ def get_body_kit_group(group_id):
     manual_codes = list({p['part_code'] for p in part_rows if p['part_code'] and p['honda_price'] is None})
     fallback_honda_by_code = {}
     if manual_codes:
-        cursor.execute('''
-            SELECT DISTINCT ON (bp.part_code) bp.part_code, bp.honda_price
+        manual_by_norm = group_by_norm(manual_codes)
+        _nb = n_sql('bp.part_code')
+        cursor.execute(f'''
+            SELECT DISTINCT ON ({_nb}) bp.part_code, bp.honda_price
             FROM body_kit_parts bp
             JOIN body_kit_groups g ON g.id = bp.group_id
-            WHERE bp.part_code = ANY(%s) AND bp.honda_price IS NOT NULL
-            ORDER BY bp.part_code, g.is_manual ASC, bp.id DESC
-        ''', (manual_codes,))
-        fallback_honda_by_code = {r['part_code']: float(r['honda_price']) for r in cursor.fetchall()}
+            WHERE {_nb} = ANY(%s) AND bp.honda_price IS NOT NULL
+            ORDER BY {_nb}, g.is_manual ASC, bp.id DESC
+        ''', (list(manual_by_norm.keys()),))
+        for r in cursor.fetchall():
+            assign_by_norm(fallback_honda_by_code, manual_by_norm, r['part_code'], float(r['honda_price']))
     cursor.close()
 
     # Giá bán HIỆN TẠI (bảng part_prices) và tồn kho HIỆN TẠI (bảng
@@ -709,57 +718,50 @@ def get_body_kit_group(group_id):
     fallback_name_by_code = {}
     adjusted_flag_by_code = {}
     if part_codes:
+        # Tra theo MÃ CHUẨN HOÁ rồi gán kết quả ngược về từng mã gốc của bộ áo (mã bộ áo có
+        # thể viết khác mã trong tồn kho/giá bán: gạch, hoa/thường...). Dòng khớp chính xác
+        # mã gốc luôn được ưu tiên.
+        codes_by_norm = group_by_norm(part_codes)
+        norm_list = list(codes_by_norm.keys())
+        _n = n_sql('part_code')
         main_db = get_db()
         main_cursor = main_db.cursor()
         main_cursor.execute(
-            'SELECT part_code, sale_price FROM part_prices WHERE part_code = ANY(%s)',
-            (part_codes,)
-        )
-        current_price_by_code = {
-            r['part_code']: float(r['sale_price']) if r['sale_price'] is not None else None
-            for r in main_cursor.fetchall()
-        }
+            f'SELECT part_code, sale_price FROM part_prices WHERE {_n} = ANY(%s)', (norm_list,))
+        for r in main_cursor.fetchall():
+            assign_by_norm(current_price_by_code, codes_by_norm, r['part_code'],
+                           float(r['sale_price']) if r['sale_price'] is not None else None)
         main_cursor.execute(
-            'SELECT part_code, SUM(quantity) AS qty FROM inventory_items WHERE part_code = ANY(%s) GROUP BY part_code',
-            (part_codes,)
-        )
-        current_stock_by_code = {r['part_code']: float(r['qty'] or 0) for r in main_cursor.fetchall()}
-        # Bộ áo thủ công: nếu người nhập bỏ trống "Tên hàng" lúc thêm, tra
-        # tạm tên theo mã hàng trong inventory_items (CSDL chính) - phòng
-        # trường hợp mã đó đã có tên sẵn trong hệ thống (đã từng nhập tồn/
-        # bán hàng) mà người nhập không biết/không gõ lại.
+            f'SELECT {_n} AS norm, SUM(quantity) AS qty FROM inventory_items '
+            f'WHERE {_n} = ANY(%s) GROUP BY 1', (norm_list,))
+        for r in main_cursor.fetchall():
+            for c in codes_by_norm.get(r['norm'], []):
+                current_stock_by_code[c] = float(r['qty'] or 0)
+        # Bộ áo thủ công: nếu người nhập bỏ trống "Tên hàng", tra tạm tên theo mã hàng trong
+        # inventory_items (CSDL chính). Khoá bằng chữ HOA của mã gốc (nơi dùng: .upper()).
         main_cursor.execute(
-            '''SELECT DISTINCT ON (UPPER(part_code)) part_code, part_name
-               FROM inventory_items WHERE UPPER(part_code) = ANY(%s) AND part_name IS NOT NULL AND part_name <> ''
-               ORDER BY UPPER(part_code), id DESC''',
-            ([c.upper() for c in part_codes],)
-        )
-        # Khoá bằng chữ HOA - vì mã hàng nhập tay trong bộ áo thủ công có thể
-        # khác cách viết hoa/thường so với mã đã lưu trong tồn kho.
-        fallback_name_by_code = {r['part_code'].upper(): r['part_name'] for r in main_cursor.fetchall()}
+            f'''SELECT DISTINCT ON ({_n}) part_code, part_name
+               FROM inventory_items WHERE {_n} = ANY(%s) AND part_name IS NOT NULL AND part_name <> ''
+               ORDER BY {_n}, id DESC''',
+            (norm_list,))
+        for r in main_cursor.fetchall():
+            for c in codes_by_norm.get(norm_code_of(r['part_code']), []):
+                fallback_name_by_code[c.upper()] = r['part_name']
 
-        # Nguồn dự phòng THỨ 2 (đáng tin hơn tồn kho, vì là chính nơi lưu Tên
-        # hàng + lịch sử tăng giá của mã đó): bảng price_adjustment_proposals
-        # của tính năng "Đề Xuất Tăng Giá" (price_adjustment.py) - cùng CSDL
-        # chính, tận dụng luôn main_cursor này. Lấy dòng đề xuất GẦN NHẤT của
-        # mỗi mã (created_at DESC) để có Tên hàng mới nhất, và sự TỒN TẠI của
-        # ít nhất 1 dòng cho biết mã đó ĐÃ từng được đề xuất tăng giá hay
-        # chưa - đây chính xác là cách tính năng Đề Xuất Tăng Giá đang định
-        # nghĩa "Đã điều chỉnh"/"Chưa điều chỉnh" cho TOÀN hệ thống, nên dùng
-        # lại luôn thay vì phải có Giá Honda gốc mới so sánh được (điều mà
-        # bộ áo thêm thủ công thường không có).
+        # Nguồn dự phòng THỨ 2 (đáng tin hơn tồn kho): price_adjustment_proposals của "Đề Xuất
+        # Tăng Giá" - dòng đề xuất GẦN NHẤT của mỗi mã cho Tên hàng mới nhất, và sự TỒN TẠI
+        # của ít nhất 1 dòng cho biết mã đã từng được đề xuất tăng giá ("Đã điều chỉnh").
         main_cursor.execute(
-            '''SELECT DISTINCT ON (UPPER(part_code)) part_code, part_name
-               FROM price_adjustment_proposals WHERE UPPER(part_code) = ANY(%s)
-               ORDER BY UPPER(part_code), created_at DESC''',
-            ([c.upper() for c in part_codes],)
-        )
-        proposal_rows = main_cursor.fetchall()
-        adjusted_flag_by_code = {r['part_code'].upper(): True for r in proposal_rows}
-        # Tên hàng từ đề xuất tăng giá ưu tiên CAO HƠN tồn kho (thường mới/
-        # sát thực tế hơn) - ghi đè lên fallback_name_by_code cho mã nào có.
-        fallback_name_by_code.update(
-            {r['part_code'].upper(): r['part_name'] for r in proposal_rows if r['part_name']})
+            f'''SELECT DISTINCT ON ({_n}) part_code, part_name
+               FROM price_adjustment_proposals WHERE {_n} = ANY(%s)
+               ORDER BY {_n}, created_at DESC''',
+            (norm_list,))
+        for r in main_cursor.fetchall():
+            for c in codes_by_norm.get(norm_code_of(r['part_code']), []):
+                adjusted_flag_by_code[c.upper()] = True
+                # Tên từ đề xuất tăng giá ưu tiên CAO HƠN tồn kho - ghi đè fallback.
+                if r['part_name']:
+                    fallback_name_by_code[c.upper()] = r['part_name']
         main_cursor.close()
 
     parts = []
@@ -1144,22 +1146,29 @@ def body_kit_part_lookup():
     from app import get_db
     main_db = get_db()
     cur = main_db.cursor()
+    # Tra theo MÃ CHUẨN HOÁ (gõ '06410-kfl-850' vẫn ra '06410KFL850'); kết quả khoá bằng
+    # đúng mã (viết hoa) mà người dùng đã gõ để giao diện tra lại được.
+    codes_by_norm = group_by_norm(upper_codes)
+    norm_list = list(codes_by_norm.keys())
+    _n = n_sql('part_code')
     cur.execute(
-        '''SELECT MIN(part_code) AS part_code, MAX(part_name) AS part_name, SUM(quantity) AS qty
-           FROM inventory_items WHERE UPPER(part_code) = ANY(%s) GROUP BY UPPER(part_code)''',
-        (upper_codes,))
+        f'''SELECT {_n} AS norm, MIN(part_code) AS part_code, MAX(part_name) AS part_name, SUM(quantity) AS qty
+           FROM inventory_items WHERE {_n} = ANY(%s) GROUP BY 1''',
+        (norm_list,))
     result = {}
     for r in cur.fetchall():
-        result[r['part_code'].upper()] = {
-            'part_code': r['part_code'], 'part_name': r['part_name'],
-            'sale_price': None, 'stock': float(r['qty'] or 0),
-        }
+        for c in codes_by_norm.get(r['norm'], []):
+            result[c] = {
+                'part_code': r['part_code'], 'part_name': r['part_name'],
+                'sale_price': None, 'stock': float(r['qty'] or 0),
+            }
     cur.execute(
-        'SELECT part_code, sale_price FROM part_prices WHERE UPPER(part_code) = ANY(%s)',
-        (upper_codes,))
+        f'SELECT part_code, sale_price FROM part_prices WHERE {_n} = ANY(%s)',
+        (norm_list,))
     for r in cur.fetchall():
-        entry = result.setdefault(r['part_code'].upper(), {
-            'part_code': r['part_code'], 'part_name': None, 'sale_price': None, 'stock': None})
-        entry['sale_price'] = float(r['sale_price']) if r['sale_price'] is not None else None
+        for c in codes_by_norm.get(norm_code_of(r['part_code']), []):
+            entry = result.setdefault(c, {
+                'part_code': r['part_code'], 'part_name': None, 'sale_price': None, 'stock': None})
+            entry['sale_price'] = float(r['sale_price']) if r['sale_price'] is not None else None
     cur.close()
     return jsonify({'success': True, 'data': result})

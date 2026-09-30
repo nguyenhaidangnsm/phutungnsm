@@ -15,6 +15,9 @@ from flask import Flask, render_template, request, jsonify, session, redirect, u
 import psycopg2
 from psycopg2 import pool as pg_pool
 from psycopg2.extras import RealDictCursor, execute_values
+# Chuẩn hoá mã hàng dùng chung (xem part_code_utils.py) - so khớp mã không phân biệt
+# hoa/thường, dấu gạch, khoảng trắng.
+from part_code_utils import norm_code, n_sql, norm_index_sql, resolve_codes
 from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.middleware.proxy_fix import ProxyFix
 from flask_compress import Compress
@@ -1102,6 +1105,10 @@ def init_db():
                 UNIQUE(store_code, part_code)
             )
         ''')
+        # Index trên MÃ ĐÃ CHUẨN HOÁ (bỏ ký tự đặc biệt + viết hoa) để tra 'mã gõ tay -> mã chính
+        # thức' (resolve_codes) không phải quét cả bảng. Biểu thức PHẢI giống n_sql().
+        for _t in ('inventory_items', 'part_prices', 'order_lock_items'):
+            cursor.execute(norm_index_sql(_t))
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_part_locations_store ON part_locations(store_code)')
 
         # 7b. Bảng lưu HÀNG HƯ HỎNG - mỗi dòng là 1 LẦN BÁO HƯ (không UPSERT
@@ -4274,6 +4281,23 @@ def order_check():
     db = get_db()
     cursor = db.cursor()
 
+    # ---- 0) Chuẩn hoá mã dán vào -> mã CHÍNH THỨC trong hệ thống. Vd admin dán
+    # '06410-kfl-850' nhưng tồn kho lưu '06410KFL850' -> các truy vấn khớp chính xác bên
+    # dưới sẽ không tìm thấy gì (và không báo lỗi). Mã đã đúng/không tìm được giữ nguyên;
+    # mã khớp mơ hồ (nhiều mã chính thức cùng dạng chuẩn hoá) cũng giữ nguyên.
+    typed_by_code = {}
+    canon_map = resolve_codes(cursor, order_list)
+    if canon_map:
+        _new_list, _new_qty = [], {}
+        for _pc in order_list:
+            _c = canon_map.get(_pc, _pc)
+            if _c not in _new_qty:
+                _new_list.append(_c)
+            _new_qty[_c] = _new_qty.get(_c, 0) + qty_by_part[_pc]
+            if _c != _pc:
+                typed_by_code.setdefault(_c, _pc)
+        order_list, qty_by_part = _new_list, _new_qty
+
     # ---- 1) Tồn kho hệ thống (pivot theo cửa hàng) cho đúng các mã hàng đã dán ----
     cursor.execute(
         'SELECT part_code, part_name, unit, store_code, quantity FROM inventory_items WHERE part_code = ANY(%s)',
@@ -4464,21 +4488,27 @@ def order_check():
         from orders import get_orders_db
         odb = get_orders_db()
         ocur = odb.cursor()
+        # Khớp theo MÃ ĐÃ CHUẨN HOÁ: mã trong bo_orders do nhân viên/PDF nhập nên có thể
+        # khác cách viết (gạch, hoa/thường) so với mã chính thức trong tồn kho.
+        _codes_by_norm = {}
+        for _pc in order_list:
+            _codes_by_norm.setdefault(norm_code(_pc), []).append(_pc)
         ocur.execute(
             '''SELECT part_code, quote_no, customer_name, order_date, frame_number
                FROM bo_orders
-               WHERE store_code = %s AND part_code = ANY(%s)
+               WHERE store_code = %s AND ''' + n_sql('part_code') + ''' = ANY(%s)
                  AND status NOT IN ('Đã giao', 'Đã huỷ')
                  AND source IS DISTINCT FROM 'Xin nội bộ' ''',
-            (store_code, order_list)
+            (store_code, list(_codes_by_norm.keys()))
         )
         for r in ocur.fetchall():
-            pending_customers_by_part.setdefault(r['part_code'], []).append({
-                'quote_no': r.get('quote_no'),
-                'customer_name': r.get('customer_name'),
-                'order_date': r['order_date'].strftime('%d/%m/%Y') if r.get('order_date') else None,
-                'frame_number': r.get('frame_number'),
-            })
+            for _pc in _codes_by_norm.get(norm_code(r['part_code']), []):
+                pending_customers_by_part.setdefault(_pc, []).append({
+                    'quote_no': r.get('quote_no'),
+                    'customer_name': r.get('customer_name'),
+                    'order_date': r['order_date'].strftime('%d/%m/%Y') if r.get('order_date') else None,
+                    'frame_number': r.get('frame_number'),
+                })
         ocur.close()
     except Exception as e:
         # CSDL đặt hàng khách là tính năng PHỤ (Supabase riêng) - lỗi ở đây
@@ -4626,6 +4656,7 @@ def order_check():
 
         result.append({
             'part_code': part_code,
+            'typed_code': typed_by_code.get(part_code),   # mã admin gõ nếu khác mã chính thức, else None
             'qty_order': qty_order,
             'part_name': inv.get('part_name') if inv else None,
             'unit': inv.get('unit') if inv else None,
