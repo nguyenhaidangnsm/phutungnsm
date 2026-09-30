@@ -43,7 +43,8 @@ from zoneinfo import ZoneInfo
 from flask import Blueprint, request, jsonify, session, send_file
 from psycopg2.extras import execute_values
 
-from app import get_db, _valid_store_codes, classify_sales_frequency
+from app import (get_db, _valid_store_codes, classify_sales_frequency,
+                 get_store_data_version, compute_result_for_store_cached)
 
 gom_don_hang_bp = Blueprint('gom_don_hang', __name__)
 _VN_TZ = ZoneInfo('Asia/Ho_Chi_Minh')
@@ -373,6 +374,23 @@ def compute_rows(cur, batch, order_only=False, with_extra=False):
             stock_map.setdefault(r['part_code'], {})[r['store_code']] = float(r['q'] or 0)
         bundles = _load_bundles(cur)
 
+    # Hàng NỢ / ĐANG VẬN CHUYỂN theo bảng đối soát PO của chi nhánh đang gôm (chỉ để HIỂN THỊ, không trừ vào đề xuất).
+    # Dùng lại cache của bảng đối soát nên không tính lại; lỗi thì bỏ qua (cột hiện "–"), không làm hỏng bảng gôm.
+    po_map = None
+    if with_extra and codes:
+        try:
+            version = get_store_data_version(cur, batch['store_code'])
+            po_map = {}
+            for d in compute_result_for_store_cached(cur, batch['store_code'], version):
+                st, pc = d.get('status'), d.get('part_code')
+                if st not in ('Nợ', 'Đang vận chuyển') or not pc:
+                    continue
+                slot = po_map.setdefault(pc, [0.0, 0.0])
+                slot[0 if st == 'Nợ' else 1] += float(d.get('qty_debt') or 0)
+        except Exception:
+            cur.connection.rollback()
+            po_map = None
+
     rows = []
     for l in lines:
         c = compute_line(l, weeks, months, fw)
@@ -404,6 +422,13 @@ def compute_rows(cur, batch, order_only=False, with_extra=False):
         b = bundles.get(_bkey(base))             # mã con -> tự quy thành mã cha (làm tròn LÊN)
         r['bundle_parent'] = b[0] if b else None
         r['bundle_ratio'] = b[1] if b else None
+        r['debt_qty'] = r['ship_qty'] = r['parent_debt'] = r['parent_ship'] = None
+        if po_map is not None:
+            own = po_map.get(r['part_code']) or [0.0, 0.0]
+            r['debt_qty'], r['ship_qty'] = own
+            if b:                                # PO đặt bằng mã CHA: trả về số của mã cha để nhìn thấy
+                par = po_map.get(b[0]) or [0.0, 0.0]
+                r['parent_debt'], r['parent_ship'] = par
         r['order_code'] = b[0] if b else base
         r['order_qty'] = int(math.ceil(r['qty_final'] / b[1] - 1e-9)) if b else r['qty_final']
     return rows
@@ -607,13 +632,16 @@ def gdh_lines():
     q = (request.args.get('q') or '').strip().lower()
     group = (request.args.get('group') or '').strip().upper()
     otype = (request.args.get('order_type') or '').strip()
-    only = request.args.get('only_order') == '1'
+    scope = (request.args.get('scope') or '').strip().lower()
+    if scope not in ('sold', 'all'):                      # tương thích bản cũ (only_order)
+        scope = 'sold' if request.args.get('only_order') == '1' else 'all'
+    only = scope == 'sold'
     view = [r for r in rows
             if (not q or q in r['part_code'].lower() or q in (r['part_name'] or '').lower()
                 or q in (r['note'] or '').lower())
             and (not group or r['group'] == group)
             and (not otype or (r['order_type'] == otype if otype != '-' else not r['order_type']))
-            and (not only or r['suggest'] > 0 or r['qty_final'] > 0 or r['adj'] or r['order_type'] or r['note'])]
+            and (not only or r['sales'] > 0 or r['qty_final'] > 0 or r['adj'] or r['order_type'] or r['note'])]
     try:
         page = max(1, int(request.args.get('page') or 1))
         size = min(2000, max(1, int(request.args.get('page_size') or 100)))
