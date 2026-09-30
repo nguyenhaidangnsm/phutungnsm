@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="theme-color" content="#0f1420">
+<meta name="theme-color" content="#0d0f13">
 <script>(function(){var p='auto';try{p=localStorage.getItem('nsm-theme')||'auto'}catch(e){}var l=p==='light'||(p==='auto'&&matchMedia('(prefers-color-scheme:light)').matches);document.documentElement.dataset.theme=l?'light':'dark'})()</script>
 <link rel="manifest" href="/teamhub/manifest.webmanifest">
 <link rel="apple-touch-icon" href="/static/teamhub_icons/icon-180.png">
@@ -14,8 +14,8 @@
 <link rel="icon" href="/static/logo-mark.png">
 <link rel="preload" href="/static/fonts/SVN-MonaSans-SemiBoldWide.woff" as="font" type="font/woff" crossorigin>
 <style>
-:root{--bg:#0f1420;--card:#161c2b;--line:#232c40;--text:#e8ecf5;--mute:#8b96ad;--acc:#6b8cff;--accbg:rgba(107,140,255,.14);--red:#e5484d;--r:14px;--onacc:#0b1020;--dtxt:#ff7a7f;--tbg:#2a3350;color-scheme:dark}
-:root[data-theme="light"]{--bg:#f2f4f9;--card:#fff;--line:#dde2ec;--text:#141a2a;--mute:#5b6780;--acc:#3556e0;--accbg:rgba(53,86,224,.1);--red:#d92d33;--onacc:#fff;--dtxt:#c8232a;--tbg:#1f2637;color-scheme:light}
+:root{--bg:#0d0f13;--card:#16191f;--line:#252a33;--text:#eef0f4;--mute:#8d95a5;--acc:#ff4d3f;--accbg:rgba(255,77,63,.13);--red:#e5484d;--r:16px;--onacc:#fff;--dtxt:#ff7a7f;--tbg:#2a3350;color-scheme:dark}
+:root[data-theme="light"]{--bg:#f3f4f7;--card:#fff;--line:#dde0e7;--text:#15181f;--mute:#5d6676;--acc:#d92b1f;--accbg:rgba(217,43,31,.09);--red:#d92d33;--onacc:#fff;--dtxt:#c8232a;--tbg:#1f2637;color-scheme:light}
 *{box-sizing:border-box;margin:0}
 html,body{height:100%}
 @font-face{font-family:"SVN-MonaSans";src:url("/static/fonts/SVN-MonaSans-SemiBoldWide.woff") format("woff"),url("/static/fonts/SVN-MonaSans-SemiBoldWide.otf") format("opentype");font-weight:100 900;font-style:normal;font-display:swap}
@@ -179,19 +179,59 @@ button,label{touch-action:manipulation}
 input::placeholder,textarea::placeholder{color:var(--mute);opacity:.55}
 .name{font-size:14px;color:var(--text)}
 h2{font-size:20px}
+
+/* ===== v2: thương hiệu đỏ, icon SVG, chat lớn ===== */
+body{font-size:15px}
+.ic{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;flex:none;vertical-align:-4px}
+.ic.sm{width:15px;height:15px;vertical-align:-2px}.ic.fill{fill:currentColor}
+.logo{color:var(--text)}.logo-img{height:36px}
+.icon-btn{display:inline-grid;place-items:center;font-size:0}
+.side .nv{font-size:15px}
+.side .nv span,.tabs button span{display:grid;place-items:center;font-size:0;filter:none}
+.tabs button span .ic{width:23px;height:23px}.side .nv .ic{width:21px;height:21px}
+.side .nv.on::before,.citem.on::before{content:"";position:absolute;left:0;top:10px;bottom:10px;width:3px;border-radius:3px;background:var(--acc)}
+.acts button{display:inline-flex;align-items:center;gap:8px}.acts .liked{color:var(--acc)}
+.seg button{display:flex;align-items:center;justify-content:center;gap:8px}
+.fci{display:grid}.fci .ic{width:22px}
+.cdel{display:grid;place-items:center}.cdel .ic{width:15px;height:15px}
+.back{display:grid;place-items:center}
+.sel{appearance:none;-webkit-appearance:none;padding-right:40px;background:var(--card) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%238d95a5' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E") no-repeat right 14px center/16px}
+.btn{box-shadow:0 8px 18px -10px var(--acc)}.btn.ghost,.btn.danger,.btn:disabled{box-shadow:none}
+.m{font-size:15.5px;line-height:1.55;max-width:min(74%,640px);padding:10px 15px 7px;border-radius:18px 18px 18px 6px}
+.m.me{border-radius:18px 18px 6px 18px;background:var(--acc);border-color:var(--acc);color:#fff}
+.m small{font-size:11.5px;text-align:right;margin-top:3px;opacity:1;color:var(--mute)}
+.m.me small{color:rgba(255,255,255,.8)}
+.who-n{display:block;font-size:12.5px;color:var(--acc);margin-bottom:2px}
+.msgs{gap:6px;padding:18px 4px}
+.citem{position:relative;padding:13px 14px}.citem .name{font-size:15px}.citem.on{background:var(--accbg)}
+.chead{padding-bottom:14px}.chead .name{font-size:17px}
+#cwin .cmtin{gap:10px;padding-top:14px;align-items:center}
+#cwin .cmtin input{padding:14px 20px;font-size:15.5px;border-radius:28px;background:var(--card)}
+#cwin .btn{padding:13px 26px;border-radius:28px}
+#cwin .icon-btn{width:48px;height:48px}
+@media(min-width:900px){
+ .app.chatmode{max-width:1800px;grid-template-columns:240px minmax(0,1fr)}
+ .app.chatmode .right{display:none}
+ #v-chat{padding:16px 24px}
+ .chat{grid-template-columns:360px minmax(0,1fr);gap:0;min-height:0;height:calc(100vh - 32px);height:calc(100dvh - 32px);border:1px solid var(--line);border-radius:20px;background:var(--card);overflow:hidden}
+ .clist{padding:20px 14px;overflow-y:auto;border-right:1px solid var(--line)}
+ .cwin,.chat.open .cwin{height:100%;border-left:0;padding:18px 28px 20px;background:var(--bg)}
+}
+@media(min-width:1500px){.app.chatmode{grid-template-columns:240px minmax(0,1fr) 300px}.app.chatmode .right{display:block}}
 </style>
 </head>
 <body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true"><symbol id="i-home" viewBox="0 0 24 24"><path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V20a1 1 0 0 0 1 1h4v-6h4v6h4a1 1 0 0 0 1-1V9.5"/></symbol><symbol id="i-users" viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></symbol><symbol id="i-chat" viewBox="0 0 24 24"><path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"/></symbol><symbol id="i-bell" viewBox="0 0 24 24"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></symbol><symbol id="i-user" viewBox="0 0 24 24"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></symbol><symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M6.3 17.7l-1.4 1.4M19.1 4.9l-1.4 1.4"/></symbol><symbol id="i-moon" viewBox="0 0 24 24"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></symbol><symbol id="i-monitor" viewBox="0 0 24 24"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></symbol><symbol id="i-arrow-left" viewBox="0 0 24 24"><path d="m12 19-7-7 7-7M19 12H5"/></symbol><symbol id="i-chev-left" viewBox="0 0 24 24"><path d="m15 18-6-6 6-6"/></symbol><symbol id="i-clip" viewBox="0 0 24 24"><path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48"/></symbol><symbol id="i-heart" viewBox="0 0 24 24"><path d="M19 14c1.5-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z"/></symbol><symbol id="i-share" viewBox="0 0 24 24"><path d="M4 12v7a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-7M16 6l-4-4-4 4M12 2v13"/></symbol><symbol id="i-trash" viewBox="0 0 24 24"><path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></symbol><symbol id="i-x" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></symbol><symbol id="i-check" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></symbol><symbol id="i-file" viewBox="0 0 24 24"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5Z"/><path d="M14 2v6h6"/></symbol></svg>
 <div class="app">
   <aside class="side">
     <div class="logo"><img class="logo-img" src="/static/logo-mark.png" alt=""><span>Nam Sương Motor</span></div>
-    <a class="nv back-home" href="/" title="Quay về tra cứu phụ tùng"><span>←</span>Tra cứu phụ tùng</a>
-    <button class="nv on" data-v="feed"><span>🏠</span>Bảng tin</button>
-    <button class="nv" data-v="groups"><span>👥</span>Nhóm</button>
-    <button class="nv" data-v="chat"><span>💬</span>Chat<i class="badge cb"></i></button>
-    <button class="nv" data-v="notif"><span>🔔</span>Thông báo<i class="badge nb"></i></button>
-    <button class="nv" data-v="me"><span>🙂</span>Cá nhân</button>
-    <button class="nv thm"><span class="ti">☀️</span>Sáng / Tối</button>
+    <a class="nv back-home" href="/" title="Quay về tra cứu phụ tùng"><span><svg class="ic "><use href="#i-arrow-left"/></svg></span>Tra cứu phụ tùng</a>
+    <button class="nv on" data-v="feed"><span><svg class="ic "><use href="#i-home"/></svg></span>Bảng tin</button>
+    <button class="nv" data-v="groups"><span><svg class="ic "><use href="#i-users"/></svg></span>Nhóm</button>
+    <button class="nv" data-v="chat"><span><svg class="ic "><use href="#i-chat"/></svg></span>Chat<i class="badge cb"></i></button>
+    <button class="nv" data-v="notif"><span><svg class="ic "><use href="#i-bell"/></svg></span>Thông báo<i class="badge nb"></i></button>
+    <button class="nv" data-v="me"><span><svg class="ic "><use href="#i-user"/></svg></span>Cá nhân</button>
+    <button class="nv thm"><span class="ti"><svg class="ic "><use href="#i-sun"/></svg></span>Sáng / Tối</button>
     <div class="who"><div class="me-av" data-s="1"></div><div><div class="name me-name"></div><div class="meta me-role"></div></div></div>
   </aside>
 
@@ -200,28 +240,28 @@ h2{font-size:20px}
       <a class="home-pill" href="/" aria-label="Quay về tra cứu phụ tùng">← Tra cứu</a>
       <div class="logo"><img class="logo-img" src="/static/logo-mark.png" alt=""><span>Nam Sương Motor</span></div>
       <div class="row" style="gap:8px">
-        <button class="icon-btn thm" aria-label="Đổi giao diện sáng/tối"><span class="ti">☀️</span></button>
-        <button class="icon-btn" data-v="notif" aria-label="Thông báo">🔔<i class="badge nb"></i></button>
+        <button class="icon-btn thm" aria-label="Đổi giao diện sáng/tối"><span class="ti"><svg class="ic "><use href="#i-sun"/></svg></span></button>
+        <button class="icon-btn" data-v="notif" aria-label="Thông báo"><svg class="ic "><use href="#i-bell"/></svg><i class="badge nb"></i></button>
       </div>
     </header>
 
     <section class="view on" id="v-feed">
       <div class="chips" id="chips"></div>
-      <div class="card composer"><div class="row"><div class="me-av" data-s="1"></div><input id="newpost" placeholder="Bạn muốn chia sẻ điều gì với đồng nghiệp?" maxlength="2000"><label class="icon-btn" style="display:grid;place-items:center;cursor:pointer;flex:none" title="Đính kèm ảnh hoặc tệp" aria-label="Đính kèm ảnh hoặc tệp"><span id="imgic">📎</span><input type="file" id="img" hidden></label><button class="btn" id="postbtn">Đăng</button></div><div class="pickline" id="pickname" hidden></div></div>
+      <div class="card composer"><div class="row"><div class="me-av" data-s="1"></div><input id="newpost" placeholder="Bạn muốn chia sẻ điều gì với đồng nghiệp?" maxlength="2000"><label class="icon-btn" style="display:grid;place-items:center;cursor:pointer;flex:none" title="Đính kèm ảnh hoặc tệp" aria-label="Đính kèm ảnh hoặc tệp"><span id="imgic"><svg class="ic "><use href="#i-clip"/></svg></span><input type="file" id="img" hidden></label><button class="btn" id="postbtn">Đăng</button></div><div class="pickline" id="pickname" hidden></div></div>
       <div id="feed"></div>
     </section>
 
     <section class="view" id="v-groups"><h2>Nhóm</h2><div id="gadmin"></div><div id="groups"></div></section>
 
     <section class="view" id="v-chat">
-      <div class="chat" id="chat"><div class="clist"><h2>Tin nhắn</h2><select id="newdm" class="sel"><option value="">＋ Nhắn tin cho đồng nghiệp...</option></select><div id="clist"></div></div><div class="cwin" id="cwin"></div></div>
+      <div class="chat" id="chat"><div class="clist"><h2>Tin nhắn</h2><select id="newdm" class="sel"><option value="">Nhắn tin cho đồng nghiệp…</option></select><div id="clist"></div></div><div class="cwin" id="cwin"></div></div>
     </section>
 
     <section class="view" id="v-notif"><h2>Thông báo</h2><div id="notifs"></div></section>
 
     <section class="view" id="v-me">
       <div class="me-top"><div class="me-av"></div><div class="name me-name" style="font-size:18px"></div><div class="meta me-role"></div></div>
-      <div class="card"><h2>Giao diện</h2><div class="seg"><button data-t="light">☀️ Sáng</button><button data-t="dark">🌙 Tối</button><button data-t="auto">📱 Theo máy</button></div></div>
+      <div class="card"><h2>Giao diện</h2><div class="seg"><button data-t="light"><svg class="ic "><use href="#i-sun"/></svg>Sáng</button><button data-t="dark"><svg class="ic "><use href="#i-moon"/></svg>Tối</button><button data-t="auto"><svg class="ic "><use href="#i-monitor"/></svg>Theo máy</button></div></div>
       <div class="card" id="adm" style="display:none"><h2>Quản lý tài khoản Nam Sương Motor</h2><div id="users"></div></div></section>
   </main>
 
@@ -233,15 +273,16 @@ h2{font-size:20px}
 
 <div id="toast" role="status"></div>
 <nav class="tabs">
-  <button class="on" data-v="feed"><span>🏠</span>Bảng tin</button>
-  <button data-v="groups"><span>👥</span>Nhóm</button>
-  <button data-v="chat"><span>💬</span>Chat<i class="badge cb"></i></button>
-  <button data-v="notif"><span>🔔</span>Thông báo<i class="badge nb"></i></button>
-  <button data-v="me"><span>🙂</span>Cá nhân</button>
+  <button class="on" data-v="feed"><span><svg class="ic "><use href="#i-home"/></svg></span>Bảng tin</button>
+  <button data-v="groups"><span><svg class="ic "><use href="#i-users"/></svg></span>Nhóm</button>
+  <button data-v="chat"><span><svg class="ic "><use href="#i-chat"/></svg></span>Chat<i class="badge cb"></i></button>
+  <button data-v="notif"><span><svg class="ic "><use href="#i-bell"/></svg></span>Thông báo<i class="badge nb"></i></button>
+  <button data-v="me"><span><svg class="ic "><use href="#i-user"/></svg></span>Cá nhân</button>
 </nav>
 
 <script>
 const $=s=>document.querySelector(s),$$=s=>[...document.querySelectorAll(s)];
+const ic=(n,c='')=>`<svg class="ic ${c}"><use href="#i-${n}"/></svg>`;
 const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const COL=['#e5484d','#22a559','#d9822b','#8e4ec6','#0e9bb5','#c9467a'];
 const av=(n,cls='')=>{n=n||'?';const ini=n.trim().split(/\s+/).slice(-2).map(w=>w[0]).join('').toUpperCase();return `<div class="av ${cls}" style="background:${COL[[...n].reduce((a,c)=>a+c.charCodeAt(0),0)%COL.length]}">${esc(ini)}</div>`};
@@ -267,8 +308,8 @@ const themePref=()=>{try{return localStorage.getItem('nsm-theme')||'auto'}catch(
 function applyTheme(){
   const p=themePref(),light=p==='light'||(p==='auto'&&matchMedia('(prefers-color-scheme:light)').matches);
   document.documentElement.dataset.theme=light?'light':'dark';
-  const m=$('meta[name=theme-color]');if(m)m.content=light?'#f2f4f9':'#0f1420';
-  $$('.thm .ti').forEach(e=>e.textContent=light?'🌙':'☀️');
+  const m=$('meta[name=theme-color]');if(m)m.content=light?'#f3f4f7':'#0d0f13';
+  $$('.thm .ti').forEach(e=>e.innerHTML=ic(light?'moon':'sun'));
   $$('.seg button').forEach(b=>b.classList.toggle('on',b.dataset.t===p));
 }
 function setTheme(p){try{localStorage.setItem('nsm-theme',p)}catch(e){}applyTheme()}
@@ -283,7 +324,7 @@ let ME,CATS=[],cat='Tất cả',view='feed',posts=[],more=false,cur=null,lastMsg
 
 /* ---------- điều hướng ---------- */
 function go(v){
-  view=v;
+  view=v;document.querySelector('.app').classList.toggle('chatmode',v==='chat');
   $$('.view').forEach(e=>e.classList.toggle('on',e.id==='v-'+v));
   $$('[data-v]').forEach(b=>{if(b.classList.contains('nv')||b.closest('.tabs'))b.classList.toggle('on',b.dataset.v===v)});
   ({feed:loadFeed,groups:loadGroups,chat:loadConvos,notif:loadNotifs,me:loadMembers}[v]||(()=>{}))();
@@ -299,11 +340,11 @@ const loadFeed=safe(async(append=false)=>{
   const d=await api(q);posts=append?posts.concat(d.posts):d.posts;more=d.more;renderFeed();
 });
 function card(p){
-  const cm=p.open?`<div class="cmts">${(p.cm||[]).map(c=>`<div class="cmt">${av(c.name,'s')}<div><div><b>${esc(c.name)}</b>${esc(c.body)}</div></div>${c.mine||ME.is_admin?`<button class="cdel" data-a="cdel" data-cid="${c.id}" title="Xoá bình luận" aria-label="Xoá bình luận">✕</button>`:''}</div>`).join('')}<div class="cmtin"><input placeholder="Viết bình luận..." maxlength="500"><button class="btn ghost" data-a="send">Gửi</button></div></div>`:'';
-  return `<article class="card" data-id="${p.id}"><div class="row">${av(p.name)}<div style="flex:1;min-width:0"><div><span class="name">${esc(p.name)}</span><span class="tag">${esc(p.category)}</span></div><div class="meta">${esc(p.branch)}${p.branch?' · ':''}${ago(p.created_at)}</div></div>${p.mine||ME.is_admin?'<button class="icon-btn" data-a="del" title="Xoá bài" aria-label="Xoá bài">🗑</button>':''}</div>
+  const cm=p.open?`<div class="cmts">${(p.cm||[]).map(c=>`<div class="cmt">${av(c.name,'s')}<div><div><b>${esc(c.name)}</b>${esc(c.body)}</div></div>${c.mine||ME.is_admin?`<button class="cdel" data-a="cdel" data-cid="${c.id}" title="Xoá bình luận" aria-label="Xoá bình luận">${ic('x')}</button>`:''}</div>`).join('')}<div class="cmtin"><input placeholder="Viết bình luận..." maxlength="500"><button class="btn ghost" data-a="send">Gửi</button></div></div>`:'';
+  return `<article class="card" data-id="${p.id}"><div class="row">${av(p.name)}<div style="flex:1;min-width:0"><div><span class="name">${esc(p.name)}</span><span class="tag">${esc(p.category)}</span></div><div class="meta">${esc(p.branch)}${p.branch?' · ':''}${ago(p.created_at)}</div></div>${p.mine||ME.is_admin?'<button class="icon-btn" data-a="del" title="Xoá bài" aria-label="Xoá bài">'+ic('trash')+'</button>':''}</div>
   ${p.body?`<p class="post-text">${esc(p.body)}</p>`:''}${p.image?`<img class="post-img" loading="lazy" src="/static/teamhub_uploads/${esc(p.image)}" alt="">`:''}${p.file_path?`<div class="post-file">${fcHtml(p.file_path,p.file_name,p.file_size)}</div>`:''}
-  <div class="stats"><span>${p.likes?'❤️ '+p.likes:''}</span><span>${p.ncm} bình luận</span></div>
-  <div class="acts"><button class="${p.liked?'liked':''}" data-a="like">${p.liked?'❤️':'🤍'} Thích</button><button data-a="cm">💬 Bình luận</button><button data-a="share">↗ Chia sẻ</button></div>${cm}</article>`;
+  <div class="stats"><span>${p.likes?ic('heart','fill sm')+' '+p.likes:''}</span><span>${p.ncm} bình luận</span></div>
+  <div class="acts"><button class="${p.liked?'liked':''}" data-a="like">${ic('heart',p.liked?'fill':'')} Thích</button><button data-a="cm">${ic('chat')} Bình luận</button><button data-a="share">${ic('share')} Chia sẻ</button></div>${cm}</article>`;
 }
 function renderFeed(){
   $('#feed').innerHTML=(posts.length?posts.map(card).join(''):'<div class="empty">Chưa có bài viết nào trong mục này.<br>Hãy là người đăng bài đầu tiên.</div>')+(more?'<button class="btn ghost" id="more" style="display:block;margin:0 auto 16px">Xem bài cũ hơn</button>':'');
@@ -335,7 +376,7 @@ async function shrink(f){
 }
 const MAXF=200*1024*1024,BAD=/\.(exe|bat|cmd|com|scr|msi|dll|sh|ps1|vbs|js|jar|apk|php|py|html?|svg|lnk|reg)$/i;
 const fsz=n=>n>=1073741824?(n/1073741824).toFixed(1)+' GB':n>=1048576?(n/1048576).toFixed(1)+' MB':Math.max(1,Math.round(n/1024))+' KB';
-const fcHtml=(id,name,size)=>`<a class="fc" href="/teamhub/file/${esc(id)}" download="${esc(name)}"><span class="fci">📎</span><span class="fct">${esc(name)}<small>${fsz(size)}</small></span></a>`;
+const fcHtml=(id,name,size)=>`<a class="fc" href="/teamhub/file/${esc(id)}" download="${esc(name)}"><span class="fci">${ic('file')}</span><span class="fct">${esc(name)}<small>${fsz(size)}</small></span></a>`;
 /* đưa ảnh/tệp vào FormData; trả về chuỗi lỗi (rỗng nếu ổn) */
 async function prep(fd,f){
   if(f.size>MAXF)return'Tệp quá lớn, tối đa 200MB.';
@@ -357,7 +398,7 @@ function up(p,fd,onp){return new Promise((res,rej)=>{
   };
   x.send(fd);
 })}
-function clearPick(){$('#img').value='';$('#pickname').hidden=true;$('#imgic').textContent='📎'}
+function clearPick(){$('#img').value='';$('#pickname').hidden=true;$('#imgic').innerHTML=ic('clip')}
 const addPost=safe(async()=>{
   const i=$('#newpost'),f=$('#img').files[0],v=i.value.trim(),b=$('#postbtn');if(!v&&!f)return;
   const fd=new FormData();fd.append('body',v);
@@ -370,8 +411,8 @@ $('#postbtn').onclick=addPost;
 $('#newpost').addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.isComposing)addPost()});
 $('#img').onchange=()=>{
   const f=$('#img').files[0];if(!f)return clearPick();
-  $('#imgic').textContent='✅';const p=$('#pickname');p.hidden=false;
-  p.innerHTML=`📎 ${esc(f.name)} · ${fsz(f.size)} <button class="lnk" id="pickx">Bỏ</button>`;
+  $('#imgic').innerHTML=ic('check');const p=$('#pickname');p.hidden=false;
+  p.innerHTML=`${ic('clip','sm')} ${esc(f.name)} · ${fsz(f.size)} <button class="lnk" id="pickx">Bỏ</button>`;
 };
 $('#pickname').addEventListener('click',e=>{if(e.target.id==='pickx')clearPick()});
 
@@ -386,7 +427,7 @@ const loadGroups=safe(async()=>{
 function gpanel(g){
   const inG=m=>(g.list||[]).some(x=>x.username===m.username);
   return `<div class="gpanel">${(g.list||[]).map(m=>`<div class="usr">${av(m.name,'s')}<div class="grow"><div class="name">${esc(m.name)}</div><div class="meta">${esc(m.branch)}</div></div>${g.can_manage&&m.username!==ME.username?`<button class="btn danger" data-ga="rm" data-u="${esc(m.username)}">Gỡ</button>`:''}</div>`).join('')}
-  ${g.can_manage?`<select class="sel" data-ga="add" style="margin-top:8px"><option value="">＋ Thêm thành viên...</option>${people.filter(p=>!inG(p)).map(p=>`<option value="${esc(p.username)}">${esc(p.name)}</option>`).join('')}</select>`:''}
+  ${g.can_manage?`<select class="sel" data-ga="add" style="margin-top:8px"><option value="">Thêm thành viên…</option>${people.filter(p=>!inG(p)).map(p=>`<option value="${esc(p.username)}">${esc(p.name)}</option>`).join('')}</select>`:''}
   <div class="row" style="gap:8px;flex-wrap:wrap">${g.joined?'<button class="btn ghost" data-ga="leave">Rời nhóm</button>':''}${g.can_manage&&g.name!=='Toàn công ty'?'<button class="btn danger" data-ga="del">Xoá nhóm</button>':''}</div></div>`;
 }
 function renderGroups(){
@@ -418,7 +459,7 @@ const loadConvos=safe(async()=>{
   if(!cur&&innerWidth>=900&&convos.length)openChat(convos[0].id);
 });
 function fillPeople(){
-  $('#newdm').innerHTML='<option value="">＋ Nhắn tin cho đồng nghiệp...</option>'+people.map(p=>`<option value="${esc(p.username)}">${esc(p.name)}${p.branch?' · '+esc(p.branch):''}</option>`).join('');
+  $('#newdm').innerHTML='<option value="">Nhắn tin cho đồng nghiệp…</option>'+people.map(p=>`<option value="${esc(p.username)}">${esc(p.name)}${p.branch?' · '+esc(p.branch):''}</option>`).join('');
   $('#online').innerHTML=people.slice(0,8).map(p=>`<button class="row" data-dm="${esc(p.username)}" style="margin-bottom:10px;width:100%;text-align:left">${av(p.name,'s')}<div class="name" style="font-size:14px">${esc(p.name)}</div></button>`).join('');
 }
 function renderConvos(){
@@ -429,13 +470,13 @@ $('#newdm').onchange=safe(async e=>{const to=e.target.value;e.target.value='';if
 $('#online').addEventListener('click',e=>{const b=e.target.closest('[data-dm]');if(b)startDm(b.dataset.dm)});
 const startDm=safe(async to=>{const d=await post('dm',{to});go('chat');await loadConvos();openChat(d.id)});
 let CF=null;
-function showCPick(){const p=$('#cpick');if(!p)return;if(!CF){p.hidden=true;return}p.hidden=false;p.innerHTML=`📎 ${esc(CF.name)} · ${fsz(CF.size)} <button class="lnk" id="cpx">Bỏ</button>`}
+function showCPick(){const p=$('#cpick');if(!p)return;if(!CF){p.hidden=true;return}p.hidden=false;p.innerHTML=`${ic('clip','sm')} ${esc(CF.name)} · ${fsz(CF.size)} <button class="lnk" id="cpx">Bỏ</button>`}
 const attHtml=m=>!m.att?'':m.att_kind==='image'?`<a href="/teamhub/file/${esc(m.att)}" target="_blank" rel="noopener"><img class="m-img" loading="lazy" src="/teamhub/file/${esc(m.att)}" alt="Ảnh"></a>`:fcHtml(m.att,m.att_name,m.att_size);
-const msgHtml=m=>`<div class="m ${m.mine?'me':''}" data-id="${m.id}">${!m.mine&&cur&&convos.find(c=>c.id===cur)?.kind==='group'?`<b style="font-size:12px">${esc(m.name)}</b><br>`:''}${m.body?`<span>${esc(m.body)}</span>`:''}${attHtml(m)}<small>${hm(m.created_at)}</small></div>`;
+const msgHtml=m=>`<div class="m ${m.mine?'me':''}" data-id="${m.id}">${!m.mine&&cur&&convos.find(c=>c.id===cur)?.kind==='group'?`<b class="who-n">${esc(m.name)}</b>`:''}${m.body?`<span>${esc(m.body)}</span>`:''}${attHtml(m)}<small>${hm(m.created_at)}</small></div>`;
 const openChat=safe(async id=>{
   cur=id;lastMsg=0;CF=null;const c=convos.find(x=>x.id===id)||{name:'Trò chuyện'};
   $('#chat').classList.add('open');
-  $('#cwin').innerHTML=`<div class="chead"><button class="back" id="back" aria-label="Quay lại">‹</button>${av(c.name,'s')}<div class="name">${esc(c.name)}</div></div><div class="msgs" id="msgs"></div><div class="pickline" id="cpick" hidden></div><div class="cmtin"><label class="icon-btn" style="display:grid;place-items:center;cursor:pointer;flex:none" title="Đính kèm ảnh hoặc tệp" aria-label="Đính kèm ảnh hoặc tệp">📎<input type="file" id="cfile" hidden></label><input id="msgin" placeholder="Nhập tin nhắn..." maxlength="2000"><button class="btn" id="msgsend">Gửi</button></div>`;
+  $('#cwin').innerHTML=`<div class="chead"><button class="back" id="back" aria-label="Quay lại">${ic('chev-left')}</button>${av(c.name,'s')}<div class="name">${esc(c.name)}</div></div><div class="msgs" id="msgs"></div><div class="pickline" id="cpick" hidden></div><div class="cmtin"><label class="icon-btn" style="display:grid;place-items:center;cursor:pointer;flex:none" title="Đính kèm ảnh hoặc tệp" aria-label="Đính kèm ảnh hoặc tệp"><svg class="ic "><use href="#i-clip"/></svg><input type="file" id="cfile" hidden></label><input id="msgin" placeholder="Nhập tin nhắn..." maxlength="2000"><button class="btn" id="msgsend">Gửi</button></div>`;
   $('#back').onclick=()=>{cur=null;$('#chat').classList.remove('open');loadConvos()};
   $('#msgsend').onclick=sendMsg;
   $('#cfile').onchange=()=>{CF=$('#cfile').files[0]||null;showCPick()};
