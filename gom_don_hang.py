@@ -81,14 +81,32 @@ def _ensure_tables(db):
                 CREATE TABLE IF NOT EXISTS gdh_batches (
                     id SERIAL PRIMARY KEY,
                     store_code VARCHAR(20) NOT NULL,
+                    owner VARCHAR(100) NOT NULL DEFAULT '',   -- '' = không gian chung của chi nhánh; khác '' = riêng của 1 admin
                     period_from DATE NOT NULL,
                     period_to DATE NOT NULL,
                     forecast_weeks INTEGER NOT NULL DEFAULT 3,
                     filenames TEXT,
                     uploaded_by TEXT,
-                    uploaded_at TIMESTAMP NOT NULL DEFAULT NOW(),
-                    UNIQUE (store_code, period_from, period_to)
+                    uploaded_at TIMESTAMP NOT NULL DEFAULT NOW()
                 )''')
+            # Nâng cấp bảng cũ: thêm owner, bỏ ràng buộc UNIQUE (store_code, period_from, period_to) cũ,
+            # thay bằng unique có owner (dữ liệu cũ có owner = '' nên vẫn là không gian chung của chi nhánh).
+            cur.execute("ALTER TABLE gdh_batches ADD COLUMN IF NOT EXISTS owner VARCHAR(100) NOT NULL DEFAULT ''")
+            cur.execute('''
+                DO $$
+                DECLARE c text;
+                BEGIN
+                  FOR c IN SELECT con.conname FROM pg_constraint con
+                           WHERE con.conrelid = 'gdh_batches'::regclass AND con.contype = 'u'
+                             AND (SELECT array_agg(att.attname::text ORDER BY att.attname) FROM pg_attribute att
+                                  WHERE att.attrelid = con.conrelid AND att.attnum = ANY(con.conkey))
+                                 = ARRAY['period_from','period_to','store_code']
+                  LOOP
+                    EXECUTE 'ALTER TABLE gdh_batches DROP CONSTRAINT ' || quote_ident(c);
+                  END LOOP;
+                END $$''')
+            cur.execute('CREATE UNIQUE INDEX IF NOT EXISTS gdh_batches_owner_uq '
+                        'ON gdh_batches (store_code, owner, period_from, period_to)')
             cur.execute('''
                 CREATE TABLE IF NOT EXISTS gdh_lines (
                     batch_id INTEGER NOT NULL REFERENCES gdh_batches(id) ON DELETE CASCADE,
@@ -509,6 +527,16 @@ def _resolve_store(cur, store_arg, allow_all=False):
     return code, None
 
 
+def _owner_for(space):
+    """Chủ của đợt gôm đang thao tác. User cửa hàng luôn ở không gian chung ('').
+    Admin mặc định ở không gian RIÊNG của mình (owner = username); space='store' để xem/sửa không gian chung của chi nhánh."""
+    if session.get('role') != 'admin':
+        return ''
+    if (space or '').strip().lower() == 'store':
+        return ''
+    return str(session.get('user') or '')
+
+
 def _ctx():
     db = get_db()
     _ensure_tables(db)
@@ -528,8 +556,10 @@ def _get_batch(cur, batch_id):
     b = cur.fetchone()
     if not b:
         return None, (jsonify({'error': 'Không tìm thấy đợt gôm.'}), 404)
-    if role == 'store' and b['store_code'] != session.get('store_code'):
+    if role == 'store' and (b['store_code'] != session.get('store_code') or b['owner']):
         return None, (jsonify({'error': 'Forbidden'}), 403)
+    if role == 'admin' and b['owner'] and b['owner'] != str(session.get('user') or ''):
+        return None, (jsonify({'error': 'Đợt gôm này là của admin khác.'}), 403)      # không gian riêng của admin khác
     return b, None
 
 
@@ -539,7 +569,7 @@ def _fmt_dt(d):
 
 def _batch_json(b, extra=None):
     days, weeks, months = period_metrics(b['period_from'], b['period_to'])
-    out = {'id': b['id'], 'store': b['store_code'], 'from': b['period_from'].isoformat(),
+    out = {'id': b['id'], 'store': b['store_code'], 'space': 'mine' if b['owner'] else 'store', 'from': b['period_from'].isoformat(),
            'to': b['period_to'].isoformat(), 'days': days, 'weeks': weeks, 'months': round(months, 2),
            'forecast_weeks': b['forecast_weeks'], 'filenames': b['filenames'],
            'uploaded_by': b['uploaded_by'], 'uploaded_at': _fmt_dt(b['uploaded_at'])}
@@ -568,8 +598,8 @@ def gdh_batches():
                    (SELECT COUNT(*) FROM gdh_lines l WHERE l.batch_id = b.id AND NOT (l.part_code LIKE ANY(%s))) AS total_parts,
                    (SELECT COUNT(*) FROM gdh_lines l WHERE l.batch_id = b.id AND l.order_type IS NOT NULL AND NOT (l.part_code LIKE ANY(%s))) AS typed_parts,
                    EXISTS (SELECT 1 FROM gdh_lines l WHERE l.batch_id = b.id AND l.sold IS NOT NULL AND NOT (l.part_code LIKE ANY(%s))) AS has_sold
-            FROM gdh_batches b WHERE b.store_code = %s ORDER BY b.period_to DESC, b.id DESC''',
-                    (_EXCL_LIKE, _EXCL_LIKE, _EXCL_LIKE, store))
+            FROM gdh_batches b WHERE b.store_code = %s AND b.owner = %s ORDER BY b.period_to DESC, b.id DESC''',
+                    (_EXCL_LIKE, _EXCL_LIKE, _EXCL_LIKE, store, _owner_for(request.args.get('space'))))
         data = [_batch_json(b, {'total_parts': b['total_parts'], 'typed_parts': b['typed_parts'],
                                 'has_sold': bool(b['has_sold'])}) for b in cur.fetchall()]
     finally:
@@ -608,11 +638,11 @@ def gdh_import():
         if err:
             return err
         cur.execute('''
-            INSERT INTO gdh_batches (store_code, period_from, period_to, filenames, uploaded_by, uploaded_at)
-            VALUES (%s,%s,%s,%s,%s,NOW())
-            ON CONFLICT (store_code, period_from, period_to) DO UPDATE SET
+            INSERT INTO gdh_batches (store_code, owner, period_from, period_to, filenames, uploaded_by, uploaded_at)
+            VALUES (%s,%s,%s,%s,%s,%s,NOW())
+            ON CONFLICT (store_code, owner, period_from, period_to) DO UPDATE SET
                 filenames = EXCLUDED.filenames, uploaded_by = EXCLUDED.uploaded_by, uploaded_at = NOW()
-            RETURNING id''', (store, pf, pt, f.filename, _actor_name()))
+            RETURNING id''', (store, _owner_for(request.form.get('space')), pf, pt, f.filename, _actor_name()))
         bid = cur.fetchone()['id']
         data = [(bid, code, r['name'], r['unit'], r['opening'], r['purchase'], r['out_qty'], r['sold'],
                  r['closing'], r['cost']) for code, r in rows.items()]
@@ -738,7 +768,7 @@ def gdh_save():
             except Exception as e:
                 db.rollback()
                 if 'unique' in str(e).lower() or 'duplicate' in str(e).lower():
-                    return jsonify({'error': 'Chi nhánh này đã có đợt gôm khác cùng kỳ (từ ngày - đến ngày).'}), 400
+                    return jsonify({'error': 'Đã có đợt gôm khác cùng chi nhánh, cùng kỳ (từ ngày - đến ngày) trong không gian này.'}), 400
                 raise
         db.commit()
         cur.execute('SELECT * FROM gdh_batches WHERE id = %s', (bid,))
@@ -938,8 +968,8 @@ def _dashboard(cur, args):
     if otype and otype not in ORDER_TYPES:
         return None, (jsonify({'error': 'Loại đơn không hợp lệ.'}), 400)
 
-    sql = 'SELECT * FROM gdh_batches WHERE period_from >= %s AND period_to <= %s'
-    params = [d_from, d_to]
+    sql = 'SELECT * FROM gdh_batches WHERE period_from >= %s AND period_to <= %s AND owner = %s'
+    params = [d_from, d_to, _owner_for(args.get('space'))]
     if store:
         sql += ' AND store_code = %s'
         params.append(store)

@@ -2360,6 +2360,10 @@
                     <option value="NS1">NS1</option><option value="NS2">NS2</option><option value="NS3">NS3</option>
                     <option value="NS4">NS4</option><option value="NS5">NS5</option><option value="NSM1">NSM1</option>
                 </select>
+                <select class="form-select form-select-sm" style="width:auto;" id="gdhSpace" onchange="gdhSpaceChanged(this)" title="Không gian gôm: 'Của tôi' là riêng từng admin; 'Của chi nhánh' là bảng gôm chung mà user cửa hàng đang dùng">
+                    <option value="mine">Gôm riêng của tôi</option>
+                    <option value="store">Gôm của chi nhánh (user cửa hàng)</option>
+                </select>
                 {% endif %}
                 <select class="form-select form-select-sm" style="width:auto;min-width:300px;" id="gdhBatch" onchange="gdhBatchChanged()"></select>
                 <button class="btn btn-outline-danger btn-sm" onclick="gdhDeleteBatch()" title="Xoá đợt gôm đang chọn"><i class="bi bi-trash"></i></button>
@@ -2456,6 +2460,10 @@
                     <option value="">Tất cả chi nhánh</option>
                     <option value="NS1">NS1</option><option value="NS2">NS2</option><option value="NS3">NS3</option>
                     <option value="NS4">NS4</option><option value="NS5">NS5</option><option value="NSM1">NSM1</option>
+                </select>
+                <select class="form-select form-select-sm" style="width:auto;" id="gdhDSpace" onchange="gdhSpaceChanged(this)">
+                    <option value="mine">Gôm riêng của tôi</option>
+                    <option value="store">Gôm của chi nhánh (user cửa hàng)</option>
                 </select>
                 {% endif %}
                 <label class="small text-muted mb-0">Số bán từ ngày</label>
@@ -5477,6 +5485,16 @@
     const _gdhDate = (iso) => iso ? iso.split('-').reverse().join('/') : '';
     const _gdhGrpCls = {TX: 'bg-success', TB: 'bg-info text-dark', CB: 'bg-secondary', HET: 'bg-danger'};
     function _gdhStore() { return CURRENT_ROLE === 'admin' ? (document.getElementById('gdhStore')?.value || '') : ''; }
+    // Không gian gôm: admin mặc định 'mine' (riêng từng admin); 'store' = bảng gôm chung của chi nhánh. User cửa hàng luôn dùng chung nên không gửi.
+    let _gdhSpaceVal = 'mine';
+    function _gdhSpace() { return CURRENT_ROLE === 'admin' ? _gdhSpaceVal : ''; }
+    function gdhSpaceChanged(el) {         // 2 ô chọn không gian (bảng gôm + dashboard) luôn đồng bộ với nhau
+        if (!_gdhConfirmLeave()) { el.value = _gdhSpaceVal; return; }
+        _gdhSpaceVal = el.value;
+        ['gdhSpace', 'gdhDSpace'].forEach(id => { const x = document.getElementById(id); if (x) x.value = _gdhSpaceVal; });
+        _gdhBatchId = null; _gdhEdited = {}; _gdhMarkDirty(false);
+        if (!document.getElementById('gdhDashView').classList.contains('d-none')) gdhDashLoad(); else gdhLoadBatches();
+    }
     function _gdhMarkDirty(f) { _gdhDirty = f; if (f) _gdhBadge('Chưa lưu', 'bg-warning text-dark'); else document.getElementById('gdhDirty').classList.add('d-none'); }
     async function _gdhJson(url, opts) {
         const res = await fetch(url, opts);
@@ -5516,7 +5534,7 @@
             return;
         }
         try {
-            const j = await _gdhJson('/api/gom-don-hang/batches?store=' + encodeURIComponent(_gdhStore()));
+            const j = await _gdhJson('/api/gom-don-hang/batches?store=' + encodeURIComponent(_gdhStore()) + '&space=' + _gdhSpace());
             _gdhTypes = j.order_types || _gdhTypes;
             sel.innerHTML = j.data.length ? j.data.map(b => `<option value="${b.id}">${_gdhDate(b.from)} - ${_gdhDate(b.to)} · ${b.total_parts} mã · ${b.typed_parts} đã chọn loại đơn</option>`).join('')
                                           : '<option value="">(Chưa có đợt nào - hãy import file tồn kho)</option>';
@@ -5550,7 +5568,7 @@
         if (CURRENT_ROLE === 'admin' && !_gdhStore()) { alert('Vui lòng chọn chi nhánh trước.'); input.value = ''; return; }
         if (!_gdhConfirmLeave()) { input.value = ''; return; }
         const fd = new FormData();
-        fd.append('file', file); fd.append('store', _gdhStore());
+        fd.append('file', file); fd.append('store', _gdhStore()); fd.append('space', _gdhSpace());
         const pf = document.getElementById('gdhImpFrom').value, pt = document.getElementById('gdhImpTo').value;
         if (pf && pt) { fd.append('period_from', pf); fd.append('period_to', pt); }
         input.value = '';
@@ -5841,6 +5859,7 @@
         const g = id => document.getElementById(id)?.value || '';
         const p = new URLSearchParams({from: g('gdhDFrom'), to: g('gdhDTo'), order_type: g('gdhDType')});
         if (CURRENT_ROLE === 'admin' && g('gdhDStore')) p.set('store', g('gdhDStore'));
+        if (CURRENT_ROLE === 'admin') p.set('space', _gdhSpace());
         return p;
     }
     async function gdhDashLoad() {
