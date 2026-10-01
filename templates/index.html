@@ -130,6 +130,28 @@
     position: relative;
     padding-right: 28px !important;
 }
+/* Ô sửa giá bán inline (editPriceRow): cột Giá Bán hẹp nên ô nhập bị co về ~0px,
+   chỉ còn thấy mũi tên tăng/giảm mà không thấy số. Chỉ áp dụng cho dòng đang sửa. */
+.price-col:has(.price-edit-input) {
+    padding-right: 4px !important;
+    overflow: visible;
+}
+.price-edit-wrap { white-space: nowrap; }
+.price-edit-wrap .price-edit-input {
+    flex: 0 0 auto;
+    width: 88px;
+    min-width: 88px;
+    text-align: right;
+    font-weight: 600;
+    -moz-appearance: textfield;
+    appearance: textfield;
+}
+.price-edit-wrap .price-edit-input::-webkit-outer-spin-button,
+.price-edit-wrap .price-edit-input::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+}
+.price-edit-wrap .btn { flex: 0 0 auto; }
     /* Brand Header Banner - giờ là THANH TRÊN CỐ ĐỊNH (fixed), nằm ngang
        hàng với ô logo góc vuông (.ns-topbar-corner) bên trái - cùng nhau
        tạo thành 1 khối "vuông góc" với sidebar dọc, giống layout kiểu CRM
@@ -8455,13 +8477,15 @@ async function saveLocationRow(btn, partCode) {
         const item = (globalInventory || []).find(i => i.part_code === partCode);
         const currentVal = (item && item.sale_price !== null && item.sale_price !== undefined) ? Math.round(item.sale_price) : '';
         priceCell.innerHTML = `
-            <div style="display:flex; gap:4px; align-items:center; justify-content:flex-end;">
-                <input type="number" min="0" step="1" class="form-control form-control-sm price-edit-input" style="max-width:110px;" value="${currentVal}" placeholder="Giá bán">
+            <div class="price-edit-wrap" style="display:flex; gap:4px; align-items:center; justify-content:flex-end;">
+                <input type="number" min="0" step="1" class="form-control form-control-sm price-edit-input" value="${currentVal}" placeholder="Giá bán">
                 <button class="btn btn-success btn-sm" title="Lưu" onclick="savePriceRow(this, '${escapeHtmlAttr(partCode)}')"><i class="bi bi-check-lg"></i></button>
                 <button class="btn btn-outline-secondary btn-sm" title="Huỷ" onclick="filterInventory()"><i class="bi bi-x-lg"></i></button>
             </div>
         `;
-        priceCell.querySelector('.price-edit-input').focus();
+        const priceInput = priceCell.querySelector('.price-edit-input');
+        priceInput.focus();
+        priceInput.select();
     }
 
     async function savePriceRow(btn, partCode) {
