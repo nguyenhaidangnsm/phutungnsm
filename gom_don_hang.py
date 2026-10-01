@@ -368,7 +368,8 @@ def compute_rows(cur, batch, order_only=False, with_extra=False):
             locks[r['part_code']] = (bool(r['is_locked']), (r['replacement_code'] or '').strip() or None)
 
     # Tồn kho HỆ THỐNG (bảng inventory_items) của TẤT CẢ chi nhánh + quy cách mã con -> mã cha (chỉ khi with_extra)
-    stock_map, has_inv, bundles = {}, False, {}
+    stock_map, has_inv = {}, False
+    bundles = _load_bundles(cur) if codes else {}      # luôn nạp: thành tiền của mã có mã cha tính theo giá vốn mã cha
     if with_extra and codes:
         cur.execute('SELECT 1 FROM inventory_items WHERE store_code = %s LIMIT 1', (batch['store_code'],))
         has_inv = cur.fetchone() is not None
@@ -376,7 +377,6 @@ def compute_rows(cur, batch, order_only=False, with_extra=False):
                     'WHERE part_code = ANY(%s) GROUP BY part_code, store_code', (codes,))
         for r in cur.fetchall():
             stock_map.setdefault(r['part_code'], {})[r['store_code']] = float(r['q'] or 0)
-        bundles = _load_bundles(cur)
 
     # Hàng NỢ / ĐANG VẬN CHUYỂN theo bảng đối soát PO của chi nhánh đang gôm (chỉ để HIỂN THỊ, không trừ vào đề xuất).
     # Dùng lại cache của bảng đối soát nên không tính lại; lỗi thì bỏ qua (cột hiện "–"), không làm hỏng bảng gôm.
@@ -419,13 +419,36 @@ def compute_rows(cur, batch, order_only=False, with_extra=False):
         for r in rows:
             if r['cost'] is None:
                 r['cost'] = fb.get(r['part_code'])
+    # Giá vốn MÃ CHA (mã có quy cách): ưu tiên giá vốn trong file import của đợt này, thiếu thì lấy gia_nhap trong DB
+    parent_cost = {}
+    parents = {_bkey((bundles.get(_bkey(r['lock_replace'] if r['locked'] and r['lock_replace'] else r['part_code'])) or [None])[0])
+               for r in rows if r['qty_final'] > 0}
+    parents.discard('')
+    if parents:
+        cur.execute('SELECT part_code, unit_cost FROM gdh_lines WHERE batch_id = %s AND unit_cost IS NOT NULL '
+                    'AND UPPER(TRIM(part_code)) = ANY(%s)', (batch['id'], list(parents)))
+        for x in cur.fetchall():
+            parent_cost[_bkey(x['part_code'])] = float(x['unit_cost'])
+        miss = [c for c in parents if c not in parent_cost]
+        if miss:
+            cur.execute('SELECT part_code, gia_nhap FROM part_vehicle_models WHERE UPPER(TRIM(part_code)) = ANY(%s) '
+                        'AND gia_nhap IS NOT NULL', (miss,))
+            for x in cur.fetchall():
+                parent_cost.setdefault(_bkey(x['part_code']), float(x['gia_nhap']))
     for r in rows:
-        r['amount'] = None if r['cost'] is None else r['cost'] * r['qty_final']
         base = (r['lock_replace'] if r['locked'] and r['lock_replace'] else r['part_code'])
         r['hvn_part'] = base
         b = bundles.get(_bkey(base))             # mã con -> tự quy thành mã cha (làm tròn LÊN)
         r['bundle_parent'] = b[0] if b else None
         r['bundle_ratio'] = b[1] if b else None
+        # Thành tiền = giá vốn x SL ĐẶT THỰC TẾ. Có mã cha: giá vốn của mã cha x SL đặt (đã quy cha); không thì giá vốn mã đó x SL cuối.
+        if b:
+            r['ord_cost'] = parent_cost.get(_bkey(b[0]))
+            ord_q = int(math.ceil(r['qty_final'] / b[1] - 1e-9))
+        else:
+            r['ord_cost'] = r['cost']
+            ord_q = r['qty_final']
+        r['amount'] = None if r['ord_cost'] is None else r['ord_cost'] * ord_q
         r['debt_qty'] = r['ship_qty'] = r['parent_debt'] = r['parent_ship'] = None
         if po_map is not None:
             own = po_map.get(r['part_code']) or [0.0, 0.0]
@@ -886,7 +909,7 @@ def gdh_export():
         'Loại đơn': r['order_type'], 'Mã đặt': r['order_code'] if r['qty_final'] > 0 else '',
         'SL đặt': r['order_qty'] if r['qty_final'] > 0 else '',
         'Quy cách': (f"1 {r['bundle_parent']} = {r['bundle_ratio']:g}" if r['bundle_parent'] else ''),
-        'Ghi chú': r['note'], 'Giá vốn': r['cost'], 'Thành tiền': r['amount'],
+        'Ghi chú': r['note'], 'Giá vốn': r['ord_cost'], 'Thành tiền': r['amount'],
         **{f'Tồn {k}': (r['stock_by_store'].get(k, 0) if has_inv_any else None) for k in STORE_COLS},
     } for r in sel])
     return _send_xlsx({'Gôm đơn hàng': df}, f'gom-don-hang-{stamp}.xlsx', freeze='C2')

@@ -5627,6 +5627,11 @@
         const n = parseInt(v, 10);
         gdhEdit(i, 'adj', isNaN(n) ? 0 : n);
     }
+    function _gdhCalcAmt(r) {           // cùng công thức với compute_rows: giá vốn (mã cha nếu có) x SL đặt thực tế
+        if (r.ord_cost === null || r.ord_cost === undefined) return null;
+        const q = r.bundle_parent ? Math.ceil(r.qty_final / r.bundle_ratio - 1e-9) : r.qty_final;
+        return r.ord_cost * q;
+    }
     function _gdhOrdHtml(r) {              // ô "Đặt hàng": mã + SL thực tế (đã quy cha / thay thế)
         const code = r.bundle_parent || (r.locked && r.lock_replace ? r.lock_replace : null);
         if (!code) return '<span class="text-muted">–</span>';
@@ -5685,7 +5690,7 @@
             <td id="gdh-ord-${i}">${_gdhOrdHtml(r)}</td>
             <td><input type="text" maxlength="500" autocomplete="off" class="form-control form-control-sm gdh-in gdh-in-note" data-col="note" data-i="${i}"
                        placeholder="Ghi chú..." title="${_gdhEsc(r.note)}" value="${_gdhEsc(r.note)}" oninput="gdhEdit(${i},'note',this.value)" onkeydown="gdhKey(event,this)"></td>
-            <td class="gdh-num"><div id="gdh-amt-${i}" class="${r.amount ? '' : 'gdh-zero'}">${_gdhFmt(r.amount, 0)}</div><div class="gdh-sub">${r.cost === null ? '' : 'GV ' + _gdhFmt(r.cost, 0)}</div></td></tr>`;
+            <td class="gdh-num"><div id="gdh-amt-${i}" class="${r.amount ? '' : 'gdh-zero'}">${_gdhFmt(r.amount, 0)}</div><div class="gdh-sub">${r.ord_cost === null || r.ord_cost === undefined ? '' : (r.bundle_parent ? 'GV cha ' : 'GV ') + _gdhFmt(r.ord_cost, 0)}</div></td></tr>`;
     }
     function gdhMarkFilters() {          // tô xanh ô lọc đang có giá trị khác mặc định
         const on = (id, v) => { const e = document.getElementById(id); if (e) e.classList.toggle('gdh-f-on', !!v); };
@@ -5733,7 +5738,7 @@
             const stock = Math.max(r.closing || 0, 0);
             r.suggest = Math.max(0, Math.ceil(r.avg_week * fw - stock - 1e-9));
             r.qty_final = Math.max(0, Math.round(r.suggest + r.adj));
-            r.amount = r.cost === null ? null : r.cost * r.qty_final;
+            r.amount = _gdhCalcAmt(r);
         });
         const sc = document.getElementById('gdhScroll'), top = sc.scrollTop;
         document.getElementById('gdh-body').innerHTML = _gdhRows.map((r, i) => gdhRowHtml(r, i, _gdhOptT)).join('');
@@ -5770,7 +5775,7 @@
         else if (field === 'note') { e.note = val; r.note = val; }
         else { e.order_type = val; r.order_type = val; }
         r.qty_final = Math.max(0, Math.round(r.suggest + r.adj));
-        r.amount = r.cost === null ? null : r.cost * r.qty_final;
+        r.amount = _gdhCalcAmt(r);
         const fin = document.getElementById('gdh-fin-' + i);
         fin.textContent = _gdhFmt(r.qty_final); fin.classList.toggle('gdh-cell-fin', r.qty_final > 0); fin.classList.toggle('gdh-zero', r.qty_final <= 0);
         const am = document.getElementById('gdh-amt-' + i); am.textContent = _gdhFmt(r.amount, 0); am.classList.toggle('gdh-zero', !r.amount);
