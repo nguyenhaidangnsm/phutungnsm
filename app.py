@@ -4114,7 +4114,7 @@ def import_vehicle_models():
     # với file vài nghìn~chục nghìn dòng có thể mất hàng chục giây tới vài
     # phút, dễ vượt --timeout của gunicorn. Dùng thao tác cột (Series) của
     # pandas xử lý toàn bộ 1 lần, nhanh hơn gấp hàng chục-hàng trăm lần.)
-    part_s = df[part_col].astype(str).str.strip()
+    part_s = (df[part_col].astype(str).str.replace(r'[\u200b\u200c\u200d\ufeff\xa0]', '', regex=True).str.strip())
     part_s = part_s.mask(part_s.str.lower() == 'nan', '')
 
     model_s = df[model_col].astype(str).str.strip()
@@ -4127,7 +4127,7 @@ def import_vehicle_models():
         nhom_s = pd.Series([''] * len(df), index=df.index)
 
     if gia_col:
-        gia_num = pd.to_numeric(df[gia_col], errors='coerce')
+        gia_num = df[gia_col].map(_parse_money_cell)     # chịu được "1.250.000", "1,250,000", "1 250 000 đ"... (to_numeric thì ra NaN)
     else:
         gia_num = pd.Series([float('nan')] * len(df), index=df.index)
 
@@ -4148,10 +4148,17 @@ def import_vehicle_models():
     db = get_db()
     cursor = db.cursor()
     try:
-        # Trùng mã hàng trong file -> chỉ giữ dòng CUỐI CÙNG (giống các hàm
-        # import khác), tránh vi phạm PRIMARY KEY part_code.
-        dedup = {r[0]: r for r in rows}
+        # Trùng mã hàng trong file -> GỘP: mỗi trường lấy giá trị khác rỗng của dòng CUỐI CÙNG có giá trị đó
+        # (trước đây chỉ giữ nguyên dòng cuối, nên dòng cuối không có giá nhập sẽ làm mất giá của dòng trước).
+        dedup = {}
+        for r in rows:
+            o = dedup.get(r[0])
+            if o is None:
+                dedup[r[0]] = r
+            else:
+                dedup[r[0]] = (r[0], r[1] or o[1], r[2] or o[2], r[3] if r[3] is not None else o[3], r[4], r[5])
         rows = list(dedup.values())
+        no_price = [r[0] for r in rows if r[3] is None]
 
         cursor.execute('TRUNCATE TABLE part_vehicle_models')
         execute_values(
@@ -4170,13 +4177,38 @@ def import_vehicle_models():
                 total_parts = EXCLUDED.total_parts
         ''', (vm_file.filename, actor, now, len(rows)))
         db.commit()
-        return jsonify({'success': True, 'total_parts': len(rows)})
+        return jsonify({'success': True, 'total_parts': len(rows), 'no_price': len(no_price),
+                        'no_price_samples': no_price[:15], 'price_column': str(gia_col) if gia_col else None})
     except Exception as e:
         db.rollback()
         app.logger.error("Lỗi /api/admin/import-vehicle-models: %s\n%s", e, traceback.format_exc())
         return jsonify({'error': str(e)}), 500
     finally:
         cursor.close()
+
+
+def _parse_money_cell(v):
+    """Đọc 1 ô giá tiền thành float; None nếu trống/không đọc được. Chịu được số thật, chuỗi có dấu phân cách
+    nghìn kiểu VN (1.250.000) hoặc kiểu Mỹ (1,250,000), khoảng trắng, chữ đ/VND/₫."""
+    if v is None:
+        return float('nan')
+    if isinstance(v, (int, float)):
+        return float(v)
+    t = re.sub(r'[^\d,.\-]', '', str(v).replace('\xa0', ' '))
+    if t in ('', '-', '.', ','):
+        return float('nan')
+    if ',' in t and '.' in t:                      # dấu nào đứng SAU là dấu thập phân
+        t = t.replace('.', '').replace(',', '.') if t.rfind(',') > t.rfind('.') else t.replace(',', '')
+    elif t.count(',') > 1 or t.count('.') > 1:     # lặp lại -> chắc chắn là dấu nghìn
+        t = t.replace(',', '').replace('.', '')
+    elif ',' in t:
+        t = t.replace(',', '') if len(t.split(',')[-1]) == 3 else t.replace(',', '.')
+    elif '.' in t and len(t.split('.')[-1]) == 3 and len(t.split('.')[0]) <= 3:
+        t = t.replace('.', '')                     # "1.250" -> 1250
+    try:
+        return float(t)
+    except ValueError:
+        return float('nan')
 
 
 def _segment_model_code(s, vocab, maxlen, cache):

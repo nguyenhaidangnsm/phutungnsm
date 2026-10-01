@@ -413,12 +413,12 @@ def compute_rows(cur, batch, order_only=False, with_extra=False):
         })
     need_cost = [r['part_code'] for r in rows if r['cost'] is None and (r['qty_final'] > 0 or r['suggest'] > 0)]
     if need_cost:      # thiếu giá vốn trong file (mẫu 2) -> lấy giá nhập trong DB
-        cur.execute('SELECT part_code, gia_nhap FROM part_vehicle_models WHERE part_code = ANY(%s) '
-                    'AND gia_nhap IS NOT NULL', (need_cost,))
-        fb = {r['part_code']: float(r['gia_nhap']) for r in cur.fetchall()}
+        cur.execute('SELECT part_code, gia_nhap FROM part_vehicle_models WHERE UPPER(TRIM(part_code)) = ANY(%s) '
+                    'AND gia_nhap IS NOT NULL', ([_bkey(c) for c in need_cost],))     # không phân biệt hoa/thường, khoảng trắng
+        fb = {_bkey(r['part_code']): float(r['gia_nhap']) for r in cur.fetchall()}
         for r in rows:
             if r['cost'] is None:
-                r['cost'] = fb.get(r['part_code'])
+                r['cost'] = fb.get(_bkey(r['part_code']))
     # Giá vốn MÃ CHA (mã có quy cách): ưu tiên giá vốn trong file import của đợt này, thiếu thì lấy gia_nhap trong DB
     parent_cost = {}
     parents = {_bkey((bundles.get(_bkey(r['lock_replace'] if r['locked'] and r['lock_replace'] else r['part_code'])) or [None])[0])
@@ -444,9 +444,11 @@ def compute_rows(cur, batch, order_only=False, with_extra=False):
         # Thành tiền = giá vốn x SL ĐẶT THỰC TẾ. Có mã cha: giá vốn của mã cha x SL đặt (đã quy cha); không thì giá vốn mã đó x SL cuối.
         if b:
             r['ord_cost'] = parent_cost.get(_bkey(b[0]))
+            r['cost_code'] = b[0]                # mã đã dùng để tra giá vốn (hiện ở giao diện khi thiếu giá)
             ord_q = int(math.ceil(r['qty_final'] / b[1] - 1e-9))
         else:
             r['ord_cost'] = r['cost']
+            r['cost_code'] = r['part_code']
             ord_q = r['qty_final']
         r['amount'] = None if r['ord_cost'] is None else r['ord_cost'] * ord_q
         r['debt_qty'] = r['ship_qty'] = r['parent_debt'] = r['parent_ship'] = None
@@ -479,7 +481,8 @@ def _totals(rows):
         if r['locked'] and not r['lock_replace']:
             locked_no_rep += 1
     freq = {g: sum(1 for r in rows if r['group'] == g) for g in GROUP_LABELS}
-    return {'to_order': to_order, 'by_type': by_type, 'unassigned_type': unassigned,
+    no_cost = [r['cost_code'] for r in rows if r['qty_final'] > 0 and r['amount'] is None]
+    return {'no_cost': len(no_cost), 'no_cost_samples': no_cost[:8], 'to_order': to_order, 'by_type': by_type, 'unassigned_type': unassigned,
             'locked_no_replace': locked_no_rep, 'freq': freq, 'total_parts': len(rows)}
 
 
