@@ -30,7 +30,7 @@ CÔNG THỨC (giữ tinh thần file gốc, đã chỉnh cho gọn - xem ghi ch�
     BQ bán / tuần         = 0 nếu tần suất CB, ngược lại ROUNDUP(số bán / số tuần)
     Đề xuất đặt           = max(0, ROUNDUP(BQ/tuần x số tuần dự kiến - tồn cuối))
     SL cuối               = max(0, đề xuất + (cộng/trừ thêm))
-    Thành tiền            = SL cuối x giá vốn   (giá vốn: file mẫu 1 -> part_vehicle_models.gia_nhap)
+    Thành tiền            = SL cuối x giá vốn   (mã có mã cha: giá vốn của MÃ CHA; giá vốn: file mẫu 1 -> part_vehicle_models.gia_nhap)
 """
 import io
 import math
@@ -441,16 +441,14 @@ def compute_rows(cur, batch, order_only=False, with_extra=False):
         b = bundles.get(_bkey(base))             # mã con -> tự quy thành mã cha (làm tròn LÊN)
         r['bundle_parent'] = b[0] if b else None
         r['bundle_ratio'] = b[1] if b else None
-        # Thành tiền = giá vốn x SL ĐẶT THỰC TẾ. Có mã cha: giá vốn của mã cha x SL đặt (đã quy cha); không thì giá vốn mã đó x SL cuối.
+        # Thành tiền = giá vốn x SL CUỐI. Có mã cha: dùng giá vốn của MÃ CHA (không quy đổi số lượng); không thì giá vốn mã đó.
         if b:
             r['ord_cost'] = parent_cost.get(_bkey(b[0]))
             r['cost_code'] = b[0]                # mã đã dùng để tra giá vốn (hiện ở giao diện khi thiếu giá)
-            ord_q = int(math.ceil(r['qty_final'] / b[1] - 1e-9))
         else:
             r['ord_cost'] = r['cost']
             r['cost_code'] = r['part_code']
-            ord_q = r['qty_final']
-        r['amount'] = None if r['ord_cost'] is None else r['ord_cost'] * ord_q
+        r['amount'] = None if r['ord_cost'] is None else r['ord_cost'] * r['qty_final']
         r['debt_qty'] = r['ship_qty'] = r['parent_debt'] = r['parent_ship'] = None
         if po_map is not None:
             own = po_map.get(r['part_code']) or [0.0, 0.0]

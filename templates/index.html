@@ -5627,10 +5627,9 @@
         const n = parseInt(v, 10);
         gdhEdit(i, 'adj', isNaN(n) ? 0 : n);
     }
-    function _gdhCalcAmt(r) {           // cùng công thức với compute_rows: giá vốn (mã cha nếu có) x SL đặt thực tế
+    function _gdhCalcAmt(r) {           // cùng công thức với compute_rows: giá vốn (mã cha nếu có) x SL cuối
         if (r.ord_cost === null || r.ord_cost === undefined) return null;
-        const q = r.bundle_parent ? Math.ceil(r.qty_final / r.bundle_ratio - 1e-9) : r.qty_final;
-        return r.ord_cost * q;
+        return r.ord_cost * r.qty_final;
     }
     function _gdhOrdHtml(r) {              // ô "Đặt hàng": mã + SL thực tế (đã quy cha / thay thế)
         const code = r.bundle_parent || (r.locked && r.lock_replace ? r.lock_replace : null);
