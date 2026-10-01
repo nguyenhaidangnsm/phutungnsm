@@ -411,10 +411,10 @@ def compute_rows(cur, batch, order_only=False, with_extra=False):
             'sys_stock': ((stock_map.get(l['part_code']) or {}).get(batch['store_code'], 0.0) if has_inv else None),
             'stock_by_store': {k: v for k, v in (stock_map.get(l['part_code']) or {}).items()},
         })
-    need_cost = [r['part_code'] for r in rows if r['cost'] is None and (r['qty_final'] > 0 or r['suggest'] > 0)]
+    need_cost = [r['part_code'] for r in rows if r['cost'] is None]      # mọi dòng (kể cả SL 0): người dùng có thể cộng thêm số lượng ngay trên bảng
     if need_cost:      # thiếu giá vốn trong file (mẫu 2) -> lấy giá nhập trong DB
         cur.execute('SELECT part_code, gia_nhap FROM part_vehicle_models WHERE UPPER(TRIM(part_code)) = ANY(%s) '
-                    'AND gia_nhap IS NOT NULL', ([_bkey(c) for c in need_cost],))     # không phân biệt hoa/thường, khoảng trắng
+                    'AND gia_nhap > 0', ([_bkey(c) for c in need_cost],))     # không phân biệt hoa/thường, khoảng trắng
         fb = {_bkey(r['part_code']): float(r['gia_nhap']) for r in cur.fetchall()}
         for r in rows:
             if r['cost'] is None:
@@ -422,7 +422,7 @@ def compute_rows(cur, batch, order_only=False, with_extra=False):
     # Giá vốn MÃ CHA (mã có quy cách): ưu tiên giá vốn trong file import của đợt này, thiếu thì lấy gia_nhap trong DB
     parent_cost = {}
     parents = {_bkey((bundles.get(_bkey(r['lock_replace'] if r['locked'] and r['lock_replace'] else r['part_code'])) or [None])[0])
-               for r in rows if r['qty_final'] > 0}
+               for r in rows}                    # mọi dòng (kể cả SL 0), để cộng/trừ tay trên bảng vẫn ra tiền
     parents.discard('')
     if parents:
         cur.execute('SELECT part_code, unit_cost FROM gdh_lines WHERE batch_id = %s AND unit_cost IS NOT NULL '
@@ -432,7 +432,7 @@ def compute_rows(cur, batch, order_only=False, with_extra=False):
         miss = [c for c in parents if c not in parent_cost]
         if miss:
             cur.execute('SELECT part_code, gia_nhap FROM part_vehicle_models WHERE UPPER(TRIM(part_code)) = ANY(%s) '
-                        'AND gia_nhap IS NOT NULL', (miss,))
+                        'AND gia_nhap > 0', (miss,))
             for x in cur.fetchall():
                 parent_cost.setdefault(_bkey(x['part_code']), float(x['gia_nhap']))
     for r in rows:
