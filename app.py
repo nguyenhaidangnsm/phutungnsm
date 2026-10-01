@@ -8723,7 +8723,8 @@ app.register_blueprint(stocktake_bp)
 # các tên đó đã được định nghĩa xong ở phía trên.
 from price_adjustment import price_adjustment_bp, init_price_adjustment_tables
 app.register_blueprint(price_adjustment_bp)
-
+from vps_admin import vps_admin_bp
+app.register_blueprint(vps_admin_bp)
 # Import + đăng ký blueprint dashboard (Gợi Ý Nhập Hàng / Cảnh Báo Hết Hàng /
 # Dashboard Tổng Quan) - cùng lý do/vị trí như 2 blueprint ở trên: cần
 # get_db/_valid_store_codes/create_notification/ADMIN_NOTIF_STORE_CODE/

@@ -1539,6 +1539,12 @@
                 <span class="ns-sidebar-icon"><i class="bi bi-gear-fill"></i></span>
                 <span class="ns-label">User & Thông báo</span>
             </button>
+            <!-- Quản trị máy ảo (VPS): trang riêng /admin/vps (vps_admin.py). Chỉ admin thấy (nhóm này đã
+                 nằm trong điều kiện admin), và server vẫn kiểm tra lại quyền ở mọi API. -->
+            <button type="button" class="ns-sidebar-item" onclick="window.location.href='/admin/vps'">
+                <span class="ns-sidebar-icon"><i class="bi bi-hdd-network"></i></span>
+                <span class="ns-label">Máy Ảo (VPS)</span>
+            </button>
         </div>
         {% endif %}
     </aside>

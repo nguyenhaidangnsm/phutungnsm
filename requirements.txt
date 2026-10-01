@@ -11,3 +11,4 @@ orjson
 certifi
 Pillow
 pdfplumber
+psutil
