@@ -5678,7 +5678,7 @@
         return `<tr id="gdh-row-${i}" class="${r.qty_final > 0 ? 'gdh-on' : ''}">
             <td class="gdh-sticky gdh-code">${_gdhEsc(r.part_code)}</td>
             <td class="gdh-name gdh-fz2">${_gdhEsc(r.part_name)}${lock}${_gdhBundleTag(r)}</td>
-            <td class="gdh-fz3" style="white-space:nowrap"><span class="badge ${_gdhGrpCls[r.group] || 'bg-secondary'}">${r.group}</span><div class="gdh-sub">${_gdhFmt(r.avg_month, 1)}/tháng · ${_gdhFmt(r.avg_week, 0)}/tuần</div></td>
+            <td class="gdh-fz3" style="white-space:nowrap"><span class="badge ${_gdhGrpCls[r.group] || 'bg-secondary'}">${r.group}</span><div class="gdh-sub">${_gdhFmt(r.avg_month, 1)}/tháng · ${_gdhFmt(r.avg_week, 1)}/tuần</div></td>
             ${_gdhStockCells(r)}
             <td class="gdh-num gdh-st0 ${r.sales > 0 ? '' : 'gdh-zero'}" title="${tip}">${_gdhFmt(r.sales)}</td>${_gdhPoCells(r)}
             <td class="gdh-num ${r.suggest > 0 ? 'gdh-cell-sug' : 'gdh-zero'}">${_gdhFmt(r.suggest)}</td>

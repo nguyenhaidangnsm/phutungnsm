@@ -27,7 +27,7 @@ CÔNG THỨC (giữ tinh thần file gốc, đã chỉnh cho gọn - xem ghi ch�
     Số tuần               = max(1, INT(số ngày / 7))
     Số tháng              = số ngày / 30
     Số bán                = SL bán hàng (mẫu 2) nếu có, ngược lại Xuất kho (mẫu 1)
-    BQ bán / tuần         = 0 nếu tần suất CB, ngược lại ROUNDUP(số bán / số tuần)
+    BQ bán / tuần         = 0 nếu tần suất CB, ngược lại số bán / số tuần (làm tròn 1 chữ số thập phân, vd 0,31 -> 0,3)
     Đề xuất đặt           = max(0, ROUNDUP(BQ/tuần x số tuần dự kiến - tồn cuối))
     SL cuối               = max(0, đề xuất + (cộng/trừ thêm))
     Thành tiền            = SL cuối x giá vốn   (mã có mã cha: giá vốn của MÃ CHA; giá vốn: file mẫu 1 -> part_vehicle_models.gia_nhap)
@@ -342,7 +342,7 @@ def compute_line(ln, weeks, months, forecast_weeks):
         c = classify_sales_frequency(closing, sales, months)
         group = c['code'] if c else 'HET'
     avg_month = sales / months if months else 0.0
-    avg_week = 0 if group == 'CB' or sales <= 0 else int(math.ceil(sales / weeks - 1e-9))
+    avg_week = 0 if group == 'CB' or sales <= 0 else math.floor(sales / weeks * 10 + 0.5 + 1e-9) / 10   # 1 chữ số thập phân, KHÔNG làm tròn lên
     suggest = max(0, int(math.ceil(avg_week * forecast_weeks - stock - 1e-9)))
     adj = _f(ln.get('adj_qty')) or 0.0
     qty_final = max(0, int(round(suggest + adj)))
