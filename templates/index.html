@@ -392,6 +392,60 @@
     .inv-name-col { max-width: 180px; overflow: hidden; text-overflow: ellipsis; }
     .store-badge-default { background: #f1efe8; color: #444441; }
 
+
+    /* Phóng to / Thu gọn cho Duyệt Đơn Hàng (giống Gôm Đơn Hàng) */
+    #order-check-pane.oc-top-collapsed > .card:not(#orderCheckResultCard), #order-check-pane.oc-top-collapsed #orderCheckDashboard { display:none; }
+    #order-check-pane.oc-top-collapsed .oc-scroll { max-height:calc(100vh - 190px); }
+    #order-check-pane.oc-max #orderCheckResultCard { position:fixed; top:0; left:0; right:0; bottom:0; z-index:1060; margin:0 !important; border-radius:0; display:flex; flex-direction:column; overflow:hidden; padding:.6rem .9rem !important; }
+    #order-check-pane.oc-max #orderCheckResultCard > * { flex-shrink:0; }
+    #order-check-pane.oc-max #orderCheckResultCard > .oc-scroll { flex:1 1 0; max-height:none; min-height:0; overscroll-behavior:contain; }
+    #order-check-pane.oc-max #orderCheckDashboard, #order-check-pane.oc-max #ocTopBtn { display:none !important; }
+    /* Font chữ giống Gôm Đơn Hàng (#gdh-pane --gdh-font) */
+    #order-check-pane { --oc-font: 'Segoe UI', Roboto, 'Helvetica Neue', Arial, 'Noto Sans', sans-serif; --bs-body-font-family: var(--oc-font); font-family: var(--oc-font); }
+    #order-check-pane .form-control, #order-check-pane .form-select, #order-check-pane .btn, #order-check-pane .badge, #order-check-pane table, #order-check-pane textarea, #order-check-pane input, #order-check-pane select { font-family: var(--oc-font); }
+    /* ===== Duyệt Đơn Hàng: giao diện kiểu "Gôm Đơn Hàng" (scope .oc-v2) ===== */
+    .oc-scroll { border:1px solid #e2e8f0; border-radius:.6rem; background:#fff; max-height:72vh; overflow:auto; }
+    .oc-result-table.oc-v2 { font-size:.86rem; font-variant-numeric:tabular-nums; width:100%; min-width:1500px; margin:0; border-collapse:separate; border-spacing:0; --bs-table-bg:transparent; }
+    .oc-result-table.oc-v2 > thead > tr > th { position:sticky; top:0; z-index:10; background:#eef2f7; color:#334155; font-size:.72rem; font-weight:700; text-transform:uppercase; letter-spacing:.02em; padding:.55rem .6rem; border-bottom:2px solid #cbd5e1; white-space:nowrap; vertical-align:middle !important; }
+    .oc-result-table.oc-v2 > tbody > tr > td { padding:.45rem .6rem; border-bottom:1px solid #eef2f7 !important; vertical-align:middle !important; background:#fff; }
+    .oc-result-table.oc-v2 > tbody > tr:last-child > td { border-bottom:none !important; }
+    .oc-result-table.oc-v2 > tbody > tr:hover > td { background:#f8fafc; background-image:none; }
+    .oc-result-table.oc-v2 > thead > tr > th:nth-child(1), .oc-result-table.oc-v2 > thead > tr > th:nth-child(2) { z-index:15; background:#eef2f7; }
+    .oc-result-table.oc-v2 > tbody > tr > td:nth-child(2) { box-shadow:none; width:auto; min-width:70px; max-width:none; }
+    .oc-result-table.oc-v2 > thead > tr > th:nth-child(2) { width:auto; min-width:70px; max-width:none; box-shadow:none; }
+    .oc-result-table.oc-v2 > tbody > tr > td:nth-child(2) { border-right:1px solid #cbd5e1; }
+    .oc-result-table.oc-v2 > thead > tr > th:nth-child(2) { border-right:1px solid #cbd5e1; }
+    /* dòng cần đặt: nền xanh rất nhạt cả hàng; dòng bị khoá: vạch đỏ; không tìm thấy: vàng */
+    .oc-result-table.oc-v2 tr.oc-on > td { background:#f3faf5; }
+    .oc-result-table.oc-v2 tr.oc-on > td:nth-child(1) { box-shadow:inset 4px 0 0 #198754; }
+    .oc-result-table.oc-v2 tr.oc-locked > td:nth-child(1) { box-shadow:inset 4px 0 0 #dc3545; }
+    .oc-result-table.oc-v2 tr.table-warning > td { background:#fff8e1; }
+    .oc-result-table.oc-v2 tr.table-warning > td:nth-child(1) { box-shadow:inset 4px 0 0 #f59e0b; }
+    .oc-result-table.oc-v2 tr.oc-on:hover > td { background:#e9f6ee; }
+    .oc-v2 .oc-code { font-weight:700; color:#0f172a; letter-spacing:.01em; font-size:.86rem; }
+    .oc-v2 .oc-name { min-width:230px; max-width:320px; white-space:normal; line-height:1.3; }
+    .oc-v2 .oc-sub { font-size:.76rem; color:#64748b; }
+    .oc-v2 .oc-zero { color:#b4bfcc; font-weight:400; }
+    .oc-v2 th.oc-th-stock, .oc-v2 td.oc-td-stock { background:#fffaeb !important; font-weight:700; text-align:right; }
+    .oc-v2 th.oc-th-stock { background:#fdf0c4 !important; }
+    .oc-v2 th.oc-th-bundle { background:#e0e7ff; color:#3730a3; }
+    .oc-v2 th.oc-th-debt { background:#fde8e8; }
+    .oc-v2 th.oc-th-final { background:#198754 !important; color:#fff !important; }
+    .oc-v2 td.oc-td-final { background:#e6f4ea !important; }
+    .oc-v2 .oc-chips { display:flex; flex-wrap:wrap; gap:3px; min-width:150px; max-width:230px; white-space:normal; }
+    .oc-v2 .oc-chip { display:inline-flex; align-items:baseline; gap:4px; font-size:.74rem; line-height:1; padding:3px 7px; border-radius:999px; background:#eef2f7; color:#334155; white-space:nowrap; }
+    .oc-v2 .oc-chip b { color:#0f172a; }
+    .oc-v2 .oc-chip .oc-stock-freq-text { font-size:.62rem; }
+    .oc-v2 .oc-tag { display:inline-block; font-size:.68rem; font-weight:700; padding:1px 7px; border-radius:4px; background:#e0e7ff; color:#3730a3; }
+    .oc-v2 .oc-tag-red { background:#fee2e2; color:#b91c1c; }
+    .oc-v2 .oc-tag-green { background:#dcfce7; color:#166534; }
+    .oc-v2 .oc-sales { display:flex; align-items:center; gap:8px; min-width:120px; }
+    .oc-v2 .oc-sales-badge { min-width:34px; }
+    .oc-v2 .oc-bundle-box { min-width:230px; max-width:290px; white-space:normal; }
+    .oc-v2 .oc-bundle-item { border:1px solid #e0e7ff; background:#f5f7ff; border-radius:8px; padding:5px 8px; margin-top:4px; }
+    .oc-v2 .oc-bundle-item:first-child { margin-top:0; }
+    .oc-v2 .oc-ctx { white-space:normal; max-width:230px; }
+
     /* Bảng "Kiểm Tra Đơn Hàng" (order-check): CĂN TẤT CẢ các ô lên ĐẦU dòng
        (không dùng align-middle mặc định của Bootstrap nữa) - vì các cột có
        độ cao nội dung rất khác nhau (VD "Tồn Hệ Thống" cao do nhiều chip,
@@ -2444,6 +2498,8 @@
                     <option value="Định kỳ">Định kỳ</option><option value="Khẩn">Khẩn</option><option value="Đơn 26">Đơn 26</option>
                 </select>
                 <button class="btn btn-outline-secondary btn-sm" id="gdhAssignBtn" onclick="gdhAssignType()">Gán</button>
+                <button class="btn btn-outline-danger btn-sm d-none" id="gdhUndoBtn" onclick="gdhUndoLastAssign()" title="Hoàn tác đúng lần Gán nhanh vừa bấm">Hoàn tác</button>
+                <button class="btn btn-outline-danger btn-sm" id="gdhUnassignBtn" onclick="gdhUnassignType()" title="Bỏ loại đơn đang chọn ở ô bên cạnh khỏi TẤT CẢ các mã của đợt gôm">Bỏ gán</button>
                 <span class="small fw-semibold text-body-secondary ms-2" id="gdhCount"></span>
             </div>
 
@@ -3981,8 +4037,13 @@
                         <option value="none">Chưa phân loại</option>
                     </select>
                     <select class="form-select form-select-sm" style="width:auto;" id="ocFilterChild" onchange="renderOrderCheckTable()">
-                        <option value="all">Mã con gợi ý: Tất cả</option>
-                        <option value="yes">Có mã con gợi ý</option>
+                        <option value="all">Quy cách: Tất cả</option>
+                        <option value="yes">Có mã cha / mã con (theo quy cách)</option>
+                    </select>
+                    <select class="form-select form-select-sm" style="width:auto;" id="ocFilterApprove" onchange="renderOrderCheckTable()">
+                        <option value="all">SL duyệt: Tất cả</option>
+                        <option value="yes">Có SL duyệt (&gt; 0)</option>
+                        <option value="no">Không có SL duyệt (= 0)</option>
                     </select>
                     <select class="form-select form-select-sm" style="width:auto;" id="ocFilterFound" onchange="renderOrderCheckTable()">
                         <option value="all">Tồn kho hệ thống: Tất cả</option>
@@ -3998,24 +4059,26 @@
                     <button class="btn btn-outline-danger btn-sm" onclick="if(confirm('Xoá phiên đang duyệt hiện tại? Kết quả đang xem sẽ mất (chưa lưu lên hệ thống).')) clearOrderCheckSession()">
                         <i class="bi bi-trash me-1"></i>Xoá Phiên
                     </button>
+                    <button type="button" class="btn btn-outline-secondary btn-sm" id="ocMaxBtn" onclick="ocToggleMax()" title="Phóng to bảng duyệt đơn (bấm Esc để thu nhỏ)"><i class="bi bi-arrows-fullscreen me-1"></i><span>Phóng to</span></button>
+                    <button type="button" class="btn btn-outline-secondary btn-sm" id="ocTopBtn" onclick="ocToggleTop()" title="Ẩn / hiện các khối phía trên (nhập dữ liệu, thống kê) để xem được nhiều mã hơn"><i class="bi bi-arrows-collapse me-1"></i><span>Thu gọn</span></button>
                     <span class="small text-muted ms-auto" id="orderCheckFilterCount"></span>
                 </div>
-                <div class="table-responsive" style="max-height:70vh;">
-                    <table class="table table-hover align-middle mb-0 text-nowrap oc-result-table">
+                <div class="oc-scroll">
+                    <table class="table mb-0 text-nowrap oc-result-table oc-v2">
                         <thead>
                             <tr>
                                 <th>Mã Hàng</th>
                                 <th class="text-end">SL Đặt</th>
-                                <th>Tên Hàng</th>
-                                <th>Dùng Cho Xe</th>
+                                <th>Tên Hàng / Dùng Cho Xe</th>
                                 <th>Tình Hình Bán</th>
-                                <th class="text-end">Tồn CH</th>
+                                <th class="text-end oc-th-stock">Tồn CH</th>
                                 <th>Tồn Hệ Thống</th>
                                 <th>Khoá Đặt Hàng</th>
+                                <th class="oc-th-bundle">Quy Cách Cha / Con</th>
                                 <th>Khách Đang Chờ</th>
-                                <th>Đang Nợ / Vận Chuyển</th>
+                                <th class="oc-th-debt">Nợ / Vận Chuyển</th>
                                 <th>Đề Xuất Luân Chuyển</th>
-                                <th class="text-end">SL Duyệt Đề Xuất</th>
+                                <th class="text-end oc-th-final">SL Duyệt</th>
                                 <th style="min-width:180px;">Ghi Chú</th>
                             </tr>
                         </thead>
@@ -5745,6 +5808,7 @@
         on('gdhQ', document.getElementById('gdhQ').value.trim());
     }
     async function gdhLoad(page) {
+        if (typeof _gdhShowUndo === 'function') _gdhShowUndo();
         gdhMarkFilters();
         if (!_gdhBatchId) return;
         const tb = document.getElementById('gdh-body');
@@ -5857,6 +5921,14 @@
     async function gdhSettingsChanged() {
         if (await gdhSave(true)) await gdhLoadBatches(_gdhBatchId);
     }
+    // Nhớ lần Gán nhanh gần nhất (trong phiên) để có thể hoàn tác chính xác đúng các mã đó.
+    let _gdhLastAssign = null;
+    function _gdhShowUndo() {
+        const b = document.getElementById('gdhUndoBtn'); if (!b) return;
+        if (_gdhLastAssign && _gdhLastAssign.batch === _gdhBatchId && _gdhLastAssign.codes.length) {
+            b.textContent = `Hoàn tác (${_gdhLastAssign.codes.length})`; b.classList.remove('d-none');
+        } else b.classList.add('d-none');
+    }
     async function gdhAssignType() {
         if (!_gdhBatchId) return;
         if (_gdhDirty && !(await gdhSave(true))) return;
@@ -5864,7 +5936,37 @@
         if (!confirm(`Gán loại đơn "${ot}" cho mọi mã cần đặt (SL cuối > 0) chưa có loại đơn?`)) return;
         try {
             const j = await _gdhJson('/api/gom-don-hang/assign-type', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({batch_id: _gdhBatchId, order_type: ot})});
-            alert('Đã gán cho ' + j.assigned + ' mã.'); await gdhLoadBatches(_gdhBatchId);
+            _gdhLastAssign = {batch: _gdhBatchId, type: ot, codes: j.codes || []};
+            alert('Đã gán cho ' + j.assigned + ' mã.' + (j.assigned ? '\nGán nhầm? Bấm "Hoàn tác" để trả lại như cũ.' : ''));
+            await gdhLoadBatches(_gdhBatchId); _gdhShowUndo();
+        } catch (e) { alert(e.message); }
+    }
+    // Hoàn tác đúng lần Gán nhanh vừa rồi: chỉ bỏ gán các mã vừa được gán, không đụng mã bạn đã chọn tay trước đó.
+    async function gdhUndoLastAssign() {
+        const la = _gdhLastAssign;
+        if (!la || la.batch !== _gdhBatchId || !la.codes.length) return;
+        if (_gdhDirty && !(await gdhSave(true))) return;
+        if (!confirm(`Hoàn tác lần gán "${la.type}" vừa rồi (${la.codes.length} mã)?`)) return;
+        try {
+            const j = await _gdhJson('/api/gom-don-hang/unassign-type', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({batch_id: _gdhBatchId, order_type: la.type, codes: la.codes})});
+            _gdhLastAssign = null;
+            alert('Đã bỏ gán ' + j.count + ' mã.'); await gdhLoadBatches(_gdhBatchId); _gdhShowUndo();
+        } catch (e) { alert(e.message); }
+    }
+    // Bỏ gán hàng loạt: xoá loại đơn đang chọn ở ô bên cạnh khỏi MỌI mã của đợt (kể cả mã gán tay).
+    async function gdhUnassignType() {
+        if (!_gdhBatchId) return;
+        if (_gdhDirty && !(await gdhSave(true))) return;
+        const ot = document.getElementById('gdhBulkType').value;
+        const body = t => JSON.stringify(Object.assign({batch_id: _gdhBatchId, order_type: ot}, t));
+        const hdr = {'Content-Type': 'application/json'};
+        try {
+            const d = await _gdhJson('/api/gom-don-hang/unassign-type', {method: 'POST', headers: hdr, body: body({dry_run: true})});
+            if (!d.count) { alert(`Không có mã nào đang gán loại đơn "${ot}".`); return; }
+            if (!confirm(`Bỏ loại đơn "${ot}" của ${d.count} mã trong đợt này (kể cả mã gán tay)?\nCác mã sẽ trở về "chưa chọn loại đơn".`)) return;
+            const j = await _gdhJson('/api/gom-don-hang/unassign-type', {method: 'POST', headers: hdr, body: body({})});
+            _gdhLastAssign = null;
+            alert('Đã bỏ gán ' + j.count + ' mã.'); await gdhLoadBatches(_gdhBatchId); _gdhShowUndo();
         } catch (e) { alert(e.message); }
     }
     async function _gdhDownload(url) {
@@ -7058,10 +7160,32 @@
         saveOrderCheckSession();
     });
 
+    // Phóng to / thu gọn màn Duyệt Đơn Hàng (giống Gôm Đơn Hàng)
+    function ocToggleMax(force) {
+        const pane = document.getElementById('order-check-pane'); if (!pane) return;
+        const on = typeof force === 'boolean' ? force : !pane.classList.contains('oc-max');
+        pane.classList.toggle('oc-max', on);
+        const b = document.getElementById('ocMaxBtn');
+        if (b) { b.querySelector('span').textContent = on ? 'Thu nhỏ (Esc)' : 'Phóng to'; b.querySelector('i').className = 'bi me-1 ' + (on ? 'bi-fullscreen-exit' : 'bi-arrows-fullscreen'); }
+    }
+    function ocToggleTop() {
+        const pane = document.getElementById('order-check-pane'); if (!pane) return;
+        const collapsed = pane.classList.toggle('oc-top-collapsed');
+        const b = document.getElementById('ocTopBtn');
+        b.querySelector('span').textContent = collapsed ? 'Mở rộng' : 'Thu gọn';
+        b.querySelector('i').className = 'bi me-1 ' + (collapsed ? 'bi-arrows-expand' : 'bi-arrows-collapse');
+    }
+    document.addEventListener('keydown', ev => {
+        if (ev.key !== 'Escape') return;
+        const pane = document.getElementById('order-check-pane');
+        if (pane && pane.classList.contains('oc-max')) { ev.preventDefault(); ocToggleMax(false); }
+    });
+    document.getElementById('order-check-tab')?.addEventListener('hidden.bs.tab', () => ocToggleMax(false));
+
     function resetOrderCheckFilters() {
         const codeEl = document.getElementById('ocFilterCode');
         if (codeEl) codeEl.value = '';
-        ['ocFilterLock', 'ocFilterDebt', 'ocFilterFreq', 'ocFilterChild', 'ocFilterFound'].forEach(id => {
+        ['ocFilterLock', 'ocFilterDebt', 'ocFilterFreq', 'ocFilterChild', 'ocFilterApprove', 'ocFilterFound'].forEach(id => {
             const el = document.getElementById(id);
             if (el) el.value = 'all';
         });
@@ -7089,7 +7213,11 @@
         }
 
         const fChild = document.getElementById('ocFilterChild').value;
-        if (fChild === 'yes' && !(row.related_child_codes && row.related_child_codes.length)) return false;
+        if (fChild === 'yes' && !((row.related_child_codes && row.related_child_codes.length) || row.related_parent)) return false;
+
+        const fApp = (document.getElementById('ocFilterApprove') || {}).value;
+        if (fApp === 'yes' && !(Number(row.suggested_approve_qty) > 0)) return false;
+        if (fApp === 'no' && Number(row.suggested_approve_qty) > 0) return false;
 
         const fFound = document.getElementById('ocFilterFound').value;
         if (fFound === 'found' && !row.found) return false;
@@ -7228,168 +7356,127 @@
         return { bac, nam, noneAvailable: (bac === 'Không' || bac === '0') && (nam === 'Không' || nam === '0') };
     }
 
+    function _ocNum(n) {
+        return (n === 0 || n === null || n === undefined) ? '<span class="oc-zero">0</span>' : escapeHtmlText(String(n));
+    }
+
+    // Chip tồn theo cửa hàng: "NS3 5 TX" - dùng chung cho Tồn Hệ Thống và mã cha/con.
+    function _ocStoreChips(breakdown, freqMap, skipStore) {
+        const chips = Object.keys(breakdown || {})
+            .filter(sc => sc !== skipStore && breakdown[sc] > 0)
+            .map(sc => {
+                const f = freqMap && freqMap[sc];
+                const fTag = f ? `<span class="oc-stock-freq-text ${f.toLowerCase()}" title="${escapeHtmlAttr(_ocFreqTip(f))}">${f}</span>` : '';
+                return `<span class="oc-chip">${sc} <b>${breakdown[sc]}</b>${fTag}</span>`;
+            });
+        return chips.length ? `<div class="oc-chips">${chips.join('')}</div>` : '';
+    }
+
+    // 1 mã cha hoặc 1 mã con (lấy từ bảng quy cách) - hiện mã, số quy đổi, tồn từng cửa hàng.
+    function _ocRelatedItemHtml(c, label) {
+        const chips = _ocStoreChips(c.store_breakdown, c.store_breakdown_freq, null);
+        return `<div class="oc-bundle-item">` +
+            `<div><strong>${escapeHtmlText(c.part_code)}</strong> ` +
+            (c.is_locked ? `<span class="oc-tag oc-tag-red">khoá</span> ` : '') +
+            `<span class="oc-sub">${label}</span></div>` +
+            (c.part_name ? `<div class="oc-sub">${escapeHtmlText(c.part_name)}</div>` : '') +
+            `<div class="oc-sub">Tổng tồn: <b class="${c.total_qty > 0 ? '' : 'text-danger'}">${c.total_qty}</b></div>` +
+            (chips || `<div class="oc-sub">Không còn tồn ở cửa hàng nào</div>`) +
+            `</div>`;
+    }
+
     function _orderCheckRowHtml(row) {
-                const notFound = !row.found;
-                const bacNam = _bacNamText(row.lock_qty_bac, row.lock_qty_nam, row.lock_has_stock_bac, row.lock_has_stock_nam);
-                // Bắc/Nam: đây là tồn kho của HONDA VIỆT NAM (từ file Excel
-                // "Khoá Đặt Hàng" riêng), KHÔNG PHẢI kho của cửa hàng và
-                // KHÔNG liên quan gì đến việc luân chuyển hàng giữa các cửa
-                // hàng NS1-NS5/NSM1 ở cột "Đề Xuất Luân Chuyển" bên cạnh - gắn
-                // nhãn "KHO HVN" + viền tách riêng để không bị hiểu nhầm là
-                // cùng 1 việc. Vẫn highlight ĐỎ khi CẢ 2 miền đều không còn
-                // hàng (cảnh báo rủi ro thật sự), giữ màu trung tính (muted)
-                // khi còn ít nhất 1 miền có hàng.
-                const bacNamHtml = bacNam
-                    ? `<div class="oc-hvn-block" title="Tồn kho Bắc/Nam của Honda Việt Nam (HVN) - không phải kho cửa hàng, không liên quan đến luân chuyển giữa các cửa hàng">` +
-                        `<span class="oc-hvn-label">Kho HVN</span>` +
-                        `<span class="small ${bacNam.noneAvailable ? 'text-danger fw-semibold' : 'text-muted'}">Bắc: ${bacNam.bac ?? '-'} | Nam: ${bacNam.nam ?? '-'}</span>` +
-                      `</div>`
-                    : '';
-                const lockHtml =
-                    `<div class="d-flex align-items-center flex-wrap gap-2" style="max-width:260px; white-space:normal;">` +
-                      (row.is_locked
-                          ? `<span class="badge bg-danger">Đã khoá</span>`
-                          : `<span class="badge bg-secondary-subtle text-secondary">Không khoá</span>`) +
-                      bacNamHtml +
-                    `</div>` +
-                    (row.replacement_code ? `<div class="small text-muted" style="max-width:260px; white-space:normal;">Thay thế: <strong>${escapeHtmlText(row.replacement_code)}</strong></div>` : '') +
-                    ((row.related_child_codes && row.related_child_codes.length)
-                        ? `<div class="small text-success" style="max-width:260px; white-space:normal;">` +
-                          `<div><i class="bi bi-arrow-return-right"></i> Mã con khả dụng:</div>` +
-                          row.related_child_codes.map(c => {
-                              const cBreakdown = c.store_breakdown || {};
-                              const cFreq = c.store_breakdown_freq || {};
-                              const chips = Object.keys(cBreakdown)
-                                  .filter(sc => cBreakdown[sc] > 0)
-                                  .map(sc => {
-                                      const fcode = cFreq[sc];
-                                      const fTag = fcode ? `<span class="oc-stock-freq-text ${fcode.toLowerCase()}" title="${escapeHtmlAttr(_ocFreqTip(fcode))}">${fcode}</span>` : '';
-                                      return `<div class="oc-stock-row"><span class="oc-stock-store">${sc}</span><span class="oc-stock-qty">${cBreakdown[sc]}</span>${fTag}</div>`;
-                                  }).join('');
-                              return `<div class="mt-1">` +
-                                  `<strong>${escapeHtmlText(c.part_code)}</strong>` +
-                                  (c.is_locked ? ` <span class="text-danger">(khoá)</span>` : '') +
-                                  ` — tổng ${c.total_qty}` +
-                                  (chips ? `<div class="oc-stock-list mt-1">${chips}</div>` : '<div class="small text-muted">Không còn tồn ở cửa hàng nào</div>') +
-                                  `</div>`;
-                          }).join('') +
-                          `</div>` : '');
+        const notFound = !row.found;
+        const hasChildren = !!(row.related_child_codes && row.related_child_codes.length);
+        const bacNam = _bacNamText(row.lock_qty_bac, row.lock_qty_nam, row.lock_has_stock_bac, row.lock_has_stock_nam);
 
-                // Khách hàng đang chờ mã này (đơn đặt hàng khách - bo_orders,
-                // xem order_check() trong app.py: đã lọc sẵn CHỈ đơn thật sự
-                // cần đặt hàng ngoài - bỏ "Xin nội bộ" và đơn đã xong/đã huỷ).
-                const pendingCustomers = row.pending_customers || [];
-                const pendingHtml = pendingCustomers.length
-                    ? pendingCustomers.map(c =>
-                        `<div class="oc-pending-item">` +
-                          (c.quote_no ? `<div>Số BG: <strong>${escapeHtmlText(c.quote_no)}</strong></div>` : '') +
-                          (c.customer_name ? `<div>KH: <strong>${escapeHtmlText(c.customer_name)}</strong></div>` : '') +
-                          (c.order_date ? `<div>Ngày đặt: ${escapeHtmlText(c.order_date)}</div>` : '') +
-                          (c.frame_number ? `<div>Số khung: ${escapeHtmlText(c.frame_number)}</div>` : '') +
-                        `</div>`
-                      ).join('<hr class="oc-pending-sep">')
-                    : `<span class="small text-muted">Không có khách chờ</span>`;
+        // --- Khoá đặt hàng (chỉ khoá + kho HVN + mã thay thế; mã cha/con sang cột riêng) ---
+        const lockHtml = `<div class="oc-ctx">` +
+            (row.is_locked ? `<span class="badge bg-danger">Đã khoá</span>` : `<span class="oc-sub">Không khoá</span>`) +
+            (bacNam ? `<div class="oc-sub mt-1" title="Tồn kho Bắc/Nam của Honda Việt Nam - không liên quan luân chuyển giữa các cửa hàng">KHO HVN · <span class="${bacNam.noneAvailable ? 'text-danger fw-semibold' : ''}">Bắc: ${bacNam.bac ?? '-'} | Nam: ${bacNam.nam ?? '-'}</span></div>` : '') +
+            (row.replacement_code ? `<div class="oc-sub">Thay thế: <strong>${escapeHtmlText(row.replacement_code)}</strong></div>` : '') +
+            `</div>`;
 
-                const debtParts = [];
-                if (row.debt_qty > 0) debtParts.push(`<span class="badge bg-danger">Nợ: ${row.debt_qty}</span>`);
-                if (row.shipping_qty > 0) debtParts.push(`<span class="badge bg-warning text-dark">Đang v/c: ${row.shipping_qty}</span>`);
-                const debtHtml = debtParts.length ? debtParts.join(' ') : `<span class="badge bg-success-subtle text-success">Không nợ</span>`;
+        // --- Quy cách cha / con: CHỈ từ file quy cách ---
+        let bundleHtml = `<span class="oc-zero">—</span>`;
+        if (row.related_parent) {
+            const p = row.related_parent;
+            bundleHtml = `<div class="oc-bundle-box"><span class="oc-tag">MÃ CON</span> <span class="oc-sub">1 mã cha = ${p.ratio} mã này</span>` +
+                `<div class="mt-1">${_ocRelatedItemHtml(p, '(mã cha)')}</div></div>`;
+        } else if (hasChildren) {
+            bundleHtml = `<div class="oc-bundle-box"><span class="oc-tag">MÃ CHA</span> <span class="oc-sub">${row.related_child_codes.length} mã con</span>` +
+                `<div class="mt-1">` +
+                row.related_child_codes.map(c => _ocRelatedItemHtml(c, `(1 cha = ${c.ratio} con)`)).join('') +
+                `</div></div>`;
+        }
 
-                // Đề xuất luân chuyển: LUÔN nói rõ "cửa hàng" (không dùng chữ
-                // "kho" chung chung) - "kho" trong hệ thống này còn được dùng
-                // để chỉ kho Bắc/Nam của Honda Việt Nam ở cột "Khoá Đặt Hàng"
-                // bên cạnh, là 2 việc HOÀN TOÀN KHÁC NHAU. Nói rõ "cửa hàng"
-                // giúp phân biệt ngay: đây là chuyển hàng giữa các cửa hàng
-                // NS1-NS5/NSM1 với nhau, không phải xin thêm từ Honda.
-                const transferHtml = row.transfer_suggestions && row.transfer_suggestions.length
-                    ? row.transfer_suggestions.map(t =>
-                        `<div class="small"><strong>${t.store_code}</strong>: ${t.qty} (${t.sales_freq.code})</div>`
-                      ).join('') + (row.still_needed_after_transfer > 0
-                        ? `<div class="small text-danger fw-semibold">Vẫn thiếu ${row.still_needed_after_transfer} sau khi chuyển</div>` : '')
-                    : (row.qty_order > row.store_qty
-                        ? `<span class="small text-danger">Không có cửa hàng nào dư</span>`
-                        : `<span class="small text-success">Đủ tồn tại chỗ, không cần chuyển</span>`);
+        // --- Khách chờ ---
+        const pc = row.pending_customers || [];
+        const pendingHtml = pc.length
+            ? pc.map(c => `<div class="oc-sub" style="color:#334155;">` +
+                (c.customer_name ? `<b>${escapeHtmlText(c.customer_name)}</b>` : '') +
+                (c.quote_no ? ` · BG ${escapeHtmlText(c.quote_no)}` : '') +
+                (c.order_date ? ` · ${escapeHtmlText(c.order_date)}` : '') +
+                (c.frame_number ? `<div>Khung: ${escapeHtmlText(c.frame_number)}</div>` : '') +
+              `</div>`).join('<hr class="oc-pending-sep">')
+            : `<span class="oc-zero">—</span>`;
 
-                // Tình hình bán: tô nền cả ô theo màu tần suất bán (TX xanh /
-                // TB vàng / CB đỏ) thay vì chỉ có 1 chấm badge nhỏ trên chữ
-                // như trước - giúp mắt quét cả cột và bắt ngay dòng "Chậm
-                // bán" (CB, dễ tồn đọng) mà không cần đọc kỹ từng ô.
-                // LƯU Ý: row.sales_freq giờ là tần suất bán RIÊNG của ĐÚNG
-                // cửa hàng đang được chọn để kiểm tra đơn (_orderCheckCurrentStore),
-                // KHÔNG PHẢI gộp cả hệ thống nữa - tính từ backend theo store_code
-                // gửi lên (xem order_check() trong app.py).
-                const freq = row.sales_freq;
-                const freqCode = freq && freq.code ? freq.code.toLowerCase() : 'none';
-                const salesHtml = `<div class="oc-sales-cell oc-sales-${freqCode}">` +
-                        `<span class="oc-sales-badge oc-sales-badge-${freqCode}">${freq && freq.code ? freq.code : '-'}</span>` +
-                        `<div class="small text-muted mt-1">${row.period_months} tháng: ${row.qty_sold_period ?? 0}</div>` +
-                        (freq && freq.avg_month !== undefined ? `<div class="small text-muted">1 tháng: ${freq.avg_month}</div>` : '') +
-                    `</div>`;
+        // --- Nợ / vận chuyển ---
+        const debtParts = [];
+        if (row.debt_qty > 0) debtParts.push(`<span class="badge bg-danger">Nợ ${row.debt_qty}</span>`);
+        if (row.shipping_qty > 0) debtParts.push(`<span class="badge bg-warning text-dark">V/c ${row.shipping_qty}</span>`);
+        const debtHtml = debtParts.length ? debtParts.join(' ') : `<span class="oc-zero">0</span>`;
 
-                // Tồn hệ thống: LOẠI TRỪ cửa hàng đang tra đơn (đã hiển thị
-                // riêng ở cột "Tồn CH" ngay bên cạnh) - tránh hiện trùng 1
-                // cửa hàng 2 lần và tránh hiểu nhầm là "còn dư nhiều" trong
-                // khi phần lớn số đó lại chính là tồn của cửa hàng đang đặt.
-                // Số tổng vì vậy chỉ còn tính CÁC CỬA HÀNG KHÁC (nơi có thể
-                // luân chuyển về). Chi tiết theo từng cửa hàng dùng chip màu,
-                // xếp lưới 2 CỘT CỐ ĐỊNH (thay vì flex-wrap trước đây khiến
-                // dòng có 2 chip, dòng chỉ 1 chip tuỳ độ dài chữ, nhìn lệch/
-                // không cân đối) để mọi dòng luôn thẳng hàng nhau.
-                const breakdown = row.store_breakdown || {};
-                const breakdownFreq = row.store_breakdown_freq || {};
-                const ownStoreQty = _orderCheckCurrentStore ? (breakdown[_orderCheckCurrentStore] || 0) : 0;
-                // Nhãn TX/TB/CB nhỏ cạnh mỗi cửa hàng = tần suất bán RIÊNG
-                // của CHÍNH cửa hàng đó cho mã này (tương tự cách tính ở cột
-                // "Tình Hình Bán", nhưng ở đây là của TỪNG cửa hàng khác,
-                // không phải cửa hàng đang chọn) - cho biết ngay lý do 1 cửa
-                // hàng có tồn nhưng KHÔNG được đề xuất chuyển: TX nghĩa là
-                // đang bán nhanh tại chính cửa hàng đó nên không có dư,
-                // ngược lại chỉ TB/CB (bán chậm) VÀ còn dư sau khi giữ lại
-                // đủ dùng mới được đề xuất chuyển. Hoàn toàn không dùng tồn
-                // kho Bắc/Nam của Honda ở đây.
-                const breakdownParts = Object.keys(breakdown)
-                    .filter(sc => sc !== _orderCheckCurrentStore && breakdown[sc] > 0)
-                    .map(sc => {
-                        const fcode = breakdownFreq[sc];
-                        const fTag = fcode ? `<span class="oc-stock-freq-text ${fcode.toLowerCase()}" title="${escapeHtmlAttr(_ocFreqTip(fcode))}">${fcode}</span>` : '';
-                        return `<div class="oc-stock-row"><span class="oc-stock-store">${sc}</span><span class="oc-stock-qty">${breakdown[sc]}</span>${fTag}</div>`;
-                    });
-                const otherTotal = row.total_qty - ownStoreQty;
-                const totalQtyCls = otherTotal > 0 ? 'fw-bold' : 'fw-bold text-danger';
-                const totalTitle = _orderCheckCurrentStore
-                    ? `Tổng tồn các cửa hàng khác (đã trừ tồn tại ${_orderCheckCurrentStore} - xem cột "Tồn CH")`
-                    : 'Tổng tồn toàn hệ thống';
-                const storeBreakdownHtml = `<div style="max-width:240px; white-space:normal;">` +
-                    `<div class="oc-stock-total ${totalQtyCls}" title="${escapeHtmlAttr(totalTitle)}"><span class="small text-muted fw-normal">Tổng tồn:</span> ${otherTotal}</div>` +
-                    (breakdownParts.length
-                        ? `<div class="oc-stock-list mt-1">${breakdownParts.join('')}</div>`
-                        : `<div class="small text-muted mt-1">Không còn tồn ở cửa hàng nào khác</div>`) +
-                    `</div>`;
+        // --- Luân chuyển ---
+        const transferHtml = row.transfer_suggestions && row.transfer_suggestions.length
+            ? row.transfer_suggestions.map(t => `<div><strong>${t.store_code}</strong> ${t.qty} <span class="oc-sub">(${t.sales_freq.code})</span></div>`).join('') +
+              (row.still_needed_after_transfer > 0 ? `<div class="text-danger fw-semibold oc-sub">Vẫn thiếu ${row.still_needed_after_transfer}</div>` : '')
+            : (row.qty_order > row.store_qty
+                ? `<span class="text-danger oc-sub">Không có cửa hàng nào dư</span>`
+                : `<span class="oc-sub text-success">Đủ tồn tại chỗ</span>`);
 
-                return `<tr${notFound ? ' class="table-warning"' : ''}>
-                    <td title="${escapeHtmlAttr(row.part_code)}">${escapeHtmlText(row.part_code)}${notFound ? '<div class="small text-danger">Không tìm thấy trong tồn kho hệ thống</div>' : ''}</td>
-                    <td class="text-end">${row.qty_order}</td>
-                    <td>${escapeHtmlText(row.part_name || '')}</td>
-                    <td>${_orderCheckVehicleModelsHtml(row)}</td>
-                    <td>${salesHtml}</td>
-                    <td class="text-end${row.store_qty > 0 ? '' : ' text-danger fw-semibold'}">${row.store_qty}</td>
-                    <td>${storeBreakdownHtml}</td>
-                    <td>${lockHtml}</td>
-                    <td style="max-width:220px; white-space:normal;">${pendingHtml}</td>
-                    <td>${debtHtml}</td>
-                    <td style="max-width:220px; white-space:normal;">${transferHtml}</td>
-                    <td class="text-end">
-                        <input type="number" step="1" min="0" class="form-control form-control-sm text-end order-check-approve-input"
-                               style="width:90px; display:inline-block;" data-part-code="${escapeHtmlAttr(row.part_code)}"
-                               value="${row.suggested_approve_qty}" onfocus="this.select()">
-                    </td>
-                    <td>
-                        <input type="text" class="form-control form-control-sm order-check-note-input"
-                               style="min-width:170px;" data-part-code="${escapeHtmlAttr(row.part_code)}"
-                               placeholder="Ghi chú..." value="${escapeHtmlAttr(row.note || '')}"
-                               onchange="saveOrderCheckNote(this)">
-                    </td>
-                </tr>`;
+        // --- Tình hình bán ---
+        const freq = row.sales_freq;
+        const fc = freq && freq.code ? freq.code.toLowerCase() : 'none';
+        const salesHtml = `<div class="oc-sales"><span class="oc-sales-badge oc-sales-badge-${fc}">${freq && freq.code ? freq.code : '-'}</span>` +
+            `<div class="oc-sub" style="line-height:1.25;">${row.period_months} tháng: <b>${row.qty_sold_period ?? 0}</b>` +
+            (freq && freq.avg_month !== undefined ? `<br>1 tháng: ${freq.avg_month}` : '') + `</div></div>`;
+
+        // --- Tồn hệ thống (trừ cửa hàng đang đặt) ---
+        const breakdown = row.store_breakdown || {};
+        const ownQty = _orderCheckCurrentStore ? (breakdown[_orderCheckCurrentStore] || 0) : 0;
+        const otherTotal = row.total_qty - ownQty;
+        const stockChips = _ocStoreChips(breakdown, row.store_breakdown_freq, _orderCheckCurrentStore);
+        const stockHtml = `<div class="oc-ctx"><span class="oc-sub">Tổng:</span> <b class="${otherTotal > 0 ? '' : 'text-danger'}" title="Tổng tồn các cửa hàng khác (đã trừ ${_orderCheckCurrentStore || ''})">${otherTotal}</b>` +
+            (stockChips ? `<div class="mt-1">${stockChips}</div>` : `<div class="oc-sub">Không cửa hàng nào khác còn tồn</div>`) + `</div>`;
+
+        const needOrder = !row.is_locked && row.suggested_approve_qty > 0;
+        const trCls = [notFound ? 'table-warning' : '', needOrder ? 'oc-on' : '', row.is_locked ? 'oc-locked' : ''].filter(Boolean).join(' ');
+
+        return `<tr${trCls ? ` class="${trCls}"` : ''}>
+            <td title="${escapeHtmlAttr(row.part_code)}"><span class="oc-code">${escapeHtmlText(row.part_code)}</span>${notFound ? '<div class="oc-sub text-danger">Không có trong tồn kho</div>' : ''}${row.typed_code ? `<div class="oc-sub">gõ: ${escapeHtmlText(row.typed_code)}</div>` : ''}</td>
+            <td class="text-end fw-semibold">${_ocNum(row.qty_order)}</td>
+            <td class="oc-name">${escapeHtmlText(row.part_name || '')}<div class="mt-1">${_orderCheckVehicleModelsHtml(row)}</div></td>
+            <td>${salesHtml}</td>
+            <td class="oc-td-stock">${row.store_qty > 0 ? row.store_qty : '<span class="text-danger">0</span>'}</td>
+            <td>${stockHtml}</td>
+            <td>${lockHtml}</td>
+            <td>${bundleHtml}</td>
+            <td class="oc-ctx">${pendingHtml}</td>
+            <td>${debtHtml}</td>
+            <td class="oc-ctx">${transferHtml}</td>
+            <td class="text-end oc-td-final">
+                <input type="number" step="1" min="0" class="form-control form-control-sm text-end order-check-approve-input"
+                       style="width:84px; display:inline-block; font-weight:700;" data-part-code="${escapeHtmlAttr(row.part_code)}"
+                       value="${row.suggested_approve_qty}" onfocus="this.select()">
+            </td>
+            <td>
+                <input type="text" class="form-control form-control-sm order-check-note-input"
+                       style="min-width:170px;" data-part-code="${escapeHtmlAttr(row.part_code)}"
+                       placeholder="Ghi chú..." value="${escapeHtmlAttr(row.note || '')}"
+                       onchange="saveOrderCheckNote(this)">
+            </td>
+        </tr>`;
     }
 
     // Lưu ghi chú của 1 mã hàng ngay khi rời khỏi ô (onchange) - UPSERT
@@ -7442,7 +7529,10 @@
                 ? row.transfer_suggestions.map(t => `Lấy ${t.qty} từ ${t.store_code} (đang dư ${t.store_available_qty}, ${t.sales_freq.code})`).join('; ')
                 : '';
             const childText = (row.related_child_codes && row.related_child_codes.length)
-                ? row.related_child_codes.map(c => `${c.part_code} (tồn ${c.total_qty})`).join('; ')
+                ? row.related_child_codes.map(c => `${c.part_code} (1 cha = ${c.ratio} con, tồn ${c.total_qty})`).join('; ')
+                : '';
+            const parentText = row.related_parent
+                ? `${row.related_parent.part_code} (1 cha = ${row.related_parent.ratio} con, tồn ${row.related_parent.total_qty})`
                 : '';
             const pendingText = (row.pending_customers && row.pending_customers.length)
                 ? row.pending_customers.map(c => {
@@ -7467,7 +7557,8 @@
                 'Tồn Hệ Thống': row.total_qty,
                 'Khoá Đặt Hàng': row.is_locked ? 'Đã khoá' : 'Không khoá',
                 'Mã Thay Thế': row.replacement_code || '',
-                'Mã Con Khả Dụng': childText,
+                'Mã Con (quy cách)': childText,
+                'Mã Cha (quy cách)': parentText,
                 'Khách Đang Chờ': pendingText,
                 'Đang Nợ': row.debt_qty || 0,
                 'Đang Vận Chuyển': row.shipping_qty || 0,

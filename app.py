@@ -4398,88 +4398,63 @@ def order_check():
         except Exception as e:
             print(f'[order_check] Bỏ qua giải mã Model xe (body_kit_model_categories): {e}')
 
-    # ---- 3b) Mã cùng "họ" hậu tố chữ cái với mã đã dán - vd mã gốc
-    # "40545001000", biến thể "40545001000SS": biến thể = mã gốc + hậu tố
-    # CHỮ CÁI (1-3 ký tự) ngay sau phần số. NGƯỜI DÙNG CÓ THỂ DÁN VÀO CẢ 2
-    # CHIỀU: hoặc dán mã gốc (cần gợi ý biến thể có hậu tố), hoặc dán chính
-    # mã có hậu tố (cần gợi ý ngược lại về mã gốc/biến thể khác) - nên với
-    # MỖI mã đã dán: trước tiên tách ra "mã gốc" của nó (bỏ hậu tố chữ cái
-    # cuối nếu CHÍNH mã đó đã có hậu tố), rồi tìm TẤT CẢ mã (mã gốc trần +
-    # mọi biến thể hậu tố khác) đang có trong CẢ inventory_items (để biết
-    # tồn) LẪN order_lock_items (để biết có bị khoá không) cùng chung gốc
-    # đó, dùng LIKE + lọc lại bằng regex Python để khớp CHÍNH XÁC "mã gốc +
-    # 0-3 chữ cái" (không khớp nhầm 1 mã SỐ dài hơn khác, vì bắt buộc phần
-    # đuôi phải rỗng hoặc là chữ cái).
-    # Lưu ý: dùng escape đúng cú pháp SQL LIKE (chỉ cần escape \, %, _),
-    # KHÔNG dùng re.escape (đó là escape cho regex, sai cú pháp với LIKE và
-    # sẽ escape sai/dư ký tự với mã hàng có dấu gạch ngang "-" v.v.).
-    def _sql_like_escape(s):
-        return s.replace('\\', '\\\\').replace('%', '\\%').replace('_', '\\_')
+    # ---- 3b) Quan hệ MÃ CHA / MÃ CON: CHỈ lấy từ bảng quy cách (gdh_bundles,
+    # import ở màn "Gôm Đơn Hàng" > "Import mã quy cách": 1 mã cha = N mã con).
+    # KHÔNG suy diễn theo hậu tố chữ cái hay theo khoá đặt hàng nữa.
+    #  - Mã đã dán là MÃ CHA  -> liệt kê các mã con của nó (kèm số quy đổi).
+    #  - Mã đã dán là MÃ CON  -> hiện mã cha của nó (kèm số quy đổi).
+    # So khớp theo mã đã chuẩn hoá (norm_code) để không lệch gạch/hoa-thường.
+    bundle_children_by_parent = {}   # norm(cha) -> [(mã con, ratio)]
+    bundle_parent_by_child = {}      # norm(con) -> (mã cha, ratio)
+    try:
+        from gom_don_hang import _load_bundles
+        for _child, (_parent, _ratio) in _load_bundles(cursor).items():
+            bundle_children_by_parent.setdefault(norm_code(_parent), []).append((_child, _ratio))
+            bundle_parent_by_child[norm_code(_child)] = (_parent, _ratio)
+    except Exception as e:
+        db.rollback()
+        print(f'[order_check] Bỏ qua quy cách mã cha/con (gdh_bundles): {e}')
 
-    _suffix_strip_re = re.compile(r'^(.*\d)([A-Za-z]{1,3})$')
-
-    def _root_of(code):
-        m = _suffix_strip_re.match(code)
-        return m.group(1) if m else code
-
-    root_by_pasted = {pc: _root_of(pc) for pc in order_list}
-    all_roots = sorted(set(root_by_pasted.values()))
-
-    root_prefix_patterns = [_sql_like_escape(r) + '%' for r in all_roots]
-    cursor.execute(
-        '''SELECT DISTINCT part_code FROM (
-               SELECT part_code FROM inventory_items WHERE part_code LIKE ANY(%s)
-               UNION
-               SELECT part_code FROM order_lock_items WHERE part_code LIKE ANY(%s)
-           ) t''',
-        (root_prefix_patterns, root_prefix_patterns)
-    )
-    _variant_suffix_re = re.compile(r'^[A-Za-z]{0,3}$')  # rỗng = chính mã gốc, 1-3 chữ = biến thể
-    codes_by_root = {}
-    for row in cursor.fetchall():
-        code = row['part_code']
-        for root in all_roots:
-            if code.startswith(root) and _variant_suffix_re.match(code[len(root):]):
-                codes_by_root.setdefault(root, []).append(code)
-
-    child_codes_by_parent = {}
+    # Mã con/cha trong file quy cách có thể khác cách viết so với tồn kho -> đổi sang mã chính thức.
+    rel_codes_raw = set()
     for pc in order_list:
-        root = root_by_pasted[pc]
-        child_codes_by_parent[pc] = sorted({c for c in codes_by_root.get(root, []) if c != pc})
+        for cc, _r in bundle_children_by_parent.get(norm_code(pc), []):
+            rel_codes_raw.add(cc)
+        if norm_code(pc) in bundle_parent_by_child:
+            rel_codes_raw.add(bundle_parent_by_child[norm_code(pc)][0])
+    rel_canon = {}
+    if rel_codes_raw:
+        try:
+            _rc = resolve_codes(cursor, sorted(rel_codes_raw)) or {}
+        except Exception:
+            _rc = {}
+        rel_canon = {c: _rc.get(c, c) for c in rel_codes_raw}
+    all_child_codes = sorted(set(rel_canon.values()))
 
-    all_child_codes = sorted({c for lst in child_codes_by_parent.values() for c in lst})
     child_inv_by_code = {}
+    child_name_by_code = {}
     child_lock_by_code = {}
+    child_store_breakdown = {}
+    child_sold_by_store = {}
     if all_child_codes:
         cursor.execute(
-            'SELECT part_code, SUM(quantity) AS total_qty FROM inventory_items WHERE part_code = ANY(%s) GROUP BY part_code',
+            'SELECT part_code, part_name, store_code, quantity FROM inventory_items WHERE part_code = ANY(%s)',
             (all_child_codes,)
         )
-        child_inv_by_code = {r['part_code']: float(r['total_qty'] or 0) for r in cursor.fetchall()}
+        for it in cursor.fetchall():
+            child_name_by_code.setdefault(it['part_code'], it['part_name'])
+            sc = it['store_code']
+            if sc not in _ORDER_CHECK_STORE_CODES:
+                continue
+            q = float(it['quantity']) if it['quantity'] is not None else 0
+            child_store_breakdown.setdefault(it['part_code'], {})[sc] = q
+            child_inv_by_code[it['part_code']] = child_inv_by_code.get(it['part_code'], 0.0) + q
         cursor.execute(
             'SELECT part_code, is_locked, qty_bac, qty_nam, has_stock_bac, has_stock_nam '
             'FROM order_lock_items WHERE part_code = ANY(%s)',
             (all_child_codes,)
         )
         child_lock_by_code = {r['part_code']: r for r in cursor.fetchall()}
-
-    # ---- 3b-2) Tồn kho + số bán theo TỪNG CỬA HÀNG của các mã con - để FE
-    # hiển thị chi tiết (giống cột "Tồn Hệ Thống" của mã cha) thay vì chỉ 1
-    # con số tổng, giúp admin biết mã con còn hàng ở cửa hàng nào và tần
-    # suất bán ra sao trước khi quyết định dùng mã con thay cho mã cha.
-    child_store_breakdown = {}
-    child_sold_by_store = {}
-    if all_child_codes:
-        cursor.execute(
-            'SELECT part_code, store_code, quantity FROM inventory_items WHERE part_code = ANY(%s)',
-            (all_child_codes,)
-        )
-        for it in cursor.fetchall():
-            sc = it['store_code']
-            if sc not in _ORDER_CHECK_STORE_CODES:
-                continue
-            d = child_store_breakdown.setdefault(it['part_code'], {})
-            d[sc] = float(it['quantity']) if it['quantity'] is not None else 0
         if has_sales_data:
             cursor.execute(
                 'SELECT part_code, store_code, SUM(qty_sold) AS qty_sold FROM sales_export_items '
@@ -4488,6 +4463,29 @@ def order_check():
             )
             for r in cursor.fetchall():
                 child_sold_by_store.setdefault(r['part_code'], {})[r['store_code']] = float(r['qty_sold'] or 0)
+
+    def _related_entry(raw_code, ratio):
+        code = rel_canon.get(raw_code, raw_code)
+        lk = child_lock_by_code.get(code)
+        bd = child_store_breakdown.get(code, {})
+        sm = child_sold_by_store.get(code, {})
+        fq = {}
+        for sc in _ORDER_CHECK_STORE_CODES:
+            cls_sc = classify_sales_frequency(bd.get(sc, 0.0), sm.get(sc, 0.0), period_months)
+            fq[sc] = cls_sc['code'] if cls_sc else None
+        return {
+            'part_code': code,
+            'part_name': child_name_by_code.get(code),
+            'ratio': ratio,
+            'is_locked': bool(lk['is_locked']) if lk else False,
+            'total_qty': child_inv_by_code.get(code, 0.0),
+            'store_breakdown': {sc: bd.get(sc, 0.0) for sc in _ORDER_CHECK_STORE_CODES},
+            'store_breakdown_freq': fq,
+            'lock_qty_bac': float(lk['qty_bac']) if lk and lk.get('qty_bac') is not None else None,
+            'lock_qty_nam': float(lk['qty_nam']) if lk and lk.get('qty_nam') is not None else None,
+            'lock_has_stock_bac': lk.get('has_stock_bac') if lk else None,
+            'lock_has_stock_nam': lk.get('has_stock_nam') if lk else None,
+        }
 
     # ---- 3c) Ghi chú đã lưu trước đó cho các mã hàng đang kiểm tra ----
     cursor.execute('SELECT part_code, note FROM order_check_notes WHERE part_code = ANY(%s)', (order_list,))
@@ -4576,54 +4574,12 @@ def order_check():
         vehicle_models, vehicle_models_unresolved = decode_vehicle_models_for_part(
             model_raw_by_part.get(part_code), vehicle_map)
 
-        # Mã cùng họ (mã gốc <-> biến thể hậu tố chữ cái, xem bước 3b ở
-        # trên): CHỈ tìm/hiển thị khi chính mã đã dán KHÔNG có tần suất bán
-        # riêng của nó (freq_system is None, tức không có tồn/không được hệ
-        # thống theo dõi độc lập) - trường hợp đó nhiều khả năng mã dán vào
-        # chỉ là "mã gốc" tham chiếu chung, cần gợi ý các biến thể hậu tố
-        # thực tế đang tồn tại. Ngược lại, nếu mã đã dán ĐÃ CÓ tần suất bán
-        # riêng (có tồn + được phân loại TX/TB/CB) thì đó là 1 mã ĐỘC LẬP,
-        # tự nó đã đủ dữ liệu bán riêng - không coi các biến thể hậu tố khác
-        # là "mã con" của nó nữa, nên không gợi ý.
-        related_child_codes = []
-        # Gia đình mã (mã gốc <-> biến thể hậu tố) chỉ được coi là THẬT SỰ có
-        # quan hệ mã cha/mã con khi có ÍT NHẤT 1 mã trong gia đình đó (mã đã
-        # dán HOẶC 1 trong các mã cùng gốc) đang bị khoá đặt hàng - đây là
-        # tín hiệu duy nhất đáng tin xác nhận quan hệ này có thật (admin HVN
-        # đã chính thức khoá 1 mã để bắt buộc dùng mã khác thay thế). Nếu
-        # KHÔNG mã nào trong gia đình bị khoá, coi như trùng gốc số ngẫu
-        # nhiên, không liên quan gì - không gợi ý.
-        child_list = child_codes_by_parent.get(part_code, [])
-        family_confirmed_by_lock = bool(lock and lock['is_locked']) or any(
-            (child_lock_by_code.get(cc) or {}).get('is_locked') for cc in child_list
-        )
-        if freq_system is None and family_confirmed_by_lock:
-            for child_code in child_list:
-                child_lock = child_lock_by_code.get(child_code)
-                child_locked = bool(child_lock['is_locked']) if child_lock else False
-                child_qty = child_inv_by_code.get(child_code, 0.0)
-                child_has_stock = child_qty > 0 or (child_lock and (child_lock.get('has_stock_bac') or child_lock.get('has_stock_nam')))
-                # Hiện mã con nếu CÓ TỒN hoặc ĐANG BỊ KHOÁ (dù tồn = 0) - 1 mã
-                # con đang khoá vẫn là thông tin quan trọng cần biết (không
-                # dùng được để đặt), không nên ẩn đi chỉ vì hết hàng.
-                if child_has_stock or child_locked:
-                    c_breakdown = child_store_breakdown.get(child_code, {})
-                    c_sold_map = child_sold_by_store.get(child_code, {})
-                    c_breakdown_freq = {}
-                    for sc in _ORDER_CHECK_STORE_CODES:
-                        cls_sc = classify_sales_frequency(c_breakdown.get(sc, 0.0), c_sold_map.get(sc, 0.0), period_months)
-                        c_breakdown_freq[sc] = cls_sc['code'] if cls_sc else None
-                    related_child_codes.append({
-                        'part_code': child_code,
-                        'is_locked': child_locked,
-                        'total_qty': child_qty,
-                        'store_breakdown': {sc: c_breakdown.get(sc, 0.0) for sc in _ORDER_CHECK_STORE_CODES},
-                        'store_breakdown_freq': c_breakdown_freq,
-                        'lock_qty_bac': float(child_lock['qty_bac']) if child_lock and child_lock.get('qty_bac') is not None else None,
-                        'lock_qty_nam': float(child_lock['qty_nam']) if child_lock and child_lock.get('qty_nam') is not None else None,
-                        'lock_has_stock_bac': child_lock.get('has_stock_bac') if child_lock else None,
-                        'lock_has_stock_nam': child_lock.get('has_stock_nam') if child_lock else None,
-                    })
+        # Mã con / mã cha: CHỈ theo bảng quy cách (xem 3b), không suy diễn.
+        related_child_codes = [_related_entry(cc, ratio)
+                               for cc, ratio in bundle_children_by_parent.get(norm_code(part_code), [])]
+        related_child_codes.sort(key=lambda c: (-c['total_qty'], c['part_code']))
+        _bp = bundle_parent_by_child.get(norm_code(part_code))
+        related_parent = _related_entry(_bp[0], _bp[1]) if _bp else None
 
         # Đề xuất luân chuyển: chỉ xét khi tồn của cửa hàng đang đặt < số
         # lượng cần, và có kho khác đang bán chậm (TB/CB) VÀ dư nhiều (còn
@@ -4722,6 +4678,7 @@ def order_check():
             'still_needed_after_transfer': round(max(0.0, still_needed), 2),
             'transfer_suggestions': transfer_suggestions,
             'related_child_codes': related_child_codes,
+            'related_parent': related_parent,
             'pending_customers': pending_customers_by_part.get(part_code, []),
             # Mã hàng này dùng cho (những) dòng xe/đời xe nào - xem 3d) ở
             # trên. 'vehicle_models': list {code, vehicle_family, sub_model}

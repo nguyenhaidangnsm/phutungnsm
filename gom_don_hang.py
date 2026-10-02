@@ -814,7 +814,45 @@ def gdh_assign_type():
         raise
     finally:
         cur.close()
-    return jsonify({'success': True, 'assigned': len(codes)})
+    return jsonify({'success': True, 'assigned': len(codes), 'codes': codes})
+
+
+@gom_don_hang_bp.route('/api/gom-don-hang/unassign-type', methods=['POST'])
+def gdh_unassign_type():
+    """Bỏ gán loại đơn hàng loạt (khi lỡ bấm Gán nhầm). Chỉ xoá loại đơn ĐÚNG BẰNG order_type gửi lên.
+    - codes (tuỳ chọn): chỉ bỏ gán trong danh sách mã này (dùng cho 'Hoàn tác lần gán vừa rồi').
+    - dry_run=true: chỉ đếm số mã sẽ bị bỏ gán, không ghi gì."""
+    payload = request.get_json(silent=True) or {}
+    ot = str(payload.get('order_type') or '').strip()
+    if ot not in ORDER_TYPES:
+        return jsonify({'error': 'Loại đơn không hợp lệ.'}), 400
+    codes = payload.get('codes')
+    if codes is not None:
+        codes = [str(c).strip() for c in codes if str(c).strip()]
+    dry = bool(payload.get('dry_run'))
+    db, cur = _ctx()
+    try:
+        batch, err = _get_batch(cur, payload.get('batch_id'))
+        if err:
+            return err
+        where, args = 'batch_id = %s AND order_type = %s', [batch['id'], ot]
+        if codes is not None:
+            where += ' AND part_code = ANY(%s)'
+            args.append(codes)
+        if dry:
+            cur.execute('SELECT COUNT(*) AS n FROM gdh_lines WHERE ' + where, args)
+            n = cur.fetchone()['n']
+        else:
+            cur.execute('UPDATE gdh_lines SET order_type = NULL, updated_by = %s, updated_at = NOW() WHERE ' + where,
+                        [_actor_name()] + args)
+            n = cur.rowcount
+            db.commit()
+    except Exception:
+        db.rollback()
+        raise
+    finally:
+        cur.close()
+    return jsonify({'success': True, 'count': n, 'dry_run': dry})
 
 
 @gom_don_hang_bp.route('/api/gom-don-hang/delete-batch', methods=['POST'])
