@@ -699,15 +699,17 @@ def gdh_lines():
     group = (request.args.get('group') or '').strip().upper()
     otype = (request.args.get('order_type') or '').strip()
     scope = (request.args.get('scope') or '').strip().lower()
-    if scope not in ('sold', 'all'):                      # tương thích bản cũ (only_order)
+    if scope not in ('sold', 'all', 'order'):             # tương thích bản cũ (only_order)
         scope = 'sold' if request.args.get('only_order') == '1' else 'all'
     only = scope == 'sold'
+    need = scope == 'order'                               # "Cần đặt": mã hệ thống ĐỀ XUẤT đặt (đề xuất > 0) hoặc có SL CUỐI > 0
     view = [r for r in rows
             if (not q or q in r['part_code'].lower() or q in (r['part_name'] or '').lower()
                 or q in (r['note'] or '').lower())
             and (not group or r['group'] == group)
             and (not otype or (r['order_type'] == otype if otype != '-' else not r['order_type']))
-            and (not only or r['sales'] > 0 or r['qty_final'] > 0 or r['adj'] or r['order_type'] or r['note'])]
+            and (not only or r['sales'] > 0 or r['qty_final'] > 0 or r['adj'] or r['order_type'] or r['note'])
+            and (not need or r['suggest'] > 0 or r['qty_final'] > 0)]
     try:
         page = max(1, int(request.args.get('page') or 1))
         size = min(2000, max(1, int(request.args.get('page_size') or 100)))

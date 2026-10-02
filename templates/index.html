@@ -2436,7 +2436,7 @@
                     <option value="">Mọi loại đơn</option><option value="-">Chưa chọn loại đơn</option>
                     <option value="Định kỳ">Định kỳ</option><option value="Khẩn">Khẩn</option><option value="Đơn 26">Đơn 26</option>
                 </select>
-                <select class="form-select form-select-sm" style="width:auto;" id="gdhScope" onchange="gdhLoad(1)" title="Hàng đã xuất: mã có số xuất/bán trong kỳ (kèm mã bạn đã chỉnh, chọn loại đơn hoặc ghi chú). Cả danh mục: mọi mã trong file import."><option value="sold" selected>Hàng đã xuất</option><option value="all">Cả danh mục</option></select>
+                <select class="form-select form-select-sm" style="width:auto;" id="gdhScope" onchange="gdhLoad(1)" title="Hàng đã xuất: mã có số xuất/bán trong kỳ (kèm mã bạn đã chỉnh, chọn loại đơn hoặc ghi chú). Cần đặt: chỉ các mã hệ thống đề xuất đặt hoặc có SL cuối > 0. Cả danh mục: mọi mã trong file import."><option value="sold" selected>Hàng đã xuất</option><option value="order">Cần đặt (đề xuất / SL cuối)</option><option value="all">Cả danh mục</option></select>
                 <input type="search" class="form-control form-control-sm" style="width:240px;" id="gdhQ" placeholder="Tìm mã / tên hàng / ghi chú..." oninput="clearTimeout(window._gdhT);window._gdhT=setTimeout(()=>gdhLoad(1),350)">
                 <span class="ms-auto"></span>
                 <span class="small text-muted">Gán nhanh loại đơn cho các mã chưa chọn:</span>
@@ -5741,7 +5741,7 @@
         const on = (id, v) => { const e = document.getElementById(id); if (e) e.classList.toggle('gdh-f-on', !!v); };
         on('gdhGroup', document.getElementById('gdhGroup').value);
         on('gdhTypeFilter', document.getElementById('gdhTypeFilter').value);
-        on('gdhScope', document.getElementById('gdhScope').value === 'all');
+        on('gdhScope', document.getElementById('gdhScope').value !== 'sold');
         on('gdhQ', document.getElementById('gdhQ').value.trim());
     }
     async function gdhLoad(page) {
