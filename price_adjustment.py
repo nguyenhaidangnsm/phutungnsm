@@ -31,6 +31,7 @@ from datetime import datetime
 import openpyxl
 from flask import Blueprint, request, jsonify, session
 from part_code_utils import norm_index_sql
+from audit_log import audit_record
 from psycopg2.extras import execute_values
 
 from app import get_db, vn_now, _current_actor_name, invalidate_inventory_cache
@@ -872,11 +873,14 @@ def price_adjustment_update_proposal(proposal_id):
     db = get_db()
     cursor = db.cursor()
     try:
-        cursor.execute('SELECT part_code FROM price_adjustment_proposals WHERE id = %s', (proposal_id,))
+        cursor.execute('SELECT part_code, part_name, thue, gia_de_xuat_hvn, gia_ban FROM price_adjustment_proposals WHERE id = %s', (proposal_id,))
         row = cursor.fetchone()
         if not row:
             return jsonify({'error': 'Không tìm thấy đề xuất này (có thể đã bị xoá).'}), 404
         part_code = row['part_code']
+        def _f(x): return float(x) if x is not None else None
+        _old = {'part_name': row['part_name'], 'thue_percent': round(_f(row['thue']) * 100, 4) if row['thue'] is not None else None,
+                'gia_cu': _f(row['gia_de_xuat_hvn']), 'gia_ban': _f(row['gia_ban'])}
 
         cursor.execute('''
             UPDATE price_adjustment_proposals
@@ -898,6 +902,11 @@ def price_adjustment_update_proposal(proposal_id):
 
         db.commit()
         invalidate_inventory_cache()
+        _new = {'part_name': part_name if part_name is not None else _old['part_name'], 'thue_percent': thue_percent,
+                'gia_cu': gia_cu, 'gia_ban': gia_ban}
+        audit_record('Sửa đề xuất tăng giá', 'Đề xuất giá', target=part_code,
+                     summary=f"{part_code}: giá bán {_old['gia_ban']} → {gia_ban}, % tăng {_old['thue_percent']} → {thue_percent}",
+                     before=_old, after=_new, extra={'proposal_id': proposal_id})
         return jsonify({
             'success': True,
             'part_code': part_code,
@@ -966,6 +975,10 @@ def price_adjustment_reset_code(part_code):
 
     if not deleted_rows:
         return jsonify({'error': 'Mã hàng này chưa từng được đề xuất tăng giá.'}), 404
+    audit_record('Xoá toàn bộ đề xuất của 1 mã', 'Đề xuất giá', target=part_code,
+                 summary=f'{part_code}: xoá {len(deleted_rows)} lần đề xuất',
+                 before={'gia_ban_gan_nhat': float(last['gia_ban']) if last and last['gia_ban'] is not None else None},
+                 extra={'deleted_count': len(deleted_rows)})
     return jsonify({'success': True, 'part_code': part_code, 'deleted_count': len(deleted_rows)})
 
 
@@ -979,6 +992,8 @@ def price_adjustment_delete_proposal(proposal_id):
 
     db = get_db()
     cursor = db.cursor()
+    cursor.execute('SELECT part_code, part_name, thue, gia_de_xuat_hvn, gia_ban FROM price_adjustment_proposals WHERE id = %s', (proposal_id,))
+    _old = cursor.fetchone()
     cursor.execute('DELETE FROM price_adjustment_proposals WHERE id = %s RETURNING id', (proposal_id,))
     row = cursor.fetchone()
     db.commit()
@@ -987,4 +1002,11 @@ def price_adjustment_delete_proposal(proposal_id):
 
     if not row:
         return jsonify({'error': 'Không tìm thấy đề xuất này.'}), 404
+    if _old:
+        audit_record('Xoá 1 lần đề xuất tăng giá', 'Đề xuất giá', target=_old['part_code'],
+                     summary=f"{_old['part_code']}: xoá đề xuất giá bán {_old['gia_ban']}",
+                     before={'part_name': _old['part_name'], 'thue': float(_old['thue']) if _old['thue'] is not None else None,
+                             'gia_cu': float(_old['gia_de_xuat_hvn']) if _old['gia_de_xuat_hvn'] is not None else None,
+                             'gia_ban': float(_old['gia_ban']) if _old['gia_ban'] is not None else None},
+                     extra={'proposal_id': proposal_id})
     return jsonify({'success': True})

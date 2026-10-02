@@ -20,6 +20,7 @@ from psycopg2.extras import RealDictCursor, execute_values
 from part_code_utils import norm_code, n_sql, norm_index_sql, resolve_codes
 from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.middleware.proxy_fix import ProxyFix
+from audit_log import audit_record, audit_event, audit_skip, diff_fields   # nhật ký thay đổi - xem audit_log.py
 from flask_compress import Compress
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
@@ -3114,8 +3115,12 @@ def login():
             session['full_name'] = user.get('full_name') or user['username']
             session['branch'] = user.get('branch') or ''
             session.permanent = True
+            audit_event('Đăng nhập', 'Đăng nhập', summary=f'Đăng nhập thành công từ IP {request.remote_addr}')
             return redirect(url_for('index'))
         else:
+            audit_event('Đăng nhập thất bại', 'Đăng nhập', username=username or '(trống)', status_code=401,
+                        summary=f'Đăng nhập sai từ IP {request.remote_addr}',
+                        extra={'ly_do': 'Tài khoản không tồn tại' if not user else 'Sai mật khẩu'})
             cursor.close()
             return render_template('login.html', error="Sai tên đăng nhập hoặc mật khẩu!")
     return render_template('login.html')
@@ -3237,6 +3242,8 @@ def login_geo():
 
 @app.route('/logout')
 def logout():
+    if session.get('user'):
+        audit_event('Đăng xuất', 'Đăng nhập', summary='Đăng xuất')
     session.clear()
     return redirect(url_for('login'))
 
@@ -4770,9 +4777,15 @@ def update_price():
     cursor = db.cursor()
     try:
         # sale_price rỗng/None -> xoá giá của mã hàng này (không còn giá).
+        cursor.execute('SELECT sale_price FROM part_prices WHERE part_code = %s', (part_code,))
+        _old_row = cursor.fetchone()
+        old_price = float(_old_row['sale_price']) if _old_row and _old_row['sale_price'] is not None else None
         if raw_price is None or str(raw_price).strip() == '':
             cursor.execute('DELETE FROM part_prices WHERE part_code = %s', (part_code,))
             db.commit()
+            audit_record('Xoá giá bán', 'Giá bán', target=part_code,
+                         summary=f'{part_code}: {old_price} → (xoá giá)',
+                         before={'sale_price': old_price}, after={'sale_price': None})
             return jsonify({'success': True, 'sale_price': None})
 
         try:
@@ -4793,6 +4806,12 @@ def update_price():
         ''', (part_code, price, now, _current_actor_name()))
         db.commit()
         invalidate_inventory_cache()
+        if old_price is not None and old_price == price:
+            audit_skip()          # lưu lại đúng giá cũ -> không có gì thay đổi, không ghi nhật ký
+        else:
+            audit_record('Sửa giá bán', 'Giá bán', target=part_code,
+                         summary=f'{part_code}: {old_price} → {price}',
+                         before={'sale_price': old_price}, after={'sale_price': price})
         return jsonify({'success': True, 'sale_price': price})
     except Exception as e:
         db.rollback()
@@ -6136,6 +6155,8 @@ def admin_users_create():
     )
     db.commit()
     cursor.close()
+    audit_record('Tạo tài khoản', 'Người dùng', target=username, summary=f'Tạo tài khoản {username} ({role} - {store_code})',
+                 after={'role': role, 'store_code': store_code, 'full_name': full_name, 'branch': branch})
     return jsonify({'success': True})
 
 
@@ -6202,6 +6223,8 @@ def admin_users():
             cursor.close()
             return jsonify({'error': 'Thiếu thông tin'}), 400
 
+        cursor.execute('SELECT full_name, branch FROM users WHERE username = %s', (username,))
+        _u_old = cursor.fetchone() or {}
         params.append(username)
         cursor.execute(f"UPDATE users SET {', '.join(set_clauses)} WHERE username = %s", params)
         if cursor.rowcount == 0:
@@ -6210,6 +6233,14 @@ def admin_users():
             return jsonify({'error': 'Không tìm thấy tài khoản.'}), 404
         db.commit()
         cursor.close()
+        _new = {}
+        if full_name is not _MISSING: _new['full_name'] = (full_name or '').strip() or None
+        if branch is not _MISSING: _new['branch'] = (branch or '').strip() or None
+        _b, _a = diff_fields({k: _u_old.get(k) for k in _new}, _new)
+        if new_password:
+            _a['mat_khau'] = '(đã đặt lại)'
+        audit_record('Sửa tài khoản' + (' + đặt lại mật khẩu' if new_password else ''), 'Người dùng', target=username,
+                     summary=f'Sửa tài khoản {username}', before=_b or None, after=_a or None)
         return jsonify({'success': True})
 
     cursor.execute("SELECT username, role, store_code, full_name, branch FROM users")
@@ -8817,6 +8848,10 @@ _init_body_kit_with_retry()
 # Trợ lý AI (khung chat nổi, chỉ đọc dữ liệu) - xem assistant.py. PHẢI đặt
 # ở CUỐI file (sau Compress(app) và sau khi mọi blueprint đã đăng ký) để hook
 # after_request chèn <script> chạy TRƯỚC bước nén gzip.
+# Nhật ký thay đổi (audit log) - đặt SAU khi mọi blueprint đã đăng ký.
+from audit_log import init_audit
+init_audit(app)
+
 from assistant import init_assistant
 init_assistant(app)
 

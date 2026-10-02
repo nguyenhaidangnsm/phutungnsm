@@ -45,6 +45,7 @@ from zoneinfo import ZoneInfo
 
 from flask import Blueprint, request, jsonify, session, send_file
 from psycopg2.extras import execute_values
+from audit_log import audit_record
 
 from app import (get_db, _valid_store_codes, classify_sales_frequency,
                  get_store_data_version, compute_result_for_store_cached,
@@ -747,6 +748,11 @@ def gdh_save():
         if err:
             return err
         bid = int(batch['id'])
+        _before = {}
+        if vals:
+            cur.execute('SELECT part_code, adj_qty, order_type, note FROM gdh_lines WHERE batch_id = %s AND part_code = ANY(%s)',
+                        (bid, [v[0] for v in vals]))
+            _before = {r['part_code']: r for r in cur.fetchall()}
         if vals:
             execute_values(cur, f'''
                 UPDATE gdh_lines l SET adj_qty = v.adj, order_type = NULLIF(v.ot, ''),
@@ -780,6 +786,21 @@ def gdh_save():
                     return jsonify({'error': 'Đã có đợt gôm khác cùng chi nhánh, cùng kỳ (từ ngày - đến ngày) trong không gian này.'}), 400
                 raise
         db.commit()
+        _changes = []
+        for code, adj, ot, note, _a in vals:
+            o = _before.get(code)
+            if not o:
+                continue
+            ch = {}
+            if float(o['adj_qty'] or 0) != float(adj): ch['adj'] = [float(o['adj_qty'] or 0), float(adj)]
+            if (o['order_type'] or '') != (ot or ''): ch['order_type'] = [o['order_type'] or '', ot or '']
+            if (o['note'] or '') != (note or ''): ch['note'] = [o['note'] or '', note or '']
+            if ch:
+                _changes.append(dict(ma=code, **ch))
+        if _changes or sets:
+            audit_record('Lưu chỉnh sửa gôm đơn', 'Gôm đơn hàng', target=f'đợt {bid}',
+                         summary=f'Đợt {bid}: {len(_changes)} mã thay đổi' + (' + đổi cấu hình đợt' if sets else ''),
+                         after={'changes': _changes}, extra={'cau_hinh_dot': {k: payload.get(k) for k in ('forecast_weeks', 'period_from', 'period_to') if k in payload}})
         cur.execute('SELECT * FROM gdh_batches WHERE id = %s', (bid,))
         totals = _totals(compute_rows(cur, cur.fetchone()))      # để giao diện cập nhật thẻ tổng ngay sau khi lưu
     except Exception:
@@ -809,6 +830,9 @@ def gdh_assign_type():
             cur.execute('''UPDATE gdh_lines SET order_type = %s, updated_by = %s, updated_at = NOW()
                            WHERE batch_id = %s AND part_code = ANY(%s)''', (ot, _actor_name(), batch['id'], codes))
         db.commit()
+        audit_record('Gán loại đơn hàng loạt', 'Gôm đơn hàng', target=f"đợt {batch['id']}",
+                     summary=f"Đợt {batch['id']}: gán loại '{ot}' cho {len(codes)} mã" + (' (ghi đè)' if overwrite else ''),
+                     after={'order_type': ot, 'overwrite': overwrite}, extra={'so_ma': len(codes), 'codes': codes})
     except Exception:
         db.rollback()
         raise
@@ -847,6 +871,9 @@ def gdh_unassign_type():
                         [_actor_name()] + args)
             n = cur.rowcount
             db.commit()
+            audit_record('Bỏ gán loại đơn hàng loạt', 'Gôm đơn hàng', target=f"đợt {batch['id']}",
+                         summary=f"Đợt {batch['id']}: bỏ gán loại '{ot}' của {n} mã",
+                         before={'order_type': ot}, extra={'so_ma': n, 'codes': codes})
     except Exception:
         db.rollback()
         raise
@@ -863,8 +890,13 @@ def gdh_delete_batch():
         batch, err = _get_batch(cur, payload.get('batch_id'))
         if err:
             return err
+        cur.execute('SELECT COUNT(*) AS n FROM gdh_lines WHERE batch_id = %s', (batch['id'],))
+        _n_lines = cur.fetchone()['n']
         cur.execute('DELETE FROM gdh_batches WHERE id = %s', (batch['id'],))   # gdh_lines xoá theo (CASCADE)
         db.commit()
+        audit_record('Xoá đợt gôm', 'Gôm đơn hàng', target=f"đợt {batch['id']}",
+                     summary=f"Xoá đợt gôm {batch['id']} ({_n_lines} dòng)",
+                     before={k: batch[k] for k in ('id', 'store_code', 'owner', 'period_from', 'period_to', 'forecast_weeks') if k in batch})
     except Exception:
         db.rollback()
         raise

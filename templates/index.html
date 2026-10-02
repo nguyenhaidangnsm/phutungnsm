@@ -1599,6 +1599,11 @@
                 <span class="ns-sidebar-icon"><i class="bi bi-hdd-network"></i></span>
                 <span class="ns-label">Máy Ảo (VPS)</span>
             </button>
+            <!-- Nhật ký thay đổi (audit log): trang riêng /admin/audit-log (audit_log.py). Chỉ admin thấy, server vẫn kiểm tra quyền ở mọi API. -->
+            <button type="button" class="ns-sidebar-item" onclick="window.location.href='/admin/audit-log'">
+                <span class="ns-sidebar-icon"><i class="bi bi-journal-text"></i></span>
+                <span class="ns-label">Xem Log</span>
+            </button>
         </div>
         {% endif %}
     </aside>
