@@ -1587,7 +1587,7 @@
             <div class="ns-sidebar-group-title"><span class="ns-label">Quản Trị Hệ Thống</span></div>
             <button type="button" class="ns-sidebar-item" data-target-tab="order-check-tab" onclick="megaNavClick('order-check-tab', this)">
                 <span class="ns-sidebar-icon"><i class="bi bi-clipboard2-check-fill"></i></span>
-                <span class="ns-label">Duyệt Đơn Hàng</span>
+                <span class="ns-label">Duyệt Đơn Hàng <span class="badge bg-danger ms-1 d-none oc-nav-badge"></span></span>
             </button>
             <button type="button" class="ns-sidebar-item" data-target-tab="admin-tab" onclick="megaNavClick('admin-tab', this)">
                 <span class="ns-sidebar-icon"><i class="bi bi-gear-fill"></i></span>
@@ -1702,8 +1702,8 @@
     {% endif %}
     {% if role == 'admin' %}
     <li class="nav-item" role="presentation">
-        <button class="nav-link" id="order-check-tab" data-bs-toggle="pill" data-bs-target="#order-check-pane"  >
-            <i class="bi bi-clipboard2-check-fill me-2"></i>Duyệt Đơn Hàng
+        <button class="nav-link" id="order-check-tab" data-bs-toggle="pill" data-bs-target="#order-check-pane" onclick="ocGdhLoad()">
+            <i class="bi bi-clipboard2-check-fill me-2"></i>Duyệt Đơn Hàng <span class="badge bg-danger ms-1 d-none oc-nav-badge"></span>
         </button>
     </li>
     <li class="nav-item" role="presentation">
@@ -2316,6 +2316,7 @@
     <ul class="nav nav-pills mb-3 gap-1">
         <li class="nav-item"><button type="button" class="nav-link active py-1 px-3" id="gdhBtnGom" onclick="gdhSwitchView('gom')"><i class="bi bi-boxes me-1"></i>Gôm đơn hàng</button></li>
         <li class="nav-item"><button type="button" class="nav-link py-1 px-3" id="gdhBtnDash" onclick="gdhSwitchView('dash')"><i class="bi bi-bar-chart-line me-1"></i>Dashboard đơn hàng</button></li>
+        {% if role != 'admin' %}<li class="nav-item"><button type="button" class="nav-link py-1 px-3" id="gdhBtnOrders" onclick="gdhSwitchView('orders')"><i class="bi bi-send-check me-1"></i>Đơn đã đẩy<span id="gdhOBadge" class="badge bg-danger ms-1 d-none"></span></button></li>{% endif %}
     </ul>
 
     <!-- ===== GÔM ĐƠN HÀNG ===== -->
@@ -2365,6 +2366,15 @@
         #gdh-pane td.gdh-hs { background:#fffaeb !important; font-weight:700; }
         #gdh-pane th.gdh-hs { background:#fdf0c4 !important; }
         /* ===== Phóng to khu vực soạn đơn (nút ở đầu trang, bấm Esc để thu nhỏ) ===== */
+        /* Duyệt đơn: khoá bảng khi đơn không còn sửa được + thanh trạng thái */
+        #gdh-pane.gdh-ro .gdh-edit-only { display:none !important; }
+        #gdh-pane .gdh-statusbar { --sc:#94a3b8; display:flex; flex-wrap:wrap; align-items:center; gap:.5rem .75rem; padding:.55rem .75rem; border:1px solid #e2e8f0; border-left:4px solid var(--sc); border-radius:.6rem; margin-bottom:.6rem; background:#fff; }
+        #gdh-pane .gdh-statusbar[data-st="pending"]   { --sc:#f59e0b; background:#fffaeb; }
+        #gdh-pane .gdh-statusbar[data-st="reviewing"] { --sc:#0ea5e9; background:#f0f9ff; }
+        #gdh-pane .gdh-statusbar[data-st="approved"]  { --sc:#16a34a; background:#f0fdf4; }
+        #gdh-pane .gdh-statusbar[data-st="viewed"]    { --sc:#2563eb; background:#eff6ff; }
+        #gdh-pane .gdh-statusbar[data-st="ordered"]   { --sc:#0f172a; background:#f8fafc; }
+        #gdh-pane.gdh-ro .gdh-in:disabled { background:#f1f5f9; color:#334155; opacity:1; cursor:not-allowed; }
         #gdh-pane.gdh-max #gdhGomView > .card { position:fixed; top:0; left:0; right:0; bottom:0; z-index:1060; margin:0 !important; border-radius:0; display:flex; flex-direction:column; overflow:hidden; padding:.6rem .9rem !important; }
         #gdh-pane.gdh-max #gdhGomView > .card > * { flex-shrink:0; }
         #gdh-pane.gdh-max #gdhGomView > .card > .gdh-scroll { flex:1 1 0; height:auto !important; min-height:0; overscroll-behavior:contain; }
@@ -2434,9 +2444,9 @@
                 <div class="d-flex flex-wrap gap-2">
                     <button type="button" class="btn btn-outline-secondary btn-sm" id="gdhMaxBtn" onclick="gdhToggleMax()" title="Phóng to khu vực soạn đơn (bấm Esc để thu nhỏ)"><i class="bi bi-arrows-fullscreen me-1"></i><span>Phóng to</span></button>
                     <button class="btn btn-outline-secondary btn-sm" id="gdhTopBtn" onclick="gdhToggleTop()" title="Thu gọn / mở rộng phần thống kê để xem được nhiều mã hơn"><i class="bi bi-arrows-collapse me-1"></i><span>Thu gọn</span></button>
-                    <button class="btn btn-primary btn-sm" onclick="gdhSave()"><i class="bi bi-save me-1"></i>Lưu</button>
+                    <button class="btn btn-primary btn-sm gdh-edit-only" onclick="gdhSave()"><i class="bi bi-save me-1"></i>Lưu</button>
                     <button class="btn btn-outline-success btn-sm" onclick="gdhExport('full')"><i class="bi bi-file-earmark-excel me-1"></i>Xuất bảng gôm</button>
-                    <button class="btn btn-success btn-sm" onclick="gdhExport('hvn')"><i class="bi bi-send me-1"></i>Xuất file đặt hàng</button>
+                    {% if role == 'admin' %}<button class="btn btn-success btn-sm" onclick="gdhExport('hvn')"><i class="bi bi-send me-1"></i>Xuất file đặt hàng</button>{% endif %}
                 </div>
             </div>
 
@@ -2453,11 +2463,11 @@
                 </select>
                 {% endif %}
                 <select class="form-select form-select-sm" style="width:auto;min-width:300px;" id="gdhBatch" onchange="gdhBatchChanged()"></select>
-                <button class="btn btn-outline-danger btn-sm" onclick="gdhDeleteBatch()" title="Xoá đợt gôm đang chọn"><i class="bi bi-trash"></i></button>
+                <button class="btn btn-outline-danger btn-sm gdh-edit-only" onclick="gdhDeleteBatch()" title="Xoá đợt gôm đang chọn"><i class="bi bi-trash"></i></button>
                 <span class="gdh-sep"></span>
-                <label class="btn btn-outline-primary btn-sm mb-0"><i class="bi bi-upload me-1"></i>Import file Tổng hợp tồn kho
+                <label class="btn btn-outline-primary btn-sm mb-0 gdh-edit-only"><i class="bi bi-upload me-1"></i>Import file Tổng hợp tồn kho
                     <input type="file" accept=".xlsx,.xls,.csv" class="d-none" onchange="gdhImport(this)"></label>
-                <button type="button" class="btn btn-link btn-sm text-decoration-none p-0" onclick="document.getElementById('gdhImpPeriod').classList.toggle('d-none')">Chọn kỳ thủ công</button>
+                <button type="button" class="btn btn-link btn-sm text-decoration-none p-0 gdh-edit-only" onclick="document.getElementById('gdhImpPeriod').classList.toggle('d-none')">Chọn kỳ thủ công</button>
                 <span id="gdhImpPeriod" class="d-none"><span class="d-flex align-items-center gap-2">
                     <input type="date" class="form-control form-control-sm" style="width:auto;" id="gdhImpFrom" title="Từ ngày">
                     <span class="text-muted">→</span>
@@ -2471,6 +2481,8 @@
                 {% endif %}
                 <span class="gdh-sub" id="gdhBundleInfo"></span>
             </div>
+
+            <div id="gdhStatusBar" class="gdh-statusbar d-none"></div>
 
             <div class="gdh-top">
                 <div class="gdh-settings">
@@ -2498,13 +2510,13 @@
                 <select class="form-select form-select-sm" style="width:auto;" id="gdhScope" onchange="gdhLoad(1)" title="Hàng đã xuất: mã có số xuất/bán trong kỳ (kèm mã bạn đã chỉnh, chọn loại đơn hoặc ghi chú). Cần đặt: chỉ các mã hệ thống đề xuất đặt hoặc có SL cuối > 0. Cả danh mục: mọi mã trong file import."><option value="sold" selected>Hàng đã xuất</option><option value="order">Cần đặt (đề xuất / SL cuối)</option><option value="all">Cả danh mục</option></select>
                 <input type="search" class="form-control form-control-sm" style="width:240px;" id="gdhQ" placeholder="Tìm mã / tên hàng / ghi chú..." oninput="clearTimeout(window._gdhT);window._gdhT=setTimeout(()=>gdhLoad(1),350)">
                 <span class="ms-auto"></span>
-                <span class="small text-muted">Gán nhanh loại đơn cho các mã chưa chọn:</span>
-                <select class="form-select form-select-sm" style="width:auto;" id="gdhBulkType" data-t="Định kỳ" onchange="this.dataset.t=this.value">
+                <span class="small text-muted gdh-edit-only">Gán nhanh loại đơn cho các mã chưa chọn:</span>
+                <select class="form-select form-select-sm gdh-edit-only" style="width:auto;" id="gdhBulkType" data-t="Định kỳ" onchange="this.dataset.t=this.value">
                     <option value="Định kỳ">Định kỳ</option><option value="Khẩn">Khẩn</option><option value="Đơn 26">Đơn 26</option>
                 </select>
-                <button class="btn btn-outline-secondary btn-sm" id="gdhAssignBtn" onclick="gdhAssignType()">Gán</button>
-                <button class="btn btn-outline-danger btn-sm d-none" id="gdhUndoBtn" onclick="gdhUndoLastAssign()" title="Hoàn tác đúng lần Gán nhanh vừa bấm">Hoàn tác</button>
-                <button class="btn btn-outline-danger btn-sm" id="gdhUnassignBtn" onclick="gdhUnassignType()" title="Bỏ loại đơn đang chọn ở ô bên cạnh khỏi TẤT CẢ các mã của đợt gôm">Bỏ gán</button>
+                <button class="btn btn-outline-secondary btn-sm gdh-edit-only" id="gdhAssignBtn" onclick="gdhAssignType()">Gán</button>
+                <button class="btn btn-outline-danger btn-sm d-none gdh-edit-only" id="gdhUndoBtn" onclick="gdhUndoLastAssign()" title="Hoàn tác đúng lần Gán nhanh vừa bấm">Hoàn tác</button>
+                <button class="btn btn-outline-danger btn-sm gdh-edit-only" id="gdhUnassignBtn" onclick="gdhUnassignType()" title="Bỏ loại đơn đang chọn ở ô bên cạnh khỏi TẤT CẢ các mã của đợt gôm">Bỏ gán</button>
                 <span class="small fw-semibold text-body-secondary ms-2" id="gdhCount"></span>
             </div>
 
@@ -2533,6 +2545,44 @@
                 <span class="small text-muted" id="gdhPageInfo"></span>
                 <button class="btn btn-outline-secondary btn-sm" onclick="gdhLoad(_gdhPage+1)">Sau &raquo;</button>
             </div></div>
+        </div>
+    </div>
+
+    <!-- ===== DUYỆT ĐƠN GÔM / ĐƠN ĐÃ ĐẨY (kiêm lưu trữ) ===== -->
+    <div id="gdhOrdersView" class="d-none">
+        <div class="card card-custom p-3 mb-3">
+            <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-2">
+                <h5 class="mb-0"><i class="bi bi-send-check me-2 text-primary"></i>{% if role == 'admin' %}Duyệt Đơn Gôm Của Chi Nhánh{% else %}Đơn Đã Đẩy Cho Admin{% endif %}</h5>
+                <button class="btn btn-outline-secondary btn-sm" onclick="gdhOrdersLoad()"><i class="bi bi-arrow-clockwise me-1"></i>Làm mới</button>
+            </div>
+            <div class="d-flex flex-wrap gap-2 align-items-center mb-2">
+                {% if role == 'admin' %}
+                <select class="form-select form-select-sm" style="width:auto;" id="gdhOStore" onchange="gdhOrdersLoad()">
+                    <option value="">Tất cả chi nhánh</option>
+                    <option value="NS1">NS1</option><option value="NS2">NS2</option><option value="NS3">NS3</option>
+                    <option value="NS4">NS4</option><option value="NS5">NS5</option><option value="NSM1">NSM1</option>
+                </select>
+                {% endif %}
+                <select class="form-select form-select-sm" style="width:auto;" id="gdhOStatus" onchange="gdhOrdersLoad()">
+                    {% if role == 'admin' %}<option value="active">Cần xử lý (Chờ duyệt + Đang duyệt)</option>{% endif %}
+                    <option value="all">Tất cả (lưu trữ)</option>
+                    <option value="pending">Chờ duyệt</option><option value="reviewing">Đang duyệt</option>
+                    <option value="approved">Đã duyệt</option><option value="viewed">Đã xem</option><option value="ordered">Đã đặt</option>
+                </select>
+                <label class="small text-muted mb-0">Đẩy từ ngày</label>
+                <input type="date" class="form-control form-control-sm" style="width:auto;" id="gdhOFrom" onchange="gdhOrdersLoad()">
+                <label class="small text-muted mb-0">đến ngày</label>
+                <input type="date" class="form-control form-control-sm" style="width:auto;" id="gdhOTo" onchange="gdhOrdersLoad()">
+            </div>
+            <div class="small text-muted mb-2" id="gdhOCounts"></div>
+            <div class="table-responsive">
+                <table class="table table-sm table-hover align-middle mb-0 text-nowrap">
+                    <thead class="table-light"><tr><th>Chi nhánh</th><th>Kỳ số bán</th><th>Trạng thái</th><th>Đẩy bởi</th><th>Admin duyệt</th>
+                        <th class="text-end">Đơn đã gửi</th><th></th></tr></thead>
+                    <tbody id="gdhOBody"><tr><td colspan="7" class="text-center text-muted py-3">Đang tải...</td></tr></tbody>
+                </table>
+            </div>
+            <div class="small text-muted mt-2">Đơn đã đẩy được lưu trữ lại (kèm bản chụp lúc đẩy, bản sau duyệt và lịch sử từng bước) nên không xoá được.</div>
         </div>
     </div>
 
@@ -3985,6 +4035,35 @@
                 </div>
             </div>
 
+            <div class="card card-custom p-3 mb-3 mb-md-4" id="ocGdhCard">
+                <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-2">
+                    <h5 class="mb-0"><i class="bi bi-send-check me-2 text-primary"></i>Đơn Gôm Chi Nhánh Đã Đẩy <span id="ocGdhBadge" class="badge bg-danger ms-1 d-none"></span></h5>
+                    <button type="button" class="btn btn-outline-secondary btn-sm" onclick="ocGdhLoad()"><i class="bi bi-arrow-clockwise me-1"></i>Làm mới</button>
+                </div>
+                <div class="small text-muted mb-2">Chi nhánh bấm <strong>Đẩy đơn cho admin</strong> ở Gôm đơn hàng thì đơn xuất hiện ở đây (chỉ gồm các mã có SL cuối &gt; 0 và đã chọn loại đơn). Bấm <strong>Lấy về duyệt</strong> để nạp mã + SL của đơn vào bảng <strong>Kiểm Tra Đơn Hàng</strong> bên dưới, chỉnh <strong>SL Duyệt</strong> / ghi chú từng mã rồi bấm <strong>Duyệt xong</strong>. File đặt hàng của chi nhánh vẫn theo SL cuối của gôm; SL Duyệt và ghi chú là để chi nhánh tham khảo.</div>
+                <div id="ocGdhActive" class="alert alert-info py-2 px-3 small d-none mb-2"></div>
+                <div class="d-flex flex-wrap gap-2 align-items-center mb-2">
+                    <select class="form-select form-select-sm" style="width:auto;" id="ocGdhStore" onchange="ocGdhLoad()">
+                        <option value="">Tất cả chi nhánh</option>
+                        <option value="NS1">NS1</option><option value="NS2">NS2</option><option value="NS3">NS3</option>
+                        <option value="NS4">NS4</option><option value="NS5">NS5</option><option value="NSM1">NSM1</option>
+                    </select>
+                    <select class="form-select form-select-sm" style="width:auto;" id="ocGdhStatus" onchange="ocGdhLoad()">
+                        <option value="active">Cần xử lý (Chờ duyệt + Đang duyệt)</option>
+                        <option value="all">Tất cả (lưu trữ)</option>
+                        <option value="pending">Chờ duyệt</option><option value="reviewing">Đang duyệt</option>
+                        <option value="approved">Đã duyệt</option><option value="viewed">Đã xem</option><option value="ordered">Đã đặt</option>
+                    </select>
+                    <span class="small text-muted" id="ocGdhCounts"></span>
+                </div>
+                <div class="table-responsive">
+                    <table class="table table-sm table-hover align-middle mb-0 text-nowrap">
+                        <thead class="table-light"><tr><th>Chi nhánh</th><th>Kỳ số bán</th><th>Trạng thái</th><th>Đẩy bởi</th><th>Admin duyệt</th><th class="text-end">Số mã / Tổng SL gửi</th><th></th></tr></thead>
+                        <tbody id="ocGdhBody"><tr><td colspan="7" class="text-center text-muted py-3">Đang tải...</td></tr></tbody>
+                    </table>
+                </div>
+            </div>
+
             <div class="card card-custom p-3 mb-3 mb-md-4">
                 <h5 class="mb-3"><i class="bi bi-clipboard2-check-fill me-2 text-primary"></i>Kiểm Tra Đơn Hàng</h5>
                 <div class="d-flex flex-wrap gap-2 align-items-center mb-2">
@@ -4741,6 +4820,7 @@
         loadTransfers(); // tải sớm để hiển thị số lượng badge yêu cầu đang chờ
         loadInventory(); // tải sớm để trang "Tổng Quan" có ngay mốc cập nhật tồn kho/giá
         loadOverviewDashboard(); // trang "Tổng Quan" active sẵn từ đầu, không qua sự kiện click tab nên gọi tay ở đây
+        _ocGdhRestore(); ocGdhNavBadge(); setInterval(ocGdhNavBadge, 60000);
         restoreOrderCheckSession(); // khôi phục phiên "Kiểm Tra Đơn Hàng" đang duyệt dở (nếu có), xem NHỚ PHIÊN ở trên
         setupDragZones();
         startVersionPolling();
@@ -5607,24 +5687,28 @@
         if (!document.getElementById('gdhDFrom').value) document.getElementById('gdhDFrom').value = iso(new Date(y, m, 1));
         if (!document.getElementById('gdhDTo').value) document.getElementById('gdhDTo').value = iso(new Date(y, m + 1, 0));
         gdhBundleInfo();
-        if (!document.getElementById('gdhDashView').classList.contains('d-none')) gdhDashLoad(); else gdhLoadBatches(_gdhBatchId);
+        gdhOrdersBadge();
+        if (!document.getElementById('gdhDashView').classList.contains('d-none')) gdhDashLoad();
+        else if (!document.getElementById('gdhOrdersView').classList.contains('d-none')) gdhOrdersLoad();
+        else gdhLoadBatches(_gdhBatchId);
     }
     function gdhSwitchView(v) {
-        const dash = v === 'dash';
-        if (dash && !_gdhConfirmLeave()) return;
-        if (dash) gdhToggleMax(false);
-        document.getElementById('gdhGomView').classList.toggle('d-none', dash);
-        document.getElementById('gdhDashView').classList.toggle('d-none', !dash);
-        document.getElementById('gdhBtnGom').classList.toggle('active', !dash);
-        document.getElementById('gdhBtnDash').classList.toggle('active', dash);
-        if (dash) { _gdhMarkDirty(false); gdhDashLoad(); } else gdhLoadBatches(_gdhBatchId);
+        if (v !== 'gom' && !_gdhConfirmLeave()) return;
+        if (v !== 'gom') { gdhToggleMax(false); _gdhMarkDirty(false); }
+        document.getElementById('gdhGomView').classList.toggle('d-none', v !== 'gom');
+        document.getElementById('gdhDashView').classList.toggle('d-none', v !== 'dash');
+        document.getElementById('gdhOrdersView').classList.toggle('d-none', v !== 'orders');
+        document.getElementById('gdhBtnGom').classList.toggle('active', v === 'gom');
+        document.getElementById('gdhBtnDash').classList.toggle('active', v === 'dash');
+        document.getElementById('gdhBtnOrders')?.classList.toggle('active', v === 'orders');
+        if (v === 'dash') gdhDashLoad(); else if (v === 'orders') gdhOrdersLoad(); else gdhLoadBatches(_gdhBatchId);
     }
 
     // ---------- Đợt gôm ----------
     async function gdhLoadBatches(selectId) {
         const sel = document.getElementById('gdhBatch');
         if (CURRENT_ROLE === 'admin' && !_gdhStore()) {
-            sel.innerHTML = ''; _gdhBatchId = null; _gdhRows = [];
+            sel.innerHTML = ''; _gdhBatchId = null; _gdhRows = []; _gdhClearStatus();
             document.getElementById('gdh-body').innerHTML = '<tr><td colspan="20" class="text-center py-4 text-muted">Vui lòng chọn chi nhánh.</td></tr>';
             ['gdhSummary', 'gdhInfo', 'gdhWarn', 'gdhCount', 'gdhPageInfo'].forEach(id => document.getElementById(id).innerHTML = '');
             return;
@@ -5632,7 +5716,7 @@
         try {
             const j = await _gdhJson('/api/gom-don-hang/batches?store=' + encodeURIComponent(_gdhStore()) + '&space=' + _gdhSpace());
             _gdhTypes = j.order_types || _gdhTypes;
-            sel.innerHTML = j.data.length ? j.data.map(b => `<option value="${b.id}">${_gdhDate(b.from)} - ${_gdhDate(b.to)} · ${b.total_parts} mã · ${b.typed_parts} đã chọn loại đơn</option>`).join('')
+            sel.innerHTML = j.data.length ? j.data.map(b => `<option value="${b.id}">${_gdhDate(b.from)} - ${_gdhDate(b.to)} · ${b.total_parts} mã · ${b.typed_parts} đã chọn loại đơn${b.space === 'store' && b.status && b.status !== 'draft' ? ' · [' + b.status_label + ']' : ''}</option>`).join('')
                                           : '<option value="">(Chưa có đợt nào - hãy import file tồn kho)</option>';
             const want = j.data.find(b => String(b.id) === String(selectId)) ? selectId : (j.data[0] && j.data[0].id);
             _gdhBatchId = want || null;
@@ -5640,7 +5724,7 @@
             _gdhMarkDirty(false); _gdhEdited = {};
             if (_gdhBatchId) await gdhLoad(1);
             else {
-                _gdhRows = [];
+                _gdhRows = []; _gdhClearStatus();
                 document.getElementById('gdh-body').innerHTML = '<tr><td colspan="20" class="text-center py-4 text-muted">Chưa có dữ liệu. Bấm "Chọn file Tổng hợp tồn kho" để import.</td></tr>';
                 ['gdhSummary', 'gdhInfo', 'gdhWarn', 'gdhCount', 'gdhPageInfo'].forEach(id => document.getElementById(id).innerHTML = '');
             }
@@ -5783,6 +5867,7 @@
         return `<div class="mt-1"><span class="gdh-tag">Quy cách</span> <span class="gdh-sub">→ mã cha <b class="text-primary">${_gdhEsc(r.bundle_parent)}</b> · 1 = ${_gdhFmt(r.bundle_ratio, 2)}</span></div>`;
     }
     function gdhRowHtml(r, i, optT) {
+        const ro = _gdhReadOnly ? 'disabled' : '';
         const lock = r.locked
             ? `<div class="mt-1"><span class="badge bg-danger me-1">Khoá đặt hàng</span>` +
               (r.lock_replace ? `<span class="gdh-sub">thay bằng <b class="text-body">${_gdhEsc(r.lock_replace)}</b></span>` : `<span class="text-danger gdh-sub">chưa có mã thay thế</span>`) + `</div>`
@@ -5797,12 +5882,12 @@
             <td class="gdh-num gdh-st0 ${r.sales > 0 ? '' : 'gdh-zero'}" title="${tip}">${_gdhFmt(r.sales)}</td>${_gdhPoCells(r)}
             <td class="gdh-num ${r.suggest > 0 ? 'gdh-cell-sug' : 'gdh-zero'}">${_gdhFmt(r.suggest)}${r.bundle_parent ? `<div class="gdh-sub" title="Đề xuất tính theo mã con, đã quy ra mã cha ở số bên trên">${_gdhFmt(r.suggest_child, 0)} con</div>` : ''}</td>
             <td><input type="text" inputmode="numeric" autocomplete="off" class="form-control form-control-sm gdh-in gdh-in-adj" data-col="adj" data-i="${i}"
-                       placeholder="0" value="${r.adj ? r.adj : ''}" onfocus="this.select()" oninput="gdhAdjInput(${i},this)" onkeydown="gdhKey(event,this)"></td>
+                       placeholder="0" ${ro} value="${r.adj ? r.adj : ''}" onfocus="this.select()" oninput="gdhAdjInput(${i},this)" onkeydown="gdhKey(event,this)"></td>
             <td class="gdh-num ${r.qty_final > 0 ? 'gdh-cell-fin' : 'gdh-zero'}" id="gdh-fin-${i}">${_gdhFmt(r.qty_final)}</td>
-            <td><select class="form-select form-select-sm gdh-in gdh-in-type" onchange="gdhEdit(${i},'order_type',this.value)">${optT(r.order_type)}</select></td>
+            <td><select class="form-select form-select-sm gdh-in gdh-in-type" ${ro} onchange="gdhEdit(${i},'order_type',this.value)">${optT(r.order_type)}</select></td>
             <td id="gdh-ord-${i}">${_gdhOrdHtml(r)}</td>
             <td><input type="text" maxlength="500" autocomplete="off" class="form-control form-control-sm gdh-in gdh-in-note" data-col="note" data-i="${i}"
-                       placeholder="Ghi chú..." title="${_gdhEsc(r.note)}" value="${_gdhEsc(r.note)}" oninput="gdhEdit(${i},'note',this.value)" onkeydown="gdhKey(event,this)"></td>
+                       placeholder="Ghi chú..." ${ro} title="${_gdhEsc(r.note)}" value="${_gdhEsc(r.note)}" oninput="gdhEdit(${i},'note',this.value)" onkeydown="gdhKey(event,this)"></td>
             <td class="gdh-num"><div id="gdh-amt-${i}" class="${r.amount ? '' : 'gdh-zero'}">${_gdhFmt(r.amount, 0)}</div><div class="gdh-sub">${r.ord_cost === null || r.ord_cost === undefined ? (r.qty_final > 0 ? '<span class="text-danger" title="Không có giá vốn / giá nhập của mã này">Thiếu GV ' + _gdhEsc(r.cost_code || '') + '</span>' : '') : (r.bundle_parent ? 'GV cha ' : 'GV ') + _gdhFmt(r.ord_cost, 0)}</div></td></tr>`;
     }
     function gdhMarkFilters() {          // tô xanh ô lọc đang có giá trị khác mặc định
@@ -5867,6 +5952,7 @@
         let st = document.getElementById('gdhHideStore');
         if (!st) { st = document.createElement('style'); st.id = 'gdhHideStore'; document.head.appendChild(st); }
         st.textContent = `#gdh-pane [data-st="${b.store}"] { display: none; }`;   // chi nhánh đang gôm đã có cột Tồn HT
+        gdhRenderStatus(b);
         gdhRenderSummary(b, t);
     }
     function gdhRenderSummary(b, t) {      // cảnh báo + thẻ tổng; gọi lại sau mỗi lần lưu (không đụng tới ô ngày / số tuần đang gõ)
@@ -5988,6 +6074,200 @@
         if (!_gdhBatchId) { alert('Chưa chọn đợt gôm.'); return; }
         if (_gdhDirty && !(await gdhSave(true))) return;      // tự lưu trước khi xuất
         _gdhDownload('/api/gom-don-hang/export?kind=' + kind + '&batch_id=' + _gdhBatchId);
+    }
+
+    // =====================================================================
+    // DUYỆT ĐƠN GÔM: Nháp -> Chờ duyệt -> Đang duyệt -> Đã duyệt -> Đã xem -> Đã đặt
+    // =====================================================================
+    let _gdhReadOnly = false;
+    const _GDH_ST_CLS = {draft: 'bg-secondary', pending: 'bg-warning text-dark', reviewing: 'bg-info text-dark', approved: 'bg-success', viewed: 'bg-primary', ordered: 'bg-dark'};
+    const _gdhStBadge = (st, label) => `<span class="badge ${_GDH_ST_CLS[st] || 'bg-secondary'}">${_gdhEsc(label || st)}</span>`;
+    const _gdhBtn = (cls, icon, text, fn) => `<button type="button" class="btn ${cls} btn-sm" onclick="${fn}"><i class="bi ${icon} me-1"></i>${text}</button>`;
+
+    function _gdhClearStatus() {           // tab Gôm không còn đợt nào (vd: vừa đẩy đơn đi): bỏ thanh trạng thái cũ, mở lại các ô nhập
+        const bar = document.getElementById('gdhStatusBar'); if (bar) bar.classList.add('d-none');
+        _gdhReadOnly = false;
+        document.getElementById('gdh-pane').classList.remove('gdh-ro');
+        ['gdhFrom', 'gdhTo', 'gdhWeeks'].forEach(id => { const e = document.getElementById(id); if (e) e.disabled = false; });
+    }
+    function _gdhGoOrders() { gdhSwitchView('orders'); gdhOrdersBadge(); }      // admin xong việc (duyệt/trả về): sang danh sách đơn
+    function gdhRenderStatus(b) {          // thanh trạng thái + nút thao tác của đợt đang mở; khoá bảng khi đơn không còn sửa được
+        const bar = document.getElementById('gdhStatusBar'), pane = document.getElementById('gdh-pane');
+        _gdhReadOnly = !b.can_edit;
+        pane.classList.toggle('gdh-ro', _gdhReadOnly);
+        ['gdhFrom', 'gdhTo', 'gdhWeeks'].forEach(id => { const e = document.getElementById(id); if (e) e.disabled = _gdhReadOnly; });
+        const isAdmin = CURRENT_ROLE === 'admin';
+        if (isAdmin && b.space !== 'store') { bar.classList.add('d-none'); return; }     // gôm riêng của admin: không qua luồng duyệt
+        const st = b.status, e = _gdhEsc;
+        const note = (label, v) => v ? ` · ${label}: <i>${e(v)}</i>` : '';
+        let info = '', acts = '';
+        if (st === 'draft') {
+            info = isAdmin ? 'Chi nhánh chưa đẩy đơn này (đang là bảng gôm nháp).' : 'Đơn nháp. Soạn xong hãy đẩy cho admin duyệt.';
+            if (!isAdmin) acts = _gdhBtn('btn-primary', 'bi-send', 'Đẩy đơn cho admin', 'gdhSubmit()');
+        } else if (st === 'pending') {
+            info = `Đẩy bởi <b>${e(b.submitted_by)}</b> lúc ${e(b.submitted_at)}${note('Ghi chú', b.submit_note)}. ` + (isAdmin ? 'Duyệt tại menu Quản Trị Hệ Thống > Duyệt Đơn Hàng.' : 'Đang chờ admin lấy về duyệt - đơn đã khoá.');
+            acts = isAdmin ? '' : _gdhBtn('btn-outline-danger', 'bi-arrow-counterclockwise', 'Thu hồi đơn', 'gdhRecall()');
+        } else if (st === 'reviewing') {
+            info = `<b>${e(b.claimed_by)}</b> đang duyệt từ ${e(b.claimed_at)}` + (isAdmin ? ' tại menu Duyệt Đơn Hàng.' : '. Đơn đang khoá.');
+        } else {
+            info = `Duyệt bởi <b>${e(b.approved_by)}</b> lúc ${e(b.approved_at)}${note('Ghi chú của admin', b.review_note)}`;
+            if (b.viewed_at) info += ` · Đã xem lúc ${e(b.viewed_at)}`;
+            if (b.ordered_at) info += ` · Đã đặt lúc ${e(b.ordered_at)}${b.ordered_by ? ' (' + e(b.ordered_by) + ')' : ''}`;
+            acts = _gdhBtn(st === 'approved' && !isAdmin ? 'btn-warning' : 'btn-outline-secondary', 'bi-eye', 'Xem kết quả duyệt', `gdhOpenCompare(${b.id})`);
+            if (!isAdmin) acts += _gdhBtn(st === 'ordered' ? 'btn-outline-success' : 'btn-success', 'bi-download', st === 'ordered' ? 'Tải lại file đặt hàng' : 'Tải đơn về', `gdhDownloadOrder(${b.id})`);
+        }
+        bar.dataset.st = st;
+        bar.innerHTML = `<span>${_gdhStBadge(st, b.status_label)}</span><span class="gdh-sub flex-grow-1" style="font-size:.85rem">${info}</span><span class="d-flex flex-wrap gap-2">${acts}</span>`;
+        bar.classList.remove('d-none');
+    }
+
+    async function _gdhAct(action, body, doneMsg) {          // gọi 1 bước chuyển trạng thái; hỏi lại nếu server cần xác nhận (còn mã chưa chọn loại đơn)
+        const hdr = {'Content-Type': 'application/json'};
+        const go = (extra) => _gdhJson('/api/gom-don-hang/' + action, {method: 'POST', headers: hdr, body: JSON.stringify(Object.assign({batch_id: _gdhBatchId}, body || {}, extra || {}))});
+        try {
+            try { await go(); }
+            catch (e) { if (e.data && e.data.need_confirm && confirm(e.message)) await go({confirm_unassigned: true}); else throw e; }
+            if (doneMsg) alert(doneMsg);
+            return true;
+        } catch (e) { alert(e.message); return false; }
+    }
+    async function _gdhAfterAct() {
+        if (!document.getElementById('gdhOrdersView').classList.contains('d-none')) await gdhOrdersLoad();
+        else await gdhLoadBatches(_gdhBatchId);
+        gdhOrdersBadge();
+    }
+    async function gdhSubmit() {
+        if (!_gdhBatchId) return;
+        if (_gdhDirty && !(await gdhSave(true))) return;
+        const note = prompt('Đẩy đơn này cho admin duyệt?\nSau khi đẩy, đơn bị khoá (chỉ thu hồi được khi còn "Chờ duyệt").\n\nGhi chú cho admin (không bắt buộc) - bấm OK để đẩy đơn:', '');
+        if (note === null) return;
+        if (await _gdhAct('submit', {note: note.trim()}, 'Đã đẩy đơn cho admin (Chờ duyệt).\nChỉ các mã có SL cuối > 0 và đã chọn loại đơn được gửi. Đơn chuyển sang tab "Đơn đã đẩy" để theo dõi; bảng gôm được làm mới để bạn làm đơn mới.')) await _gdhAfterAct();
+    }
+    async function gdhRecall(id) {
+        if (!confirm('Thu hồi đơn về Nháp để sửa lại? (Chỉ được khi admin chưa lấy về duyệt)')) return;
+        if (await _gdhAct('recall', id ? {batch_id: id} : {}, id ? 'Đã thu hồi đơn về Nháp. Đơn nằm lại ở tab Gôm đơn hàng để bạn sửa.' : '')) await _gdhAfterAct();
+    }
+    async function gdhClaim(id) {          // từ bảng gôm hoặc từ danh sách: lấy về duyệt rồi mở thẳng đơn đó để sửa
+        if (id) _gdhBatchId = id;
+        if (!(await _gdhAct('claim'))) { _gdhAfterAct(); return; }
+        const store = _gdhBatchMeta && String(_gdhBatchMeta.id) === String(id) ? _gdhBatchMeta.store : (_gdhOrdersCache.find(o => String(o.id) === String(id)) || {}).store;
+        gdhOpenBatch(store, id);
+        gdhOrdersBadge();
+    }
+    async function gdhRelease(id) {
+        if (!confirm('Trả đơn về hàng chờ duyệt? Các chỉnh sửa bạn đã làm vẫn được giữ trong đơn.')) return;
+        if (id) _gdhBatchId = id;
+        if (_gdhDirty && !(await gdhSave(true))) return;
+        if (await _gdhAct('release')) _gdhGoOrders();
+    }
+    async function gdhDownloadOrder(id) {
+        id = id || _gdhBatchId;
+        if (!id) return;
+        await _gdhDownload('/api/gom-don-hang/export?kind=hvn&batch_id=' + id);       // server tự chuyển sang "Đã đặt" khi tải thành công
+        await _gdhAfterAct();
+        const m = document.getElementById('gdhCmpModal');
+        if (m && m.classList.contains('show') && _gdhCmp && String(_gdhCmp.batch.id) === String(id)) gdhOpenCompare(id, true);
+    }
+    function gdhOpenBatch(store, id) {     // mở 1 đơn trong tab Gôm đơn hàng (admin: sang không gian của chi nhánh)
+        if (!_gdhConfirmLeave()) return;
+        _gdhBatchId = id; _gdhEdited = {}; _gdhMarkDirty(false);
+        if (CURRENT_ROLE === 'admin') {
+            _gdhSpaceVal = 'store';
+            ['gdhSpace', 'gdhDSpace'].forEach(x => { const el = document.getElementById(x); if (el) el.value = 'store'; });
+            if (store) document.getElementById('gdhStore').value = store;
+        }
+        gdhSwitchView('gom');
+    }
+
+    // ---------- Danh sách đơn đã đẩy / lưu trữ ----------
+    let _gdhOrdersCache = [];
+    async function gdhOrdersBadge() {      // admin: số đơn Chờ duyệt; cửa hàng: số đơn đã duyệt nhưng chưa tải về
+        const el = document.getElementById('gdhOBadge'); if (!el) return;
+        try {
+            const j = await _gdhJson('/api/gom-don-hang/orders?counts_only=1');
+            const n = CURRENT_ROLE === 'admin' ? (j.counts.pending || 0) : ((j.counts.approved || 0) + (j.counts.viewed || 0));
+            el.textContent = n; el.classList.toggle('d-none', !n);
+            el.title = CURRENT_ROLE === 'admin' ? n + ' đơn đang chờ duyệt' : n + ' đơn đã duyệt, chưa tải về';
+        } catch (e) { /* không chặn giao diện nếu lỗi */ }
+    }
+    async function gdhOrdersLoad() {
+        const g = id => document.getElementById(id)?.value || '';
+        const p = new URLSearchParams({status: g('gdhOStatus'), from: g('gdhOFrom'), to: g('gdhOTo')});
+        if (CURRENT_ROLE === 'admin' && g('gdhOStore')) p.set('store', g('gdhOStore'));
+        const body = document.getElementById('gdhOBody');
+        try {
+            const j = await _gdhJson('/api/gom-don-hang/orders?' + p);
+            _gdhOrdersCache = j.data;
+            const L = j.status_labels, c = j.counts;
+            document.getElementById('gdhOCounts').innerHTML = ['pending', 'reviewing', 'approved', 'viewed', 'ordered'].map(k => `${_gdhEsc(L[k])}: <b>${c[k] || 0}</b>`).join(' · ');
+            const sum = s => s ? `${_gdhFmt(s.parts, 0)} mã · SL ${_gdhFmt(s.qty, 0)}<div class="gdh-sub">${_gdhFmt(s.amount, 0)} đ</div>` : '<span class="text-muted">–</span>';
+            const isAdmin = CURRENT_ROLE === 'admin';
+            body.innerHTML = j.data.length ? j.data.map(o => {
+                let acts = '';
+                if (isAdmin && o.status === 'pending') acts += _gdhBtn('btn-primary', 'bi-box-arrow-in-down', 'Lấy về duyệt', `gdhClaim(${o.id})`);
+                else if (isAdmin && o.status === 'reviewing' && o.claimed_by_me) acts += _gdhBtn('btn-outline-primary', 'bi-pencil-square', 'Mở để duyệt', `gdhOpenBatch('${_gdhEsc(o.store)}', ${o.id})`);
+                if (!isAdmin && o.status === 'pending') acts += _gdhBtn('btn-outline-danger', 'bi-arrow-counterclockwise', 'Thu hồi', `gdhRecall(${o.id})`);
+                if (o.status !== 'pending' && (isAdmin || ['approved', 'viewed', 'ordered'].includes(o.status))) acts += _gdhBtn(!isAdmin && o.status === 'approved' ? 'btn-warning' : 'btn-outline-secondary', 'bi-eye', 'Xem kết quả duyệt', `gdhOpenCompare(${o.id})`);
+                if (!isAdmin && ['approved', 'viewed', 'ordered'].includes(o.status)) acts += _gdhBtn(o.status === 'ordered' ? 'btn-outline-success' : 'btn-success', 'bi-download', o.status === 'ordered' ? 'Tải lại file đặt hàng' : 'Tải đơn về', `gdhDownloadOrder(${o.id})`);
+                const who = o.status === 'reviewing' ? `${_gdhEsc(o.claimed_by)}<div class="gdh-sub">${_gdhEsc(o.claimed_at)}</div>`
+                          : (o.approved_by ? `${_gdhEsc(o.approved_by)}<div class="gdh-sub">${_gdhEsc(o.approved_at)}</div>` : '<span class="text-muted">–</span>');
+                const last = o.ordered_at ? `Đặt ${_gdhEsc(o.ordered_at)}` : (o.viewed_at ? `Xem ${_gdhEsc(o.viewed_at)}` : '');
+                return `<tr><td class="fw-semibold">${_gdhEsc(o.store)}</td><td>${_gdhDate(o.from)} - ${_gdhDate(o.to)}</td>` +
+                    `<td>${_gdhStBadge(o.status, o.status_label)}<div class="gdh-sub">${last}</div></td>` +
+                    `<td>${_gdhEsc(o.submitted_by)}<div class="gdh-sub">${_gdhEsc(o.submitted_at)}</div>${o.submit_note ? `<div class="gdh-sub" title="${_gdhEsc(o.submit_note)}">“${_gdhEsc(o.submit_note.slice(0, 40))}${o.submit_note.length > 40 ? '…' : ''}”</div>` : ''}</td>` +
+                    `<td>${who}</td><td class="text-end">${sum(o.submitted_sum)}</td>` +
+                    `<td><div class="d-flex flex-wrap gap-1">${acts}</div></td></tr>`;
+            }).join('') : '<tr><td colspan="7" class="text-center text-muted py-3">Không có đơn nào khớp bộ lọc.</td></tr>';
+        } catch (e) { body.innerHTML = `<tr><td colspan="7" class="text-center text-danger py-3">${_gdhEsc(e.message)}</td></tr>`; }
+        gdhOrdersBadge();
+    }
+
+    // ---------- Kết quả duyệt: STT, mã, tên, SL gửi, SL duyệt, ghi chú ----------
+    let _gdhCmp = null, _gdhCmpOnlyChg = true;
+    function _gdhEnsureCmpModal() {
+        if (document.getElementById('gdhCmpModal')) return;
+        document.body.insertAdjacentHTML('beforeend', `<div class="modal fade" id="gdhCmpModal" tabindex="-1"><div class="modal-dialog modal-xl modal-dialog-scrollable"><div class="modal-content">
+            <div class="modal-header"><h5 class="modal-title" id="gdhCmpTitle"></h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+            <div class="modal-body" id="gdhCmpBody"></div><div class="modal-footer" id="gdhCmpFoot"></div></div></div></div>`);
+    }
+    async function gdhOpenCompare(id, silentRefresh) {
+        id = id || _gdhBatchId;
+        if (!id) return;
+        try {
+            const j = await _gdhJson('/api/gom-don-hang/compare?batch_id=' + id);
+            _gdhCmp = j;
+            _gdhEnsureCmpModal();
+            _gdhCmpRender();
+            if (!silentRefresh) bootstrap.Modal.getOrCreateInstance(document.getElementById('gdhCmpModal')).show();
+            if (CURRENT_ROLE === 'store' && j.batch.status === 'approved') {       // cửa hàng đã mở xem -> Đã xem
+                const r = await _gdhJson('/api/gom-don-hang/mark-viewed', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({batch_id: id})});
+                if (r.changed) { _gdhCmp.batch.status = 'viewed'; _gdhCmp.batch.status_label = 'Đã xem'; _gdhCmpRender(); _gdhAfterAct(); }
+            }
+        } catch (e) { alert(e.message); }
+    }
+    function gdhCmpToggle(on) { _gdhCmpOnlyChg = on; _gdhCmpRender(); }
+    function _gdhCmpRender() {                 // kết quả duyệt: STT, mã hàng, tên hàng, SL gửi, SL duyệt, ghi chú của admin
+        const j = _gdhCmp, b = j.batch, e = _gdhEsc;
+        document.getElementById('gdhCmpTitle').innerHTML = `${e(b.store)} · kỳ ${_gdhDate(b.from)} - ${_gdhDate(b.to)} ${_gdhStBadge(b.status, b.status_label)}`;
+        const info = j.reviewed
+            ? `<div class="small text-muted mb-2">Duyệt bởi <b>${e(b.approved_by)}</b> lúc ${e(b.approved_at)}${b.review_note ? ` · Ghi chú chung: <i>${e(b.review_note)}</i>` : ''}</div>`
+            : `<div class="alert alert-info py-1 px-2 small">Đơn chưa duyệt xong: SL duyệt và ghi chú sẽ hiện sau khi admin duyệt xong.</div>`;
+        const sentTotal = j.rows.reduce((s, r) => s + (r.sent_qty || 0), 0);
+        const rows = j.rows.map(r => {
+            const diff = r.approved_qty !== null && r.approved_qty !== r.sent_qty;
+            return `<tr><td class="text-muted">${r.stt}</td><td class="fw-semibold">${e(r.part_code)}</td><td style="white-space:normal;min-width:220px">${e(r.part_name)}</td>` +
+                `<td class="text-end">${_gdhFmt(r.sent_qty, 0)}</td>` +
+                `<td class="text-end ${diff ? 'fw-bold text-warning-emphasis bg-warning-subtle' : ''}">${r.approved_qty === null ? '<span class="text-muted">–</span>' : _gdhFmt(r.approved_qty, 0)}</td>` +
+                `<td style="white-space:normal;min-width:200px">${e(r.note)}</td></tr>`;
+        }).join('');
+        const table = `<div class="small mb-1">${j.rows.length} mã · tổng SL gửi ${_gdhFmt(sentTotal, 0)}</div><div class="table-responsive" style="max-height:60vh"><table class="table table-sm align-middle mb-2 text-nowrap"><thead class="table-light" style="position:sticky;top:0;z-index:2"><tr>` +
+            `<th>STT</th><th>Mã hàng</th><th>Tên hàng</th><th class="text-end">SL gửi</th><th class="text-end">SL duyệt</th><th>Ghi chú</th></tr></thead><tbody>` +
+            (rows || '<tr><td colspan="6" class="text-center text-muted py-3">Đơn không có mã nào.</td></tr>') + `</tbody></table></div>`;
+        document.getElementById('gdhCmpBody').innerHTML = `<style>#gdhCmpModal .modal-content{font-family:'Segoe UI',Roboto,'Helvetica Neue',Arial,'Noto Sans',sans-serif;font-variant-numeric:tabular-nums slashed-zero;}` +
+            `#gdhCmpModal table{font-size:.95rem;}#gdhCmpModal th{font-weight:700;letter-spacing:.02em;color:#334155;}#gdhCmpModal td{color:#0f172a;}</style>` + info + table;
+        const canDl = CURRENT_ROLE === 'store' && ['approved', 'viewed', 'ordered'].includes(b.status);
+        document.getElementById('gdhCmpFoot').innerHTML = `<button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Đóng</button>` +
+            (canDl ? `<button type="button" class="btn ${b.status === 'ordered' ? 'btn-outline-success' : 'btn-success'}" onclick="gdhDownloadOrder(${b.id})"><i class="bi bi-download me-1"></i>${b.status === 'ordered' ? 'Tải lại file đặt hàng' : 'Tải đơn về (chuyển Đã đặt)'}</button>` : '');
     }
 
     // ---------- Dashboard ----------
@@ -7090,6 +7370,111 @@
     let _orderCheckCurrentStore = '';
 
     // ---------------------------------------------------------------------
+    // DUYỆT ĐƠN GÔM CỦA CHI NHÁNH (nằm trong menu Duyệt Đơn Hàng)
+    // Lấy về duyệt -> nạp mã + SL cuối vào bảng Kiểm Tra Đơn Hàng -> admin chỉnh SL Duyệt / ghi chú
+    // từng mã -> Duyệt xong (lưu SL Duyệt + ghi chú cho cửa hàng xem, chi nhánh nhận thông báo).
+    // ---------------------------------------------------------------------
+    const OC_GDH_KEY = 'ocGdhActive_v1';
+    let _ocGdh = null;            // {id, store, from, to, codes: [mã chi nhánh đã gửi]}
+    function _ocGdhSave() { try { if (_ocGdh) localStorage.setItem(OC_GDH_KEY, JSON.stringify(_ocGdh)); else localStorage.removeItem(OC_GDH_KEY); } catch (e) { /* bỏ qua */ } }
+    function _ocGdhRestore() { try { _ocGdh = JSON.parse(localStorage.getItem(OC_GDH_KEY) || 'null'); } catch (e) { _ocGdh = null; } _ocGdhRenderActive(); }
+    function _ocGdhRenderActive() {
+        const el = document.getElementById('ocGdhActive'); if (!el) return;
+        if (!_ocGdh) { el.classList.add('d-none'); el.innerHTML = ''; return; }
+        el.classList.remove('d-none');
+        el.innerHTML = `<div class="d-flex flex-wrap align-items-center gap-2"><span class="flex-grow-1"><i class="bi bi-pencil-square me-1"></i>Đang duyệt đơn gôm <b>${_gdhEsc(_ocGdh.store)}</b> · kỳ ${_gdhDate(_ocGdh.from)} - ${_gdhDate(_ocGdh.to)} · <b>${_ocGdh.codes.length}</b> mã. Chỉnh <b>SL Duyệt</b> và <b>Ghi Chú</b> ở bảng bên dưới rồi bấm Duyệt xong.</span>` +
+            `<button type="button" class="btn btn-outline-secondary btn-sm" onclick="ocGdhRelease()"><i class="bi bi-box-arrow-up me-1"></i>Trả về hàng chờ</button>` +
+            `<button type="button" class="btn btn-success btn-sm" onclick="ocGdhApprove()"><i class="bi bi-check2-circle me-1"></i>Duyệt xong</button></div>`;
+    }
+    async function ocGdhNavBadge() {            // số đơn Chờ duyệt hiện trên menu Duyệt Đơn Hàng
+        if (CURRENT_ROLE !== 'admin') return;
+        try {
+            const j = await _gdhJson('/api/gom-don-hang/orders?counts_only=1');
+            const n = (j.counts && j.counts.pending) || 0;
+            document.querySelectorAll('.oc-nav-badge').forEach(el => { el.textContent = n; el.classList.toggle('d-none', !n); el.title = n + ' đơn gôm đang chờ duyệt'; });
+        } catch (e) { /* không chặn giao diện */ }
+    }
+    async function ocGdhLoad() {
+        ocGdhNavBadge();
+        const g = id => document.getElementById(id)?.value || '';
+        const p = new URLSearchParams({status: g('ocGdhStatus') || 'active'});
+        if (g('ocGdhStore')) p.set('store', g('ocGdhStore'));
+        const body = document.getElementById('ocGdhBody'); if (!body) return;
+        try {
+            const j = await _gdhJson('/api/gom-don-hang/orders?' + p);
+            const L = j.status_labels, c = j.counts;
+            document.getElementById('ocGdhCounts').innerHTML = ['pending', 'reviewing', 'approved', 'viewed', 'ordered'].map(k => `${_gdhEsc(L[k])}: <b>${c[k] || 0}</b>`).join(' · ');
+            const bd = document.getElementById('ocGdhBadge'); if (bd) { bd.textContent = c.pending || 0; bd.classList.toggle('d-none', !(c.pending > 0)); }
+            if (_ocGdh && !j.data.some(o => o.id === _ocGdh.id)) {                    // đơn đang duyệt không nằm trong bộ lọc: kiểm tra riêng
+                const j2 = await _gdhJson('/api/gom-don-hang/orders?status=reviewing');
+                if (!j2.data.some(o => o.id === _ocGdh.id && o.claimed_by_me)) { _ocGdh = null; _ocGdhSave(); _ocGdhRenderActive(); }
+            }
+            const sum = s => s ? `${_gdhFmt(s.parts, 0)} mã · SL ${_gdhFmt(s.qty, 0)}` : '<span class="text-muted">–</span>';
+            body.innerHTML = j.data.length ? j.data.map(o => {
+                let acts = '';
+                if (o.status === 'pending') acts += _gdhBtn('btn-primary', 'bi-box-arrow-in-down', 'Lấy về duyệt', `ocGdhClaim(${o.id})`);
+                else if (o.status === 'reviewing' && o.claimed_by_me) acts += _gdhBtn('btn-outline-primary', 'bi-pencil-square', 'Mở để duyệt', `ocGdhOpen(${o.id})`);
+                if (o.status !== 'pending') acts += _gdhBtn('btn-outline-secondary', 'bi-eye', 'Xem kết quả', `gdhOpenCompare(${o.id})`);
+                const who = o.status === 'reviewing' ? `${_gdhEsc(o.claimed_by)}<div class="gdh-sub">${_gdhEsc(o.claimed_at)}</div>`
+                          : (o.approved_by ? `${_gdhEsc(o.approved_by)}<div class="gdh-sub">${_gdhEsc(o.approved_at)}</div>` : '<span class="text-muted">–</span>');
+                return `<tr><td class="fw-semibold">${_gdhEsc(o.store)}</td><td>${_gdhDate(o.from)} - ${_gdhDate(o.to)}</td><td>${_gdhStBadge(o.status, o.status_label)}</td>` +
+                    `<td>${_gdhEsc(o.submitted_by)}<div class="gdh-sub">${_gdhEsc(o.submitted_at)}</div>${o.submit_note ? `<div class="gdh-sub" title="${_gdhEsc(o.submit_note)}">“${_gdhEsc(o.submit_note.slice(0, 40))}${o.submit_note.length > 40 ? '…' : ''}”</div>` : ''}</td>` +
+                    `<td>${who}</td><td class="text-end">${sum(o.submitted_sum)}</td><td><div class="d-flex flex-wrap gap-1">${acts}</div></td></tr>`;
+            }).join('') : '<tr><td colspan="7" class="text-center text-muted py-3">Không có đơn nào khớp bộ lọc.</td></tr>';
+        } catch (e) { body.innerHTML = `<tr><td colspan="7" class="text-center text-danger py-3">${_gdhEsc(e.message)}</td></tr>`; }
+    }
+    async function ocGdhClaim(id) {
+        if (_ocGdh && _ocGdh.id !== id && !confirm('Bạn đang duyệt dở một đơn gôm khác trên màn này. Lấy đơn mới sẽ thay phiên đang duyệt (đơn cũ vẫn ở trạng thái Đang duyệt, mở lại được bằng nút "Mở để duyệt"). Tiếp tục?')) return;
+        try { await _gdhJson('/api/gom-don-hang/claim', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({batch_id: id})}); }
+        catch (e) { alert(e.message); ocGdhLoad(); return; }
+        await ocGdhOpen(id, true);
+    }
+    async function ocGdhOpen(id, skipConfirm) {
+        if (!skipConfirm && _ocGdh && _ocGdh.id !== id && !confirm('Mở đơn này sẽ thay phiên đang duyệt trên màn hình. Tiếp tục?')) return;
+        let j;
+        try { j = await _gdhJson('/api/gom-don-hang/review-lines?batch_id=' + id); } catch (e) { alert(e.message); ocGdhLoad(); return; }
+        if (!j.items.length) { alert('Đơn này không có mã nào (SL cuối > 0 và đã chọn loại đơn).'); return; }
+        const sel = document.getElementById('orderCheckStoreSelect');
+        if (sel) sel.value = j.batch.store;
+        document.getElementById('orderCheckInput').value = j.items.map(i => i.part_code + '\t' + i.qty).join('\n');
+        _ocGdh = {id: id, store: j.batch.store, from: j.batch.from, to: j.batch.to, codes: j.items.map(i => i.part_code)};
+        _ocGdhSave(); _ocGdhRenderActive();
+        await runOrderCheck();
+        ocGdhLoad();
+        document.getElementById('orderCheckResultCard')?.scrollIntoView({behavior: 'smooth', block: 'start'});
+    }
+    async function ocGdhRelease() {
+        if (!_ocGdh || !confirm('Trả đơn về hàng chờ duyệt? SL Duyệt đang chỉnh trên màn hình sẽ không được lưu cho đơn này.')) return;
+        try { await _gdhJson('/api/gom-don-hang/release', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({batch_id: _ocGdh.id})}); }
+        catch (e) { alert(e.message); return; }
+        _ocGdh = null; _ocGdhSave(); _ocGdhRenderActive(); ocGdhLoad();
+    }
+    async function ocGdhApprove() {
+        if (!_ocGdh) return;
+        if (!_orderCheckData || !_orderCheckData.length || _orderCheckCurrentStore !== _ocGdh.store) { alert('Bảng Kiểm Tra Đơn Hàng hiện không phải của đơn này. Bấm "Mở để duyệt" ở danh sách để nạp lại đơn rồi duyệt.'); return; }
+        document.querySelectorAll('.order-check-note-input').forEach(el => {          // ô ghi chú đang gõ dở / chưa kịp lưu
+            const r = _orderCheckData.find(x => x.part_code === el.dataset.partCode); if (r) r.note = el.value;
+        });
+        document.querySelectorAll('.order-check-approve-input').forEach(el => {
+            const r = _orderCheckData.find(x => x.part_code === el.dataset.partCode); const v = parseInt(el.value, 10); if (r) r.suggested_approve_qty = isNaN(v) ? 0 : v;
+        });
+        const byCode = new Map();
+        _orderCheckData.forEach(r => { byCode.set(r.part_code, r); if (r.typed_code) byCode.set(r.typed_code, r); });
+        const items = _ocGdh.codes.map(c => { const r = byCode.get(c); return r ? {part_code: c, approved_qty: Number(r.suggested_approve_qty) || 0, note: r.note || ''} : {part_code: c, approved_qty: null, note: ''}; });
+        const missing = items.filter(i => i.approved_qty === null).length;
+        if (missing && !confirm(`Có ${missing} mã của đơn không còn trong bảng kiểm tra (SL duyệt sẽ để trống). Vẫn duyệt xong?`)) return;
+        const note = prompt('Duyệt xong và trả kết quả về cho chi nhánh?\nChi nhánh sẽ thấy: STT, mã hàng, tên hàng, SL gửi, SL duyệt và ghi chú từng mã của bạn.\n\nGhi chú chung cho chi nhánh (không bắt buộc) - bấm OK để duyệt xong:', '');
+        if (note === null) return;
+        try { await _gdhJson('/api/gom-don-hang/approve', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({batch_id: _ocGdh.id, note: note.trim(), items})}); }
+        catch (e) { alert(e.message); ocGdhLoad(); return; }
+        alert('Đã duyệt xong. Trạng thái: Đã duyệt - chi nhánh sẽ nhận thông báo.');
+        _ocGdh = null; _ocGdhSave(); _ocGdhRenderActive();
+        clearOrderCheckSession();
+        document.getElementById('orderCheckInput').value = '';
+        ocGdhLoad();
+    }
+
+    // ---------------------------------------------------------------------
     // NHỚ PHIÊN ĐANG DUYỆT - lưu lại (cửa hàng đang chọn, danh sách đã dán,
     // kết quả kiểm tra, số lượng duyệt/ghi chú đang sửa dở) vào localStorage,
     // để rời tab/tải lại trang KHÔNG bị mất kết quả đang xem dở. Phiên lưu
@@ -7127,7 +7512,7 @@
             const resultCard = document.getElementById('orderCheckResultCard');
             if (resultCard) resultCard.classList.add('d-none');
             const status = document.getElementById('orderCheckStatus');
-            if (status) status.innerText = 'Đã xoá phiên đang duyệt.';
+            if (status) status.innerText = 'Đã xoá phiên đang duyệt.' + (typeof _ocGdh !== 'undefined' && _ocGdh ? ' Đơn gôm đang duyệt vẫn giữ trạng thái Đang duyệt - bấm "Mở để duyệt" ở danh sách để nạp lại.' : '');
         }
     }
 
@@ -7155,6 +7540,11 @@
     // dù đã sửa tay, và (2) đổi bộ lọc (render lại bảng) làm mất số đã sửa.
     // Cũng là nơi kích hoạt lưu phiên mỗi khi có thay đổi.
     document.addEventListener('input', (e) => {
+        if (e.target.classList && e.target.classList.contains('order-check-note-input')) {
+            const nr = _orderCheckData.find(r => r.part_code === e.target.dataset.partCode);
+            if (nr) { nr.note = e.target.value; saveOrderCheckSession(); }
+            return;
+        }
         if (!e.target.classList || !e.target.classList.contains('order-check-approve-input')) return;
         const partCode = e.target.dataset.partCode;
         const row = _orderCheckData.find(r => r.part_code === partCode);
