@@ -5673,7 +5673,7 @@
         const n = parseInt(v, 10);
         gdhEdit(i, 'adj', isNaN(n) ? 0 : n);
     }
-    function _gdhCalcAmt(r) {           // cùng công thức với compute_rows: giá vốn (mã cha nếu có) x SL cuối
+    function _gdhCalcAmt(r) {           // cùng công thức với compute_rows: giá vốn (mã cha nếu có) x SL cuối (đã là đơn vị mã cha)
         if (r.ord_cost === null || r.ord_cost === undefined) return null;
         return r.ord_cost * r.qty_final;
     }
@@ -5683,7 +5683,7 @@
         if (r.qty_final <= 0) return `<div class="gdh-ord"><span class="gdh-tag">${r.bundle_parent ? 'Quy cách' : 'Thay thế'}</span> <span class="gdh-pc">${_gdhEsc(code)}</span>` +
                                      (r.bundle_parent ? `<div class="gdh-sub">1 = ${_gdhFmt(r.bundle_ratio, 2)} mã con</div>` : '') + '</div>';
         if (!r.bundle_parent) return `<div class="gdh-ord"><span class="gdh-tag">Thay thế</span> <span class="gdh-pc">${_gdhEsc(code)}</span><div class="gdh-sub">SL <b>${_gdhFmt(r.qty_final, 0)}</b></div></div>`;
-        const q = Math.ceil(r.qty_final / r.bundle_ratio - 1e-9);
+        const q = r.qty_final;               // SL cuối của mã có mã cha đã tính bằng đơn vị MÃ CHA
         return `<div class="gdh-ord"><span class="gdh-tag">Quy cách</span> <span class="gdh-pc">${_gdhEsc(code)}</span>` +
                `<div class="gdh-sub">Đặt <b class="text-body">${_gdhFmt(q, 0)}</b> (1 = ${_gdhFmt(r.bundle_ratio, 2)})</div></div>`;
     }
@@ -5727,7 +5727,7 @@
             <td class="gdh-fz3" style="white-space:nowrap"><span class="badge ${_gdhGrpCls[r.group] || 'bg-secondary'}">${r.group}</span><div class="gdh-sub">${_gdhFmt(r.avg_month, 1)}/tháng · ${_gdhFmt(r.avg_week, 1)}/tuần</div></td>
             ${_gdhStockCells(r)}
             <td class="gdh-num gdh-st0 ${r.sales > 0 ? '' : 'gdh-zero'}" title="${tip}">${_gdhFmt(r.sales)}</td>${_gdhPoCells(r)}
-            <td class="gdh-num ${r.suggest > 0 ? 'gdh-cell-sug' : 'gdh-zero'}">${_gdhFmt(r.suggest)}</td>
+            <td class="gdh-num ${r.suggest > 0 ? 'gdh-cell-sug' : 'gdh-zero'}">${_gdhFmt(r.suggest)}${r.bundle_parent ? `<div class="gdh-sub" title="Đề xuất tính theo mã con, đã quy ra mã cha ở số bên trên">${_gdhFmt(r.suggest_child, 0)} con</div>` : ''}</td>
             <td><input type="text" inputmode="numeric" autocomplete="off" class="form-control form-control-sm gdh-in gdh-in-adj" data-col="adj" data-i="${i}"
                        placeholder="0" value="${r.adj ? r.adj : ''}" onfocus="this.select()" oninput="gdhAdjInput(${i},this)" onkeydown="gdhKey(event,this)"></td>
             <td class="gdh-num ${r.qty_final > 0 ? 'gdh-cell-fin' : 'gdh-zero'}" id="gdh-fin-${i}">${_gdhFmt(r.qty_final)}</td>
@@ -5781,7 +5781,8 @@
         _gdhBatchMeta.forecast_weeks = fw;
         _gdhRows.forEach(r => {            // cùng công thức với compute_line ở server
             const stock = Math.max(r.closing || 0, 0);
-            r.suggest = Math.max(0, Math.ceil(r.avg_week * fw - stock - 1e-9));
+            r.suggest_child = Math.max(0, Math.ceil(r.avg_week * fw - stock - 1e-9));
+            r.suggest = r.bundle_parent ? Math.ceil(r.suggest_child / r.bundle_ratio - 1e-9) : r.suggest_child;   // có mã cha: quy ra mã cha
             r.qty_final = Math.max(0, Math.round(r.suggest + r.adj));
             r.amount = _gdhCalcAmt(r);
         });

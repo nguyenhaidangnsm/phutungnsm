@@ -30,7 +30,10 @@ CÔNG THỨC (giữ tinh thần file gốc, đã chỉnh cho gọn - xem ghi ch�
     BQ bán / tuần         = 0 nếu tần suất CB, ngược lại số bán / số tuần (làm tròn 1 chữ số thập phân, vd 0,31 -> 0,3)
     Đề xuất đặt           = max(0, ROUNDUP(BQ/tuần x số tuần dự kiến - tồn cuối))
     SL cuối               = max(0, đề xuất + (cộng/trừ thêm))
-    Thành tiền            = SL cuối x giá vốn   (mã có mã cha: giá vốn của MÃ CHA; giá vốn: file mẫu 1 -> part_vehicle_models.gia_nhap)
+    MÃ CÓ MÃ CHA (quy cách)  : đề xuất vẫn TÍNH BẰNG MÃ CON (số bán + tồn của mã con), rồi quy ra MÃ CHA:
+                             đề xuất (cha) = ROUNDUP(đề xuất con / số quy đổi). Từ đó SL đề xuất, cộng/trừ thêm,
+                             SL cuối và SL đặt đều tính bằng ĐƠN VỊ MÃ CHA.
+    Thành tiền            = SL cuối x giá vốn   (mã có mã cha: giá vốn của MÃ CHA, SL cuối đã là mã cha; giá vốn: file mẫu 1 -> part_vehicle_models.gia_nhap)
 """
 import io
 import math
@@ -459,7 +462,11 @@ def compute_rows(cur, batch, order_only=False, with_extra=False):
         b = bundles.get(_bkey(base))             # mã con -> tự quy thành mã cha (làm tròn LÊN)
         r['bundle_parent'] = b[0] if b else None
         r['bundle_ratio'] = b[1] if b else None
-        # Thành tiền = giá vốn x SL CUỐI. Có mã cha: dùng giá vốn của MÃ CHA (không quy đổi số lượng); không thì giá vốn mã đó.
+        r['suggest_child'] = r['suggest']        # đề xuất tính theo MÃ CON (giữ lại để hiển thị / tham khảo)
+        if b:                                    # có mã cha: quy đề xuất ra MÃ CHA (làm tròn LÊN); SL cuối cũng tính bằng mã cha
+            r['suggest'] = int(math.ceil(r['suggest_child'] / b[1] - 1e-9))
+            r['qty_final'] = max(0, int(round(r['suggest'] + r['adj'])))
+        # Thành tiền = giá vốn x SL CUỐI. Có mã cha: giá vốn của MÃ CHA x SL cuối (SL cuối đã quy ra mã cha ở trên); không thì giá vốn mã đó.
         if b:
             r['ord_cost'] = parent_cost.get(_bkey(b[0]))
             r['cost_code'] = b[0]                # mã đã dùng để tra giá vốn (hiện ở giao diện khi thiếu giá)
@@ -475,7 +482,7 @@ def compute_rows(cur, batch, order_only=False, with_extra=False):
                 par = po_map.get(b[0]) or [0.0, 0.0]
                 r['parent_debt'], r['parent_ship'] = par
         r['order_code'] = b[0] if b else base
-        r['order_qty'] = int(math.ceil(r['qty_final'] / b[1] - 1e-9)) if b else r['qty_final']
+        r['order_qty'] = r['qty_final']          # SL cuối đã là đơn vị của mã đặt (mã cha nếu có quy cách)
     return rows
 
 
