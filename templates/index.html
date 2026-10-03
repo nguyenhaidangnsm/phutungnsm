@@ -10753,7 +10753,7 @@ async function saveLocationRow(btn, partCode) {
                     const lp = result.last_proposal;
                     hintEl.innerHTML = `<span class="text-warning-emphasis"><i class="bi bi-exclamation-circle-fill me-1"></i>Mã này đã được đề xuất tăng giá lúc ${escapeHtmlAttr(lp.created_at || '')} bởi ${escapeHtmlAttr(lp.created_by || '')} - Giá bán lần trước: ${fmtPriceAdjMoney(lp.gia_ban)}. Lưu tiếp sẽ ghi thêm 1 lần đề xuất mới.</span>`;
                 } else if (fromCatalog && !result.in_catalog) {
-                    hintEl.innerHTML = `<span class="text-success"><i class="bi bi-check-circle me-1"></i>Đã tìm thấy Giá bán gần nhất của mã này: ${fmtPriceAdjMoney(getPriceAdjCatalogPrice(partCode))} - chỉ cần bấm Lưu Đề Xuất để cộng thêm Mức tăng (%).</span>`;
+                    hintEl.innerHTML = `<span class="text-success"><i class="bi bi-check-circle me-1"></i>${result.in_price_list ? 'Mã có trong Bảng giá' : 'Đã tìm thấy giá'} - Giá bán hiện tại: ${fmtPriceAdjMoney(getPriceAdjCatalogPrice(partCode))}. <strong>Mã này CHƯA được tăng giá</strong>${result.part_name ? '' : ' (chưa có Tên hàng, có thể bỏ trống)'} - bấm Lưu Đề Xuất để cộng thêm Mức tăng (%).</span>`;
                 } else if (!result.in_catalog && !fromCatalog) {
                     hintEl.innerHTML = `<span class="text-muted"><i class="bi bi-info-circle me-1"></i>Mã hàng chưa có trong tồn kho hệ thống - vui lòng nhập đủ Tên hàng, Thuế và Giá đề xuất HVN, hệ thống sẽ tự lưu vào danh mục.</span>`;
                 } else {

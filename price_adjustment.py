@@ -197,6 +197,25 @@ def _find_existing_part_name(cursor, part_code):
     if row and row['part_name']:
         return row['part_name']
 
+    # Mã chỉ có trong bảng giá (part_prices) - bảng giá không có cột tên nên
+    # dò tên ở các nguồn khác từng có mã này: file xuất bán, rồi phiếu luân chuyển.
+    cursor.execute('''
+        SELECT part_name FROM sales_export_items
+        WHERE part_code = %s AND part_name IS NOT NULL AND part_name <> '' LIMIT 1
+    ''', (part_code,))
+    row = cursor.fetchone()
+    if row and row['part_name']:
+        return row['part_name']
+
+    cursor.execute('''
+        SELECT part_name FROM transfer_items
+        WHERE part_code = %s AND part_name IS NOT NULL AND part_name <> ''
+        ORDER BY id DESC LIMIT 1
+    ''', (part_code,))
+    row = cursor.fetchone()
+    if row and row['part_name']:
+        return row['part_name']
+
     return None
 
 
@@ -495,6 +514,7 @@ def price_adjustment_lookup():
     cursor.execute('SELECT sale_price FROM part_prices WHERE part_code = %s', (part_code,))
     price_row = cursor.fetchone()
     catalog_price = float(price_row['sale_price']) if price_row and price_row['sale_price'] is not None else None
+    in_price_list = catalog_price is not None and catalog_price > 0
 
     # Mã KHÔNG có trong danh mục giá chính thức (part_prices) - thường là mã
     # tự thêm qua chính tính năng Đề Xuất Tăng Giá, không đi qua phần Cập
@@ -531,6 +551,7 @@ def price_adjustment_lookup():
         'already_adjusted': last_proposal is not None,
         'last_proposal': None,
         'catalog_price': catalog_price,
+        'in_price_list': in_price_list,
     }
     if last_proposal:
         result['last_proposal'] = {
@@ -584,11 +605,21 @@ def price_adjustment_list():
     # liệu phân trang bên dưới, tránh lặp lại 2 khối CTE giống hệt nhau.
     catalog_and_latest_cte = '''
         WITH catalog AS (
-            SELECT part_code, MIN(part_name) AS part_name
-            FROM inventory_items
+            -- Hợp: tồn kho hệ thống + mã mới + BẢNG GIÁ (part_prices), để mã có
+            -- giá nhưng không có tồn vẫn hiện ở "Chưa điều chỉnh" và đối chiếu
+            -- được với bảng giá. Tên ưu tiên: tồn kho > mã mới > file xuất bán.
+            SELECT part_code, MAX(NULLIF(part_name, '')) AS part_name
+            FROM (
+                SELECT part_code, part_name FROM inventory_items
+                UNION ALL
+                SELECT part_code, part_name FROM price_adjustment_new_codes
+                UNION ALL
+                SELECT p.part_code, (SELECT MIN(e.part_name) FROM sales_export_items e
+                                     WHERE e.part_code = p.part_code AND e.part_name <> '')
+                FROM part_prices p
+                WHERE p.sale_price IS NOT NULL AND p.sale_price > 0
+            ) u
             GROUP BY part_code
-            UNION
-            SELECT part_code, part_name FROM price_adjustment_new_codes
         ),
         latest AS (
             SELECT DISTINCT ON (part_code)
@@ -744,8 +775,12 @@ def price_adjustment_propose():
     try:
         if not part_name:
             part_name = _find_existing_part_name(cursor, part_code) or ''
-        if not part_name:
+        # Mã ĐÃ CÓ Giá bán trong danh mục giá (part_prices / last_known_price)
+        # thì KHÔNG bắt buộc Tên hàng, dù mã không có trong tồn kho hệ thống.
+        # Chỉ mã hoàn toàn mới (không có giá, không có tên) mới cần nhập tên.
+        if not part_name and not from_catalog_price:
             return jsonify({'error': 'Mã hàng này chưa có trong hệ thống - vui lòng nhập Tên hàng.'}), 400
+        part_name = part_name or None
 
         # Công thức 2 bước cho form đề xuất 1 mã (KHÁC với import hàng loạt):
         #   Bước 1 - Giá cũ = (Giá đề xuất HVN * Thuế) + Giá đề xuất HVN
