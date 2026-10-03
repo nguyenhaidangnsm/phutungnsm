@@ -2437,11 +2437,13 @@
         const s = S.stores.find(x => x.store === store());
         if (!store()) { $('ahnStatus').textContent = 'Chọn 1 cửa hàng cụ thể để đổ / xoá dữ liệu. "•" = cửa hàng đã có dữ liệu trong vùng của bạn.'; return; }
         const f = (n, x, extra) => `${n}: ` + (x ? `<b>${esc(x.at)}</b>${extra(x)}` : '<span class="text-danger">chưa đổ</span>');
+        const grp = s && s.group && s.group.length > 1
+            ? `<div class="text-primary mt-1"><i class="bi bi-diagram-2 me-1"></i>${esc(s.group.join(' + '))} dùng chung 1 bảng hàng nợ: dữ liệu đổ của các cửa hàng này được gộp lại khi tính (dòng trạng thái trên chỉ là phần đổ riêng cho ${esc(s.store)}).</div>` : '';
         $('ahnStatus').innerHTML = [
             f('Danh sách PO', s && s.ds_po, x => ` (${esc(x.file)})`),
             f('Chi tiết PO', s && s.po_detail, x => ` (${x.rows} dòng)`),
             f('Chi tiết nhận hàng', s && s.receipt, x => ` (${esc(x.file)})`),
-        ].join(' &nbsp;|&nbsp; ');
+        ].join(' &nbsp;|&nbsp; ') + grp;
     }
     function renderSummary(sm) {
         const card = (t, v, cls) => `<div class="col-6 col-md"><div class="border rounded-3 p-2 bg-white h-100"><div class="small text-muted text-uppercase" style="font-size:.7rem;">${t}</div><div class="fs-5 fw-bold ${cls || ''}">${v}</div></div></div>`;
@@ -4350,6 +4352,13 @@
                         <option value="NS5">NS5</option>
                         <option value="NSM1">NSM1</option>
                     </select>
+                    <span class="vr d-none d-md-inline-block"></span>
+                    <label class="small mb-0" for="orderCheckDebtSource" title="Chọn dữ liệu dùng để hiện cột Nợ / Đang vận chuyển">Nợ / Đang VC lấy từ:</label>
+                    <select class="form-select form-select-sm" style="width:auto;" id="orderCheckDebtSource" onchange="ocDebtSourceChanged()">
+                        <option value="store">Cửa hàng đổ</option>
+                        <option value="admin">Admin đổ (Hàng Nợ - Admin)</option>
+                    </select>
+                    <span class="small" id="ocDebtSourceNote"></span>
                 </div>
                 <div class="oc-paste-auto small text-muted mb-1"><i class="bi bi-magic me-1"></i>Đang duyệt đơn gôm: danh sách mã được nạp tự động từ đơn chi nhánh đã đẩy. <button type="button" class="btn btn-link btn-sm p-0 align-baseline" onclick="document.getElementById('order-check-pane').classList.toggle('oc-paste-manual')">Dán danh sách khác</button></div>
                 <div class="oc-paste-extra">
@@ -7990,6 +7999,62 @@
         return items.map(it => ({ part_code: it.part_code, qty: it.qty || 0 })).filter(it => it.part_code);
     }
 
+    // ---- Nguồn dữ liệu Nợ / Đang vận chuyển của Duyệt Đơn Hàng: 'store' (cửa hàng đổ) | 'admin' (admin đổ) ----
+    const OC_DEBT_SOURCE_KEY = 'ocDebtSource';
+    function _ocDebtSource() {
+        const el = document.getElementById('orderCheckDebtSource');
+        return el && el.value === 'admin' ? 'admin' : 'store';
+    }
+    function _ocApplyDebtMeta(meta) {
+        const el = document.getElementById('ocDebtSourceNote');
+        if (!el) return;
+        if (!meta) { el.textContent = ''; return; }
+        if (meta.warning) {
+            el.className = 'small text-danger';
+            el.textContent = '⚠ ' + meta.warning + ' Cột Nợ / Đang VC đang trống.';
+        } else {
+            el.className = 'small text-muted';
+            el.textContent = meta.info || '';
+        }
+    }
+    async function ocDebtSourceChanged() {
+        const src = _ocDebtSource();
+        try { localStorage.setItem(OC_DEBT_SOURCE_KEY, src); } catch (e) { /* bỏ qua */ }
+        const note = document.getElementById('ocDebtSourceNote');
+        if (!_orderCheckData || !_orderCheckData.length) { if (note) note.textContent = ''; return; }
+        // Đang có kết quả: chỉ nạp lại 3 trường nợ / vận chuyển, KHÔNG chạy lại kiểm tra -> không mất SL đã sửa và ghi chú.
+        const store = _orderCheckCurrentStore || document.getElementById('orderCheckStoreSelect').value;
+        if (note) { note.className = 'small text-muted'; note.textContent = 'Đang nạp nợ / vận chuyển...'; }
+        try {
+            const res = await fetch('/api/admin/order-check/debt', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ store_code: store, debt_source: src, part_codes: _orderCheckData.map(r => r.part_code) })
+            });
+            const j = await res.json();
+            if (!j.success) { if (note) note.textContent = ''; alert(j.error || 'Không nạp được dữ liệu nợ.'); return; }
+            _orderCheckData.forEach(r => {
+                const d = j.debt[r.part_code];
+                if (!d) return;
+                r.debt_qty = d.debt_qty; r.shipping_qty = d.shipping_qty; r.debt_po_codes = d.debt_po_codes;
+            });
+            _ocApplyDebtMeta(j.debt_meta);
+            renderOrderCheckTable();
+            renderOrderCheckDashboardSoon();
+            saveOrderCheckSession();
+        } catch (err) {
+            console.error('Lỗi ocDebtSourceChanged:', err);
+            if (note) note.textContent = '';
+            alert('Lỗi kết nối máy chủ khi nạp nợ / vận chuyển.');
+        }
+    }
+    (function ocInitDebtSource() {
+        try {
+            const v = localStorage.getItem(OC_DEBT_SOURCE_KEY);
+            const el = document.getElementById('orderCheckDebtSource');
+            if (el && (v === 'admin' || v === 'store')) el.value = v;
+        } catch (e) { /* bỏ qua */ }
+    })();
+
     async function runOrderCheck() {
         const storeCode = document.getElementById('orderCheckStoreSelect').value;
         const raw = document.getElementById('orderCheckInput').value;
@@ -8010,7 +8075,7 @@
             const res = await fetch('/api/admin/order-check', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ store_code: storeCode, items })
+                body: JSON.stringify({ store_code: storeCode, items, debt_source: _ocDebtSource() })
             });
             const json = await res.json();
             if (!json.success) {
@@ -8019,6 +8084,7 @@
                 return;
             }
             if (status) status.innerText = `Đã kiểm tra ${json.data.length} mã hàng.`;
+            _ocApplyDebtMeta(json.debt_meta);
             if (json.lock_meta && json.lock_meta.upload_time) {
                 const lockInfo = document.getElementById('orderLockLastImportInfo');
                 if (lockInfo) lockInfo.innerText = `Dữ liệu khoá đặt hàng cập nhật lần cuối: ${json.lock_meta.upload_time} (${json.lock_meta.filename || ''}, bởi ${json.lock_meta.uploaded_by || ''})`;
@@ -8853,6 +8919,7 @@
                 const storeSelect = document.getElementById('orderCheckStoreSelect');
                 localStorage.setItem(ORDER_CHECK_SESSION_KEY, JSON.stringify({
                     storeCode: storeSelect ? storeSelect.value : _orderCheckCurrentStore,
+                    debtSource: _ocDebtSource(),
                     rawInput: raw ? raw.value : '',
                     data: _orderCheckData,
                     savedAt: Date.now(),
@@ -8884,6 +8951,7 @@
         const status = document.getElementById('orderCheckStatus');
         if (raw && saved.rawInput) raw.value = saved.rawInput;
         if (storeSelect && saved.storeCode) storeSelect.value = saved.storeCode;
+        { const ds = document.getElementById('orderCheckDebtSource'); if (ds && (saved.debtSource === 'admin' || saved.debtSource === 'store')) ds.value = saved.debtSource; }
         _orderCheckData = saved.data;
         _orderCheckCurrentStore = saved.storeCode || '';
         if (resultCard) resultCard.classList.remove('d-none');

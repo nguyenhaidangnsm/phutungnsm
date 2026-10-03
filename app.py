@@ -4280,6 +4280,70 @@ def decode_vehicle_models_for_part(model_raw, vehicle_map):
     return models, None
 
 
+def _order_check_debt_map(cursor, store_code, part_codes, source):
+    """Đang nợ / đang vận chuyển theo từng mã cho "Duyệt Đơn Hàng".
+    source = 'store': bảng đối soát PO của cửa hàng (dữ liệu CỬA HÀNG tự đổ - cách cũ, có gộp nhóm NS2/NSM1).
+    source = 'admin': bảng đối soát tính từ dữ liệu ADMIN đổ ở vùng riêng "Hàng Nợ (Admin)" (admin_hang_no.py).
+    Trả (debt_by_part, meta). meta = {'source', 'warning', 'info'}; warning != None nghĩa là nguồn chưa đủ dữ liệu
+    nên số nợ / đang VC trả về là 0 - giao diện phải báo để admin không hiểu nhầm là "không nợ"."""
+    meta = {'source': source, 'warning': None, 'info': ''}
+    if source == 'admin':
+        from admin_hang_no import compute_for_owner
+        debt_rows, why, info = compute_for_owner(cursor, str(session.get('user') or ''), store_code)
+        meta['info'] = info
+        if why:
+            meta['warning'] = f'Chưa có dữ liệu hàng nợ do admin đổ cho {store_code}. {why}'
+    else:
+        version = get_store_data_version(cursor, store_code)
+        debt_rows = compute_result_for_store_cached(cursor, store_code, version)
+        if not debt_rows:
+            meta['warning'] = f'Cửa hàng {store_code} chưa có dữ liệu đối soát PO (cửa hàng chưa tải đủ file).'
+        elif version:
+            try:
+                meta['info'] = 'Cửa hàng cập nhật lần cuối: ' + version.strftime('%d/%m/%Y %H:%M')
+            except Exception:
+                pass
+    wanted = set(part_codes)
+    debt_by_part = {}
+    for r in debt_rows:
+        pc = r.get('part_code')
+        if pc not in wanted:
+            continue
+        d = debt_by_part.setdefault(pc, {'debt_qty': 0, 'shipping_qty': 0, 'po_codes': []})
+        if r.get('status') == 'Nợ':
+            d['debt_qty'] += float(r.get('qty_debt') or 0)
+            d['po_codes'].append(r.get('po_code'))
+        elif r.get('status') == 'Đang vận chuyển':
+            d['shipping_qty'] += float(r.get('qty_debt') or 0)
+            d['po_codes'].append(r.get('po_code'))
+    return debt_by_part, meta
+
+
+@app.route('/api/admin/order-check/debt', methods=['POST'])
+def order_check_debt():
+    """Đổi nguồn Nợ / Đang vận chuyển (cửa hàng đổ <-> admin đổ) cho các mã ĐANG hiển thị ở Duyệt Đơn Hàng mà KHÔNG
+    chạy lại kiểm tra: chỉ trả lại 3 trường debt_qty / shipping_qty / debt_po_codes, nên số lượng admin đã sửa và
+    ghi chú trên màn hình không bị mất."""
+    if 'user' not in session or session['role'] != 'admin':
+        return jsonify({'error': 'Forbidden'}), 403
+    data = request.json or {}
+    store_code = str(data.get('store_code', '') or '').strip()
+    if store_code not in _ORDER_CHECK_STORE_CODES:
+        return jsonify({'error': 'Vui lòng chọn đúng 1 cửa hàng.'}), 400
+    codes = [str(c or '').strip() for c in (data.get('part_codes') or [])]
+    codes = [c for c in dict.fromkeys(codes) if c]
+    source = 'admin' if str(data.get('debt_source') or '').strip().lower() == 'admin' else 'store'
+    cursor = get_db().cursor()
+    try:
+        debt_by_part, meta = _order_check_debt_map(cursor, store_code, codes, source)
+    finally:
+        cursor.close()
+    out = {c: {'debt_qty': debt_by_part[c]['debt_qty'], 'shipping_qty': debt_by_part[c]['shipping_qty'],
+               'debt_po_codes': debt_by_part[c]['po_codes']} if c in debt_by_part else
+              {'debt_qty': 0, 'shipping_qty': 0, 'debt_po_codes': []} for c in codes}
+    return jsonify({'success': True, 'debt': out, 'debt_meta': meta})
+
+
 @app.route('/api/admin/order-check', methods=['POST'])
 def order_check():
     """"Duyệt Đơn Hàng" (admin): nhận 1 danh sách (mã hàng, số lượng đặt) do
@@ -4498,21 +4562,10 @@ def order_check():
     cursor.execute('SELECT part_code, note FROM order_check_notes WHERE part_code = ANY(%s)', (order_list,))
     note_by_part = {r['part_code']: r['note'] for r in cursor.fetchall()}
 
-    # ---- 4) Đang nợ / đang vận chuyển (bảng đối soát PO của đúng cửa hàng đang xét) ----
-    version = get_store_data_version(cursor, store_code)
-    debt_rows = compute_result_for_store_cached(cursor, store_code, version)
-    debt_by_part = {}
-    for r in debt_rows:
-        pc = r.get('part_code')
-        if pc not in order_list:
-            continue
-        d = debt_by_part.setdefault(pc, {'debt_qty': 0, 'shipping_qty': 0, 'po_codes': []})
-        if r.get('status') == 'Nợ':
-            d['debt_qty'] += float(r.get('qty_debt') or 0)
-            d['po_codes'].append(r.get('po_code'))
-        elif r.get('status') == 'Đang vận chuyển':
-            d['shipping_qty'] += float(r.get('qty_debt') or 0)
-            d['po_codes'].append(r.get('po_code'))
+    # ---- 4) Đang nợ / đang vận chuyển: admin chọn NGUỒN dữ liệu - 'store' (bảng đối soát PO do CỬA HÀNG
+    # tự đổ, mặc định như cũ) hoặc 'admin' (dữ liệu do chính admin đổ ở vùng "Hàng Nợ (Admin)") ----
+    debt_source = 'admin' if str(data.get('debt_source') or '').strip().lower() == 'admin' else 'store'
+    debt_by_part, debt_meta = _order_check_debt_map(cursor, store_code, order_list, debt_source)
 
     # ---- 4b) Khách hàng đang chờ mã hàng này (đơn đặt hàng khách - bảng
     # bo_orders, CSDL Supabase RIÊNG BIỆT với CSDL Neon chính, xem orders.py)
@@ -4716,7 +4769,7 @@ def order_check():
         lock_meta['upload_time'] = lock_meta['upload_time'].strftime('%d/%m/%Y %H:%M')
     cursor2.close()
 
-    return jsonify({'success': True, 'data': result, 'lock_meta': lock_meta})
+    return jsonify({'success': True, 'data': result, 'lock_meta': lock_meta, 'debt_meta': debt_meta})
 
 
 @app.route('/api/admin/order-check/note', methods=['POST'])

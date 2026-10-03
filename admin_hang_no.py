@@ -32,7 +32,8 @@ from psycopg2.extras import execute_values
 
 from audit_log import audit_record
 from app import (get_db, _valid_store_codes, process_data, read_any, find_col, clean_str,
-                 dumps_json, loads_json, get_summary_from_data, vn_now, PO_DETAIL_RETENTION_DAYS)
+                 dumps_json, loads_json, get_summary_from_data, vn_now, PO_DETAIL_RETENTION_DAYS,
+                 get_debt_view_group)
 from gom_don_hang import _send_xlsx
 
 admin_hang_no_bp = Blueprint('admin_hang_no', __name__)
@@ -123,17 +124,25 @@ def _store_arg(cur, allow_all=False):
 # TÍNH BẢNG HÀNG NỢ CỦA 1 CỬA HÀNG TRONG VÙNG ADMIN
 # ----------------------------------------------------------------------------
 def _compute_store(cur, owner, store):
-    """(list dòng, None) hoặc ([], thông báo lý do chưa tính được)."""
-    cur.execute('SELECT ds_po_json, receipt_json FROM ahn_uploads WHERE owner = %s AND store_code = %s', (owner, store))
-    up = cur.fetchone()
-    ds_rec = loads_json(up['ds_po_json']) if up and up['ds_po_json'] else []
-    rc_rec = loads_json(up['receipt_json']) if up and up['receipt_json'] else []
-    cur.execute('SELECT po_code, part_code, quantity FROM ahn_po_detail WHERE owner = %s AND store_code = %s '
-                'ORDER BY upload_time DESC', (owner, store))
+    """(list dòng, None) hoặc ([], thông báo lý do chưa tính được).
+    GỘP NHÓM như bảng đối soát thật (app.get_debt_view_group): các cửa hàng cùng nhóm (NS2 + NSM1) dùng chung 1 bảng
+    hàng nợ nên dữ liệu admin đổ của cả nhóm được gộp lại rồi tính 1 lần (process_data tự bỏ dòng trùng Mã PO / Mã phụ
+    tùng, nên PO có ở cả 2 cửa hàng không bị tính đôi). Cửa hàng không thuộc nhóm nào thì chỉ gồm chính nó."""
+    group = list(get_debt_view_group(store))
+    cur.execute('SELECT ds_po_json, receipt_json FROM ahn_uploads WHERE owner = %s AND store_code = ANY(%s)', (owner, group))
+    ds_rec, rc_rec = [], []
+    for up in cur.fetchall():
+        if up['ds_po_json']:
+            ds_rec.extend(loads_json(up['ds_po_json']))
+        if up['receipt_json']:
+            rc_rec.extend(loads_json(up['receipt_json']))
+    cur.execute('SELECT po_code, part_code, quantity FROM ahn_po_detail WHERE owner = %s AND store_code = ANY(%s) '
+                'ORDER BY upload_time DESC', (owner, group))
     det = cur.fetchall()
     missing = [n for n, ok in (('Danh sách PO', ds_rec), ('Chi tiết PO', det), ('Chi tiết nhận hàng', rc_rec)) if not ok]
     if missing:
-        return [], 'Chưa đổ: ' + ', '.join(missing) + '.'
+        who = ' + '.join(group) if len(group) > 1 else store
+        return [], 'Chưa đổ' + (f' (tính chung {who})' if len(group) > 1 else '') + ': ' + ', '.join(missing) + '.'
     detail_df = pd.DataFrame(det, columns=['po_code', 'part_code', 'quantity'])
     detail_df['quantity'] = pd.to_numeric(detail_df['quantity'], errors='coerce').fillna(0.0).astype(float)
     try:
@@ -144,22 +153,45 @@ def _compute_store(cur, owner, store):
 
 
 def _compute(cur, owner, store):
-    """store = '' -> gộp mọi cửa hàng admin đã đổ. Trả (rows, notes {store: lý do}, stores_used)."""
+    """store = '' -> gộp mọi cửa hàng admin đã đổ (mỗi NHÓM chỉ tính 1 lần, tránh đếm trùng).
+    Trả (rows, notes {nhãn: lý do}, stores_used)."""
     if store:
         stores = [store]
     else:
         cur.execute('SELECT store_code FROM ahn_uploads WHERE owner = %s UNION '
                     'SELECT store_code FROM ahn_po_detail WHERE owner = %s ORDER BY 1', (owner, owner))
         stores = [r['store_code'] for r in cur.fetchall()]
-    rows, notes = [], {}
+    rows, notes, seen = [], {}, set()
     for sc in stores:
+        group = get_debt_view_group(sc)
+        if group in seen:
+            continue
+        seen.add(group)
+        label = '/'.join(group) if len(group) > 1 else sc
         data, why = _compute_store(cur, owner, sc)
         if why:
-            notes[sc] = why
+            notes[label] = why
         for r in data:
-            r['store_code'] = sc
+            r['store_code'] = label
             rows.append(r)
     return rows, notes, stores
+
+
+def compute_for_owner(cur, owner, store):
+    """Dùng cho "Duyệt Đơn Hàng" (app.py: order_check) khi admin chọn xem Nợ / Đang vận chuyển theo dữ liệu ADMIN ĐỔ.
+    Trả (rows, why, info): rows = bảng đối soát như process_data; why = lý do chưa tính được (None nếu ổn);
+    info = chuỗi mô tả thời điểm admin đổ file gần nhất."""
+    _ensure_tables(cur.connection)
+    rows, why = _compute_store(cur, owner, store)
+    group = list(get_debt_view_group(store))
+    cur.execute('SELECT MAX(ds_po_time) AS ds, MAX(receipt_time) AS rc FROM ahn_uploads '
+                'WHERE owner = %s AND store_code = ANY(%s)', (owner, group))
+    up = cur.fetchone() or {}
+    cur.execute('SELECT MAX(upload_time) AS at FROM ahn_po_detail WHERE owner = %s AND store_code = ANY(%s)', (owner, group))
+    det = (cur.fetchone() or {}).get('at')
+    parts = [f'{n} {_fmt_dt(t)}' for n, t in (('Danh sách PO', up.get('ds')), ('Chi tiết PO', det),
+                                              ('Chi tiết nhận hàng', up.get('rc'))) if t]
+    return rows, why, ('Admin đổ lần cuối: ' + '; '.join(parts)) if parts else ''
 
 
 # ----------------------------------------------------------------------------
@@ -182,7 +214,7 @@ def ahn_stores():
         out = []
         for sc in sorted(_valid_store_codes(cur)):
             u, d = up.get(sc), det.get(sc)
-            out.append({'store': sc,
+            out.append({'store': sc, 'group': list(get_debt_view_group(sc)),
                         'ds_po': {'file': u['ds_po_filename'], 'at': _fmt_dt(u['ds_po_time'])} if u and u['ds_po_json'] else None,
                         'po_detail': {'rows': d['n'], 'at': _fmt_dt(d['at'])} if d else None,
                         'receipt': {'file': u['receipt_filename'], 'at': _fmt_dt(u['receipt_time'])} if u and u['receipt_json'] else None})
