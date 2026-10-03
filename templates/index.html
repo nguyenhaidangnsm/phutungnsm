@@ -1557,6 +1557,10 @@
                 <span class="ns-sidebar-icon"><i class="bi bi-graph-down-arrow"></i></span>
                 <span class="ns-label">Thống Kê Tần Suất Bán</span>
             </button>
+            <button type="button" class="ns-sidebar-item" data-target-tab="ahn-tab" onclick="megaNavClick('ahn-tab', this)">
+                <span class="ns-sidebar-icon"><i class="bi bi-hourglass-split"></i></span>
+                <span class="ns-label">Hàng Nợ (Admin)</span>
+            </button>
             {% endif %}
             {% if role == 'admin' or role == 'store' %}
             <button type="button" class="ns-sidebar-item" data-target-tab="gdh-tab" onclick="megaNavClick('gdh-tab', this)">
@@ -1723,6 +1727,11 @@
     </li>
     {% endif %}
     {% if role == 'admin' %}
+    <li class="nav-item" role="presentation">
+        <button class="nav-link" id="ahn-tab" data-bs-toggle="pill" data-bs-target="#ahn-pane" onclick="ahnTabOpened()">
+            <i class="bi bi-hourglass-split me-2"></i>Hàng Nợ (Admin)
+        </button>
+    </li>
     <li class="nav-item" role="presentation">
         <button class="nav-link" id="order-check-tab" data-bs-toggle="pill" data-bs-target="#order-check-pane" onclick="ocGdhLoad()">
             <i class="bi bi-clipboard2-check-fill me-2"></i>Duyệt Đơn Hàng <span class="badge bg-danger ms-1 d-none oc-nav-badge"></span>
@@ -2333,6 +2342,179 @@
 {% endif %}
 
        {% if role == 'admin' or role == 'store' %}
+{% if role == 'admin' %}
+<!-- HÀNG NỢ (ADMIN) - vùng tính toán hàng nợ RIÊNG của admin: đổ 3 file PO cho từng cửa hàng rồi tự xem - /api/admin-hang-no/*
+     Dữ liệu ở đây tách hẳn dữ liệu thật của cửa hàng (không ảnh hưởng, cửa hàng không thấy). -->
+<div class="tab-pane fade" id="ahn-pane">
+    <div class="card card-custom p-3 mb-3">
+        <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-2">
+            <h6 class="fw-bold mb-0"><i class="bi bi-hourglass-split me-2 text-danger"></i>Hàng Nợ - vùng riêng của admin</h6>
+            <span class="small text-muted">Dữ liệu đổ ở đây chỉ mình bạn thấy, không ảnh hưởng dữ liệu thật của cửa hàng.</span>
+        </div>
+        <div class="row g-2 align-items-end">
+            <div class="col-12 col-md-3">
+                <label class="form-label small mb-1">Cửa hàng</label>
+                <select class="form-select form-select-sm" id="ahnStore" onchange="ahnStoreChanged()"></select>
+            </div>
+            <div class="col-12 col-md-3">
+                <label class="form-label small mb-1">Danh sách PO <span class="text-muted">(thay thế bản cũ)</span></label>
+                <input type="file" class="form-control form-control-sm" id="ahnFileDs" accept=".xlsx,.xls,.csv">
+            </div>
+            <div class="col-12 col-md-3">
+                <label class="form-label small mb-1">Chi tiết PO <span class="text-muted">(cộng dồn)</span></label>
+                <input type="file" class="form-control form-control-sm" id="ahnFileDet" accept=".xlsx,.xls,.csv">
+            </div>
+            <div class="col-12 col-md-3">
+                <label class="form-label small mb-1">Chi tiết nhận hàng <span class="text-muted">(thay thế bản cũ)</span></label>
+                <input type="file" class="form-control form-control-sm" id="ahnFileRc" accept=".xlsx,.xls,.csv">
+            </div>
+        </div>
+        <div class="d-flex flex-wrap gap-2 align-items-center mt-2">
+            <button class="btn btn-primary btn-sm" id="ahnUploadBtn" onclick="ahnUpload()"><i class="bi bi-cloud-upload me-1"></i>Đổ dữ liệu</button>
+            <button class="btn btn-outline-danger btn-sm" onclick="ahnClear()"><i class="bi bi-trash me-1"></i>Xoá dữ liệu cửa hàng này</button>
+            <button class="btn btn-outline-success btn-sm" onclick="ahnExport()"><i class="bi bi-file-earmark-excel me-1"></i>Xuất Excel</button>
+            <span class="small" id="ahnMsg"></span>
+        </div>
+        <div class="small text-muted mt-2" id="ahnStatus"></div>
+    </div>
+
+    <div class="row g-2 mb-3" id="ahnSummary"></div>
+    <div class="small text-warning mb-2" id="ahnNotes"></div>
+
+    <div class="card card-custom p-3">
+        <div class="d-flex flex-wrap gap-2 align-items-center mb-2">
+            <input type="text" class="form-control form-control-sm" style="max-width:260px;" id="ahnSearch" placeholder="Tìm mã PO / mã phụ tùng..." oninput="ahnFilter()">
+            <select class="form-select form-select-sm" style="width:auto;" id="ahnStatusSel" onchange="ahnFilter()">
+                <option value="">Trạng thái: Tất cả</option>
+                <option value="Nợ">Nợ</option>
+                <option value="Đang vận chuyển">Đang vận chuyển</option>
+                <option value="Đã nhận hàng">Đã nhận hàng</option>
+            </select>
+            <span class="small text-muted ms-auto" id="ahnCount"></span>
+        </div>
+        <div class="table-responsive" style="max-height:60vh; overflow:auto;">
+            <table class="table table-sm table-hover align-middle mb-0">
+                <thead class="table-light" style="position:sticky; top:0; z-index:2;">
+                    <tr>
+                        <th class="text-center">#</th><th>Cửa hàng</th><th>Mã PO</th><th>Ngày đặt</th><th>Loại đơn</th><th>Mã phụ tùng</th>
+                        <th class="text-center">Trạng thái</th><th class="text-end">Số ngày</th><th class="text-end">SL nợ</th><th class="text-end">Tổng SL nợ của mã</th>
+                    </tr>
+                </thead>
+                <tbody id="ahnBody"><tr><td colspan="10" class="text-center py-4 text-muted">Chọn cửa hàng rồi đổ dữ liệu.</td></tr></tbody>
+            </table>
+        </div>
+        <div class="d-flex justify-content-between align-items-center mt-2 d-none" id="ahnPager">
+            <button class="btn btn-outline-secondary btn-sm" onclick="ahnPage(-1)">&laquo; Trước</button>
+            <span class="small text-muted" id="ahnPageInfo"></span>
+            <button class="btn btn-outline-secondary btn-sm" onclick="ahnPage(1)">Sau &raquo;</button>
+        </div>
+    </div>
+</div>
+<script>
+(function () {
+    const S = {all: [], view: [], page: 1, size: 100, stores: []};
+    const esc = (v) => String(v == null ? '' : v).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+    const $ = (id) => document.getElementById(id);
+    async function api(url, opt) {
+        const r = await fetch(url, opt);
+        let j = {}; try { j = await r.json(); } catch (e) {}
+        if (!r.ok || j.error) throw new Error(j.error || ('Lỗi ' + r.status));
+        return j;
+    }
+    function msg(t, ok) { const e = $('ahnMsg'); e.className = 'small ' + (ok ? 'text-success' : 'text-danger'); e.textContent = t || ''; }
+    const store = () => $('ahnStore').value;
+
+    async function loadStores() {
+        const j = await api('/api/admin-hang-no/stores');
+        S.stores = j.stores;
+        const cur = store();
+        $('ahnStore').innerHTML = '<option value="">Tất cả cửa hàng đã đổ (chỉ xem)</option>' +
+            j.stores.map(s => `<option value="${esc(s.store)}">${esc(s.store)}${(s.ds_po || s.po_detail || s.receipt) ? ' •' : ''}</option>`).join('');
+        if (cur) $('ahnStore').value = cur;
+        renderStatus();
+    }
+    function renderStatus() {
+        const s = S.stores.find(x => x.store === store());
+        if (!store()) { $('ahnStatus').textContent = 'Chọn 1 cửa hàng cụ thể để đổ / xoá dữ liệu. "•" = cửa hàng đã có dữ liệu trong vùng của bạn.'; return; }
+        const f = (n, x, extra) => `${n}: ` + (x ? `<b>${esc(x.at)}</b>${extra(x)}` : '<span class="text-danger">chưa đổ</span>');
+        $('ahnStatus').innerHTML = [
+            f('Danh sách PO', s && s.ds_po, x => ` (${esc(x.file)})`),
+            f('Chi tiết PO', s && s.po_detail, x => ` (${x.rows} dòng)`),
+            f('Chi tiết nhận hàng', s && s.receipt, x => ` (${esc(x.file)})`),
+        ].join(' &nbsp;|&nbsp; ');
+    }
+    function renderSummary(sm) {
+        const card = (t, v, cls) => `<div class="col-6 col-md"><div class="border rounded-3 p-2 bg-white h-100"><div class="small text-muted text-uppercase" style="font-size:.7rem;">${t}</div><div class="fs-5 fw-bold ${cls || ''}">${v}</div></div></div>`;
+        $('ahnSummary').innerHTML = card('Tổng dòng', (sm.total || 0).toLocaleString()) + card('Đang nợ', (sm.debt || 0).toLocaleString(), 'text-danger') +
+            card('Đang vận chuyển', (sm.shipping || 0).toLocaleString(), 'text-warning') + card('Đã nhận', (sm.received || 0).toLocaleString(), 'text-success') +
+            card('Kỳ đặt hàng', `<span class="fs-6">${esc(sm.min_date || '-')} → ${esc(sm.max_date || '-')}</span>`);
+    }
+    async function loadData() {
+        try {
+            const j = await api('/api/admin-hang-no/data?store=' + encodeURIComponent(store()));
+            S.all = j.data || [];
+            renderSummary(j.summary || {});
+            const notes = Object.entries(j.notes || {}).map(([k, v]) => `${esc(k)}: ${esc(v)}`);
+            $('ahnNotes').innerHTML = notes.length ? '<i class="bi bi-exclamation-triangle me-1"></i>' + notes.join(' &nbsp;|&nbsp; ') : '';
+            if (j.truncated) $('ahnNotes').innerHTML += ` &nbsp; (chỉ hiện ${S.all.length.toLocaleString()}/${j.total_rows.toLocaleString()} dòng, hãy chọn 1 cửa hàng hoặc xuất Excel)`;
+            S.page = 1; filter();
+        } catch (e) { msg(e.message, false); }
+    }
+    function filter() {
+        const q = $('ahnSearch').value.trim().toLowerCase(), st = $('ahnStatusSel').value;
+        S.view = S.all.filter(r => (!st || r.status === st) && (!q || String(r.po_code).toLowerCase().includes(q) || String(r.part_code).toLowerCase().includes(q)));
+        S.page = 1; render();
+    }
+    function render() {
+        const total = S.view.length, pages = Math.max(1, Math.ceil(total / S.size));
+        S.page = Math.min(Math.max(1, S.page), pages);
+        const start = (S.page - 1) * S.size, rows = S.view.slice(start, start + S.size);
+        $('ahnCount').textContent = total.toLocaleString() + ' dòng';
+        $('ahnBody').innerHTML = rows.length ? rows.map((r, i) => {
+            const b = r.status === 'Nợ' ? 'badge-debt' : (r.status === 'Đang vận chuyển' ? 'badge-shipping' : 'badge-received');
+            const open = r.status !== 'Đã nhận hàng', d = r.qty_debt || 0, t = r.qty_debt_total || 0;
+            return `<tr><td class="text-center text-muted small">${start + i + 1}</td><td><span class="badge bg-light text-dark border">${esc(r.store_code)}</span></td>
+                <td><strong>${esc(r.po_code)}</strong></td><td class="text-muted">${esc(r.order_date)}</td><td>${esc(r.order_type)}</td><td>${esc(r.part_code)}</td>
+                <td class="text-center"><span class="badge-status ${b}">${esc(r.status)}</span></td>
+                <td class="text-end">${open ? esc(r.days_debt) + ' ngày' : '-'}</td>
+                <td class="text-end fw-semibold ${d > 0 ? 'text-danger' : 'text-muted'}">${d > 0 ? d.toLocaleString() : '-'}</td>
+                <td class="text-end fw-bold ${t > 0 ? 'text-danger' : 'text-muted'}">${t > 0 ? t.toLocaleString() : '-'}</td></tr>`;
+        }).join('') : '<tr><td colspan="10" class="text-center py-4 text-muted">Không có dữ liệu.</td></tr>';
+        $('ahnPager').classList.toggle('d-none', pages <= 1);
+        $('ahnPageInfo').textContent = `Trang ${S.page}/${pages}`;
+    }
+
+    window.ahnFilter = filter;
+    window.ahnPage = (d) => { S.page += d; render(); };
+    window.ahnStoreChanged = () => { msg(''); renderStatus(); loadData(); };
+    window.ahnTabOpened = async () => { try { await loadStores(); } catch (e) { msg(e.message, false); } loadData(); };
+    window.ahnExport = () => { window.location.href = '/api/admin-hang-no/export?store=' + encodeURIComponent(store()); };
+    window.ahnUpload = async () => {
+        if (!store()) return msg('Vui lòng chọn 1 cửa hàng cụ thể để đổ dữ liệu.', false);
+        const fd = new FormData(); fd.append('store', store());
+        [['ahnFileDs', 'ds_po_file'], ['ahnFileDet', 'po_detail_file'], ['ahnFileRc', 'receipt_file']].forEach(([id, k]) => { const f = $(id).files[0]; if (f) fd.append(k, f); });
+        if ([...fd.keys()].length < 2) return msg('Vui lòng chọn ít nhất một file.', false);
+        const btn = $('ahnUploadBtn'); btn.disabled = true; msg('Đang đổ dữ liệu...', true);
+        try {
+            const j = await api('/api/admin-hang-no/upload', {method: 'POST', body: fd});
+            let t = 'Đã đổ: ' + j.done.join(', ') + '.';
+            if (j.po_detail_inserted != null) t += ` Chi tiết PO: +${j.po_detail_inserted} dòng mới, bỏ ${j.po_detail_skipped} dòng trùng.`;
+            ['ahnFileDs', 'ahnFileDet', 'ahnFileRc'].forEach(id => $(id).value = '');
+            await loadStores(); await loadData(); msg(t, true);
+        } catch (e) { msg(e.message, false); } finally { btn.disabled = false; }
+    };
+    window.ahnClear = async () => {
+        if (!store()) return msg('Vui lòng chọn 1 cửa hàng cụ thể để xoá.', false);
+        if (!confirm('Xoá toàn bộ dữ liệu hàng nợ đã đổ cho ' + store() + ' trong vùng riêng của bạn? (Dữ liệu thật của cửa hàng không bị ảnh hưởng.)')) return;
+        try {
+            await api('/api/admin-hang-no/clear', {method: 'POST', headers: {'Content-Type': 'application/x-www-form-urlencoded'}, body: 'store=' + encodeURIComponent(store())});
+            await loadStores(); await loadData(); msg('Đã xoá dữ liệu của ' + store() + '.', true);
+        } catch (e) { msg(e.message, false); }
+    };
+})();
+</script>
+{% endif %}
+
 <!-- GÔM ĐƠN HÀNG (import tồn kho -> đề xuất -> loại đơn) + DASHBOARD ĐƠN HÀNG - /api/gom-don-hang/* -->
 <div class="tab-pane fade" id="gdh-pane">
     <ul class="nav nav-pills mb-3 gap-1">

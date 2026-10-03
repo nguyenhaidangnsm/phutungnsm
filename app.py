@@ -8743,6 +8743,12 @@ app.register_blueprint(teamhub_bp)
 from gom_don_hang import gom_don_hang_bp
 app.register_blueprint(gom_don_hang_bp)
 
+# Vùng tính toán HÀNG NỢ riêng của admin (admin đổ 3 file PO cho từng cửa hàng vào vùng riêng của mình
+# rồi tự xem bảng đối soát) - admin_hang_no.py. Bảng ahn_uploads/ahn_po_detail tự tạo ở lần dùng đầu tiên.
+# Dữ liệu tách hẳn latest_uploads/po_detail_items nên không ảnh hưởng dữ liệu thật của cửa hàng.
+from admin_hang_no import admin_hang_no_bp
+app.register_blueprint(admin_hang_no_bp)
+
 # Tự động gọi khởi tạo bảng khi chạy app (gọi SAU khi đã đăng ký blueprint
 # ở trên, vì init_db() bên trong có gọi init_stocktake_tables()).
 #
