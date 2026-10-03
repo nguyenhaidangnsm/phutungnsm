@@ -2291,16 +2291,26 @@ def gdh_export():
     if request.args.get('kind') == 'hvn':
         only = (request.args.get('order_type') or '').strip()
         sheets = {}
+        has_review = bool(review.get('__has__'))
         for t in ([only] if only in ORDER_TYPES else ORDER_TYPES):
             merged = {}
             for r in rows:
                 if r['order_type'] == t and r['qty_final'] > 0:
-                    merged[r['order_code']] = merged.get(r['order_code'], 0) + r['order_qty']
+                    if has_review:
+                        # Đơn đã duyệt: Quantity Requested = SL admin duyệt (cùng đơn vị với SL đặt / mã đặt);
+                        # chỉ lấy mã có SL duyệt > 0 (mã admin không nhập SL duyệt coi như không duyệt).
+                        q = review.get(r['part_code'], (None, ''))[0]
+                        if q is None or q <= 0:
+                            continue
+                    else:
+                        q = r['order_qty']
+                    merged[r['order_code']] = merged.get(r['order_code'], 0) + q
             if merged:
                 sheets[t] = pd.DataFrame([{'Line#': i, 'Order Number': '', 'Part#': p, 'Quantity Requested': q}
                                           for i, (p, q) in enumerate(merged.items(), 1)])
         if not sheets:
-            return jsonify({'error': 'Chưa có mã hàng nào có Loại đơn và SL cuối > 0.'}), 400
+            return jsonify({'error': ('Admin chưa duyệt mã nào có SL duyệt > 0.' if has_review
+                                      else 'Chưa có mã hàng nào có Loại đơn và SL cuối > 0.')}), 400
         if review.get('__has__'):                       # đơn đã duyệt: kèm SL gửi / SL đặt / SL duyệt / ghi chú của admin
             lst = []
             for t in ([only] if only in ORDER_TYPES else ORDER_TYPES):
