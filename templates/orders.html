@@ -46,6 +46,7 @@ input.qe::placeholder { color:#94a3b8; font-weight:400; } input.qe:hover { backg
 input.qe:focus { outline:0; background:#fff; border:1px solid var(--brand); box-shadow:0 0 0 3px rgba(29,78,216,.25); }
 input.qe.late { color:#b91c1c; font-weight:800; } input.qe.bad { border-color:#dc2626; } input.qe.note { font-weight:500; }
 .src { display:inline-block; font-size:.66rem; font-weight:800; color:#6d28d9; background:#ede9fe; border:1px solid #c0aaf5; border-radius:4px; padding:0 .35rem; margin-left:.3rem; white-space:nowrap; }
+.src.urg { color:#b91c1c; background:#fee2e2; border-color:#fca5a5; }
 .stk { display:flex; flex-wrap:wrap; gap:.3rem; padding-top:.3rem; font-size:.8rem; }
 .stk button { border:1px solid #b6c2d6; background:#fff; border-radius:999px; padding:.05rem .6rem; font-weight:700; } .stk button:hover, .stk button.on { background:#6d28d9; color:#fff; border-color:#6d28d9; }
 .stk .none { color:var(--faint); font-style:italic; }
@@ -345,6 +346,7 @@ input.qe.late { color:#b91c1c; font-weight:800; } input.qe.bad { border-color:#d
   <div class="card p-3 mb-3">
     <div class="d-flex flex-wrap align-items-end gap-3">
       <button class="btn btn-nam-suong" onclick="openEditor(null)"><i class="bi bi-plus-lg"></i> Thêm đơn mới</button>
+      <button class="btn btn-danger" onclick="urgOpen()" title="Chọn các mã khách chưa đặt (không xin nội bộ) và gửi thẳng admin duyệt"><i class="bi bi-lightning-charge-fill"></i> Gôm đơn khẩn</button>
       <div style="min-width:280px;flex:1;max-width:420px"><input type="text" id="fSearch" class="form-control" placeholder="Tìm tên khách, SĐT, số khung, mã hàng... (Enter)"></div>
       {% if role == 'admin' %}
       <select id="fStore" class="form-select" style="width:auto"><option value="">Tất cả chi nhánh</option>{% for s in store_list %}<option value="{{ s }}">{{ s }}</option>{% endfor %}</select>
@@ -405,6 +407,7 @@ input.qe.late { color:#b91c1c; font-weight:800; } input.qe.bad { border-color:#d
   </div>
 </div></div></div>
 <div id="toast"></div>
+
 <datalist id="ot-list"><option value="KHẨN"><option value="ĐỊNH KỲ"><option value="TỒN"></datalist>
 
 {% if role == 'admin' %}
@@ -506,7 +509,7 @@ function rowHtml(rq) {
     + `<div class="first"${rs}>${mqd('customer_call_date')}</div><div class="first"${rs}>${mqd('actual_delivery_date')}</div>`;
   const items = visibleItems.map((it, i) => {
     const f = i === 0 ? ' first' : '', nb = it.source === 'Xin nội bộ';
-    return `<div class="${f}">${it.part_code ? `<span class="code">${esc(it.part_code)}</span>` : '<span class="dv none">chưa có mã</span>'}${nb ? `<span class="src">NỘI BỘ${it.source_store ? ' ← ' + esc(it.source_store) : ''}</span>` : ''}<div class="pname">${esc(it.part_name)}</div></div>`
+    return `<div class="${f}">${it.part_code ? `<span class="code">${esc(it.part_code)}</span>` : '<span class="dv none">chưa có mã</span>'}${nb ? `<span class="src">NỘI BỘ${it.source_store ? ' ← ' + esc(it.source_store) : ''}</span>` : ''}${it.urgent_batch_id > 0 ? `<span class="src urg" title="Đã gôm vào đơn khẩn #${it.urgent_batch_id} gửi admin">KHẨN #${it.urgent_batch_id}</span>` : ''}<div class="pname">${esc(it.part_name)}</div></div>`
       + `<div class="qty${f}">${esc(it.quantity)}</div>`
       + (i === 0 ? merged : '')
       + `<div class="${f}"><input class="qe note" data-rid="${esc(rq.request_id)}" data-i="${i}" data-f="call_note" value="${esc(it.call_note)}" placeholder="Ghi chú..." autocomplete="off"></div>`;
@@ -918,6 +921,284 @@ async function submitImport() {
   } catch (e) { box.innerHTML = `<span class="text-danger">${esc(e.message)}</span>`; }
   finally { btn.disabled = false; }
 }
+
+/* ---------- Gôm đơn khẩn ---------- */
+const urgStoreVal = () => ROLE === 'admin' ? (($('fStore') || {}).value || '') : '';
+const U_esc = esc, U_date = fmtDate, U_store = urgStoreVal, U_isAdmin = () => ROLE === 'admin';
+const U_get = async url => { const res = await fetch(url), j = await res.json().catch(() => ({})); if (!res.ok || !j.success) throw new Error(j.error || 'Lỗi tải dữ liệu'); return j; };
+const U_post = (url, body) => api(url, body);
+const U_warn = m => toast(m, true);
+const U_onSent = () => loadOrders();        // làm mới danh sách để các dòng vừa gôm hiện nhãn KHẨN #
+const U_onClosed = () => {};
+/* ===== Gôm đơn khẩn: chọn mã khách -> xác nhận -> gửi thẳng admin duyệt (khối dùng chung) ===== */
+let URG = null;
+const urgEl = id => document.getElementById('urg' + id);
+const urgNum = n => Number(n || 0).toLocaleString('vi-VN');
+
+function urgEnsure() {
+  if (urgEl('Modal')) return;
+  if (!document.getElementById('ugm-css')) document.head.insertAdjacentHTML('beforeend', `<style id="ugm-css">
+.ugm .modal-content{border:0;border-radius:14px;overflow:hidden;box-shadow:0 20px 60px rgba(15,23,42,.35)}
+.ugm-head{background:linear-gradient(135deg,#b91c1c,#ef4444);color:#fff;border:0;padding:.8rem 1.1rem;align-items:center;gap:.7rem}
+.ugm-head .btn-close{filter:invert(1) grayscale(1) brightness(2);opacity:.85;margin:0 0 0 auto}
+.ugm-ico{width:40px;height:40px;border-radius:50%;background:rgba(255,255,255,.18);display:grid;place-items:center;font-size:1.25rem;flex:none}
+.ugm-ttl{font-weight:800;font-size:1.05rem;line-height:1.2}
+.ugm-sub{font-size:.76rem;opacity:.88}
+.ugm-steps{display:flex;align-items:center;gap:.5rem;padding:.55rem 1.1rem;background:#fef2f2;border-bottom:1px solid #fecaca;font-size:.76rem;font-weight:700;color:#9ca3af}
+.ugm-steps span{display:flex;align-items:center;gap:.35rem}
+.ugm-steps b{width:20px;height:20px;border-radius:50%;background:#e5e7eb;color:#6b7280;display:grid;place-items:center;font-size:.7rem;transition:background .25s,color .25s}
+.ugm-steps i.sep{flex:0 0 28px;height:2px;background:#e5e7eb;border-radius:2px}
+.ugm-steps .on{color:#b91c1c}.ugm-steps .on b{background:#dc2626;color:#fff}
+.ugm-steps .ok{color:#15803d}.ugm-steps .ok b{background:#16a34a;color:#fff}
+.ugm-stats{display:grid;grid-template-columns:repeat(3,1fr);gap:.6rem;margin-bottom:.7rem}
+.ugm-stat{border:1px solid #e2e8f0;border-radius:10px;padding:.4rem .75rem;background:#fff}
+.ugm-stat small{display:block;color:#64748b;font-size:.68rem;font-weight:700;text-transform:uppercase;letter-spacing:.04em}
+.ugm-stat strong{display:inline-block;font-size:1.3rem;font-variant-numeric:tabular-nums}
+.ugm-stat.pulse strong{animation:ugmPop .35s}
+@keyframes ugmPop{40%{transform:scale(1.2);color:#dc2626}}
+.ugm-chips{display:flex;flex-wrap:wrap;gap:.35rem}
+.ugm-chip{border:1px solid #cbd5e1;background:#fff;border-radius:999px;padding:.12rem .7rem;font-size:.76rem;font-weight:700;color:#475569;cursor:pointer;transition:background .15s,color .15s}
+.ugm-chip:hover{background:#f1f5f9}
+.ugm-chip.on{background:#dc2626;border-color:#dc2626;color:#fff}
+.ugm-chip em{font-style:normal;opacity:.75;margin-left:.3rem}
+.ugm-search{position:relative;flex:1;max-width:340px;min-width:200px}
+.ugm-search i{position:absolute;left:.6rem;top:50%;transform:translateY(-50%);color:#94a3b8;font-size:.8rem}
+.ugm-search input{padding-left:1.9rem}
+.ugm-wrap{max-height:46vh;overflow:auto;border:1px solid #e2e8f0;border-radius:10px}
+.ugm-t{margin:0;font-size:.82rem}
+.ugm-t th{position:sticky;top:0;z-index:2;background:#f1f5f9;font-size:.7rem;text-transform:uppercase;letter-spacing:.03em;color:#475569;white-space:nowrap;box-shadow:0 1px 0 #e2e8f0}
+.ugm-t td{vertical-align:middle}
+.ugm-t tbody tr{cursor:pointer;transition:background .15s}
+.ugm-t tbody tr:hover{background:#f8fafc}
+.ugm-t tbody tr.sel{background:#fef2f2;box-shadow:inset 3px 0 0 #dc2626}
+.ugm-t tbody tr.off{cursor:not-allowed;opacity:.5}
+.ugm-t tbody tr.gom-out{animation:ugmOut .55s cubic-bezier(.5,0,.75,0) forwards}
+@keyframes ugmOut{to{opacity:0;transform:translateX(70px) scale(.96);background:#fecaca}}
+.ugm-qty{display:inline-flex;align-items:center;border:1px solid #cbd5e1;border-radius:8px;overflow:hidden;background:#fff}
+.ugm-qty button{border:0;background:#f1f5f9;width:24px;height:28px;font-weight:800;color:#475569;line-height:1}
+.ugm-qty button:hover:not(:disabled){background:#fee2e2;color:#b91c1c}
+.ugm-qty input{width:46px;border:0;text-align:center;font-weight:700;font-size:.82rem;padding:0;outline:0;-moz-appearance:textfield;background:transparent}
+.ugm-qty input::-webkit-outer-spin-button,.ugm-qty input::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
+.ugm-skel td div{height:12px;border-radius:6px;background:linear-gradient(90deg,#eef2f7 25%,#f8fafc 50%,#eef2f7 75%);background-size:200% 100%;animation:ugmSh 1.1s infinite}
+@keyframes ugmSh{to{background-position:-200% 0}}
+.ugm-empty{padding:2.2rem 1rem;text-align:center;color:#94a3b8}
+.ugm-empty i{font-size:2.2rem;display:block;margin-bottom:.4rem}
+.ugm-confirm,.ugm-done{padding:1.8rem 1rem;text-align:center}
+.ugm-confirm .big{width:64px;height:64px;border-radius:50%;background:#fee2e2;color:#dc2626;display:grid;place-items:center;font-size:1.9rem;margin:0 auto .9rem}
+.ugm-lock{display:inline-block;margin-top:.7rem;background:#fffbeb;border:1px solid #fde68a;color:#92400e;border-radius:8px;padding:.35rem .8rem;font-size:.8rem}
+.ugm-check{width:78px;height:78px;margin:0 auto 1rem;display:block}
+.ugm-check circle{fill:none;stroke:#16a34a;stroke-width:3;stroke-dasharray:158;stroke-dashoffset:158;animation:ugmDraw .6s ease forwards}
+.ugm-check path{fill:none;stroke:#16a34a;stroke-width:4;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:40;stroke-dashoffset:40;animation:ugmDraw .4s .5s ease forwards}
+@keyframes ugmDraw{to{stroke-dashoffset:0}}
+.ugm-pills{display:flex;justify-content:center;flex-wrap:wrap;gap:.5rem;margin-top:.9rem}
+.ugm-pill{background:#f1f5f9;border-radius:999px;padding:.25rem .85rem;font-size:.82rem;font-weight:700}
+.ugm-pill.warn{background:#fef3c7;color:#92400e}
+.ugm-view{animation:ugmIn .25s ease}
+@keyframes ugmIn{from{opacity:0;transform:translateY(8px)}}
+@media (max-width:576px){.ugm-stats{grid-template-columns:repeat(3,1fr);gap:.35rem}.ugm-stat strong{font-size:1.05rem}}
+@media (prefers-reduced-motion:reduce){.ugm *{animation-duration:.01ms!important;animation-delay:0ms!important;transition-duration:.01ms!important}}
+</style>`);
+  document.body.insertAdjacentHTML('beforeend', `<div class="modal fade ugm" id="urgModal" data-bs-backdrop="static" tabindex="-1"><div class="modal-dialog modal-xl modal-dialog-scrollable modal-dialog-centered"><div class="modal-content">
+  <div class="modal-header ugm-head">
+    <div class="ugm-ico"><i class="bi bi-lightning-charge-fill"></i></div>
+    <div><div class="ugm-ttl">Gôm đơn khẩn <span class="badge bg-light text-danger ms-1 d-none" id="urgStore"></span></div><div class="ugm-sub">Chọn mã khách chưa đặt và gửi thẳng admin duyệt</div></div>
+    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Đóng"></button>
+  </div>
+  <div class="ugm-steps" id="urgSteps"><span data-s="1" class="on"><b>1</b>Chọn mã khách</span><i class="sep"></i><span data-s="2"><b>2</b>Xác nhận</span><i class="sep"></i><span data-s="3"><b>3</b>Gửi admin</span></div>
+  <div class="modal-body p-3">
+    <div id="urgMain" class="ugm-view">
+      <div class="small text-muted mb-2">Chỉ hiện các mã khách <b>Chưa đặt</b>, <b>không xin nội bộ</b> và chưa gửi khẩn. Đơn khẩn được gửi <b>thẳng cho admin</b> ở trạng thái Chờ duyệt.</div>
+      <div class="ugm-stats">
+        <div class="ugm-stat"><small>Dòng đã chọn</small><strong id="urgStLines">0</strong></div>
+        <div class="ugm-stat"><small>Số khách</small><strong id="urgStCust">0</strong></div>
+        <div class="ugm-stat"><small>Tổng SL</small><strong id="urgStQty">0</strong></div>
+      </div>
+      <div class="d-flex flex-wrap gap-2 align-items-center mb-2">
+        <div class="ugm-search"><i class="bi bi-search"></i><input type="text" id="urgSearch" class="form-control form-control-sm" placeholder="Lọc theo khách, mã, số báo giá, số khung..." oninput="urgRender()"></div>
+        <div class="ugm-chips" id="urgChips"></div>
+        <span class="ms-auto small text-muted" id="urgHint"></span>
+      </div>
+      <div class="ugm-wrap"><table class="table ugm-t"><thead><tr>
+        <th style="width:34px"><input type="checkbox" class="form-check-input" id="urgAll" onchange="urgSelectAll(this.checked)" title="Chọn / bỏ chọn tất cả dòng đang lọc"></th>
+        <th>STT</th><th>Mã đặt</th><th>Tên hàng</th><th class="text-center">SL đặt</th><th>Ngày KH yêu cầu</th><th>Khách hàng</th><th>Số báo giá</th><th>Loại xe</th><th>Số khung</th>
+      </tr></thead><tbody id="urgBody"></tbody></table></div>
+      <input type="text" id="urgNote" class="form-control form-control-sm mt-2" maxlength="500" placeholder="Ghi chú cho admin (không bắt buộc)" onkeydown="if(event.key==='Enter')urgAsk()">
+      <div class="alert alert-danger py-2 mt-2 mb-0 d-none" id="urgErr"></div>
+      <div class="small text-muted mt-2">Bấm vào dòng để chọn · giữ <b>Shift</b> + bấm để chọn cả khoảng · sửa SL bằng nút − / +</div>
+    </div>
+    <div id="urgConfirm" class="ugm-confirm ugm-view d-none">
+      <div class="big"><i class="bi bi-send-exclamation-fill"></i></div>
+      <h5 class="fw-bold mb-2" id="urgCfText"></h5>
+      <div class="small" id="urgCfNote"></div>
+      <div class="ugm-lock"><i class="bi bi-lock-fill me-1"></i>Sau khi gửi, đơn bị khoá; chỉ thu hồi được khi admin chưa lấy về duyệt.</div>
+    </div>
+    <div id="urgDone" class="ugm-done ugm-view d-none"></div>
+  </div>
+  <div class="modal-footer py-2" id="urgFootList">
+    <button type="button" class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">Đóng</button>
+    <button type="button" class="btn btn-danger btn-sm fw-bold px-3" id="urgBtnAsk" onclick="urgAsk()"><i class="bi bi-send-fill me-1"></i>Gửi admin duyệt <span class="badge bg-light text-danger ms-1" id="urgAskN">0</span></button>
+  </div>
+  <div class="modal-footer py-2 d-none" id="urgFootConfirm">
+    <button type="button" class="btn btn-outline-secondary btn-sm" id="urgBtnBack" onclick="urgView('list')"><i class="bi bi-arrow-left me-1"></i>Quay lại chỉnh</button>
+    <button type="button" class="btn btn-danger btn-sm fw-bold px-3" id="urgBtnSend" onclick="urgSend()"><i class="bi bi-send-fill me-1"></i>Xác nhận gửi</button>
+  </div>
+  <div class="modal-footer py-2 d-none" id="urgFootDone">
+    <button type="button" class="btn btn-success btn-sm fw-bold px-4" data-bs-dismiss="modal"><i class="bi bi-check2 me-1"></i>Hoàn tất</button>
+  </div>
+</div></div></div>`);
+}
+
+function urgStep(n) {
+  urgEl('Steps').querySelectorAll('span').forEach(sp => {
+    const s = +sp.dataset.s;
+    sp.className = s < n ? 'ok' : s === n ? 'on' : '';
+    sp.firstChild.innerHTML = s < n ? '<i class="bi bi-check-lg"></i>' : s;
+  });
+}
+function urgView(v) {          // list | confirm | done
+  const show = (id, on) => urgEl(id).classList.toggle('d-none', !on);
+  show('Main', v === 'list'); show('Confirm', v === 'confirm'); show('Done', v === 'done');
+  show('FootList', v === 'list'); show('FootConfirm', v === 'confirm'); show('FootDone', v === 'done');
+  urgStep(v === 'list' ? 1 : v === 'confirm' ? 2 : 4);
+}
+function urgErr(m) { const e = urgEl('Err'); e.textContent = m || ''; e.classList.toggle('d-none', !m); }
+function urgSkel() {
+  urgEl('Body').innerHTML = Array.from({ length: 6 }, () => '<tr class="ugm-skel">' + Array.from({ length: 10 }, () => '<td><div></div></td>').join('') + '</tr>').join('');
+}
+
+async function urgOpen() {
+  if (U_isAdmin() && !U_store()) { U_warn('Admin: hãy chọn 1 chi nhánh ở ô chọn chi nhánh rồi bấm lại Gôm đơn khẩn.'); return; }
+  urgEnsure();
+  URG = { rows: [], by: {}, sel: new Set(), qty: {}, store: U_store(), view: 'all', last: null, shown: [], busy: false, sent: false, st: {} };
+  const st = urgEl('Store'); st.textContent = U_isAdmin() ? URG.store : ''; st.classList.toggle('d-none', !U_isAdmin());
+  urgEl('Note').value = ''; urgEl('Search').value = ''; urgErr('');
+  urgView('list'); urgSkel(); urgCount();
+  const m = urgEl('Modal');
+  m.addEventListener('hidden.bs.modal', () => { if (URG && URG.sent) U_onClosed(); }, { once: true });
+  bootstrap.Modal.getOrCreateInstance(m).show();
+  try { await urgLoad(false); }
+  catch (e) { urgEl('Body').innerHTML = `<tr><td colspan="10"><div class="ugm-empty text-danger"><i class="bi bi-exclamation-triangle"></i>${U_esc(e.message)}</div></td></tr>`; }
+}
+async function urgLoad(keep) {        // keep = true: nạp lại sau lỗi (dòng bị người khác gửi/đổi trạng thái), giữ lựa chọn còn hợp lệ
+  const S = URG;
+  const j = await U_get('/api/gom-don-hang/urgent/candidates?' + new URLSearchParams(S.store ? { store: S.store } : {}));
+  if (keep) S.sel = new Set([...S.sel].filter(id => j.data.some(r => r.id === id)));
+  j.data.forEach(r => { if (!keep || !(r.id in S.qty)) S.qty[r.id] = r.qty; });
+  S.rows = j.data; S.by = Object.fromEntries(j.data.map(r => [r.id, r]));
+  urgRender();
+}
+
+function urgFiltered() {
+  const S = URG, q = urgEl('Search').value.trim().toLowerCase(), v = S.view;
+  return S.rows.filter(r => (!q || [r.part_code, r.order_code, r.part_name, r.customer_name, r.quote_no, r.vehicle_type, r.frame_number, r.stt].join(' ').toLowerCase().includes(q))
+    && (v === 'all' || (v === 'sel' && S.sel.has(r.id)) || (v === 'unsel' && !r.skip && !S.sel.has(r.id)) || (v === 'diff' && r.order_code !== r.part_code) || (v === 'skip' && r.skip)));
+}
+function urgOQ(r) {            // mã đặt khác mã khách yêu cầu (mã cha / thay thế): ước lượng theo tỉ lệ, số chính xác do máy chủ tính khi gửi
+  const q = Number(URG.qty[r.id]) || 0;
+  return r.order_code === r.part_code ? q : Math.max(1, Math.ceil(q * r.order_qty / r.qty - 1e-9));
+}
+function urgRender() {
+  const S = URG, rows = urgFiltered(), MAXR = 400, shown = rows.slice(0, MAXR);
+  S.shown = shown.map(r => r.id);
+  urgEl('Body').innerHTML = shown.length ? shown.map(r => {
+    const diff = r.order_code !== r.part_code, off = !!r.skip, on = S.sel.has(r.id);
+    return `<tr class="${off ? 'off' : on ? 'sel' : ''}" data-id="${r.id}" onclick="urgRow(event,${r.id})"><td><input type="checkbox" class="form-check-input" ${off ? 'disabled' : ''} ${on ? 'checked' : ''}></td>`
+      + `<td class="fw-bold">${U_esc(r.stt)}</td>`
+      + `<td><span class="fw-semibold">${U_esc(r.order_code)}</span>${diff ? `<div class="text-muted" style="font-size:.7rem">khách yêu cầu: ${U_esc(r.part_code)}</div>` : ''}${r.skip ? `<div class="text-danger" style="font-size:.7rem">${U_esc(r.skip)}</div>` : ''}${r.locked_no_rep ? '<div class="text-warning-emphasis" style="font-size:.7rem">Mã đang bị khoá</div>' : ''}</td>`
+      + `<td>${U_esc(r.part_name)}</td>`
+      + `<td class="text-center"><div class="ugm-qty"><button type="button" ${off ? 'disabled' : ''} onclick="urgBump(${r.id},-1)">−</button><input type="number" min="1" id="urgq${r.id}" value="${U_esc(S.qty[r.id])}" ${off ? 'disabled' : ''} onchange="urgQty(${r.id},this.value)"><button type="button" ${off ? 'disabled' : ''} onclick="urgBump(${r.id},1)">+</button></div><div class="text-muted" style="font-size:.7rem" id="urgo${r.id}">${diff ? 'đặt ~' + urgOQ(r) : ''}</div></td>`
+      + `<td>${U_date(r.request_date) || '—'}</td><td>${U_esc(r.customer_name)}</td><td class="font-monospace">${U_esc(r.quote_no)}</td><td>${U_esc(r.vehicle_type)}</td><td class="font-monospace">${U_esc(r.frame_number)}</td></tr>`;
+  }).join('') : `<tr><td colspan="10"><div class="ugm-empty"><i class="bi bi-inbox"></i>${S.rows.length ? 'Không có dòng nào khớp bộ lọc.' : 'Không có mã nào đủ điều kiện gôm đơn khẩn.'}</div></td></tr>`;
+  urgEl('Hint').textContent = rows.length > MAXR ? `Đang hiện ${MAXR}/${rows.length} dòng — dùng ô lọc để thu hẹp.` : '';
+  urgCount();
+}
+
+function urgMark(id, on) {
+  const S = URG, r = S.by[id]; if (!r || r.skip) return;
+  if (on) S.sel.add(id); else S.sel.delete(id);
+  const tr = urgEl('Body').querySelector(`tr[data-id="${id}"]`);
+  if (tr) { tr.classList.toggle('sel', on); const c = tr.querySelector('input[type=checkbox]'); if (c) c.checked = on; }
+}
+function urgRow(ev, id) {
+  if (ev.target.closest('.ugm-qty')) return;
+  const S = URG, r = S.by[id]; if (!r || r.skip) return;
+  if (ev.shiftKey) window.getSelection().removeAllRanges();
+  const on = !S.sel.has(id), a = S.shown.indexOf(S.last), b = S.shown.indexOf(id);
+  if (ev.shiftKey && a >= 0 && b >= 0 && S.last !== id) S.shown.slice(Math.min(a, b), Math.max(a, b) + 1).forEach(x => urgMark(x, on));
+  else urgMark(id, on);
+  S.last = id; urgCount();
+}
+function urgSelectAll(on) { urgFiltered().forEach(r => { if (!r.skip) { if (on) URG.sel.add(r.id); else URG.sel.delete(r.id); } }); urgRender(); }
+function urgChip(k) { URG.view = k; urgRender(); }
+function urgQty(id, v) {
+  const S = URG, n = Math.max(1, Math.ceil(Number(v) || 1)); S.qty[id] = n;
+  const inp = urgEl('q' + id); if (inp) inp.value = n;
+  const r = S.by[id], el = urgEl('o' + id); if (r && el && r.order_code !== r.part_code) el.textContent = 'đặt ~' + urgOQ(r);
+  if (r && !r.skip && !S.sel.has(id)) urgMark(id, true);          // sửa SL = có ý định đặt dòng đó
+  urgCount();
+}
+function urgBump(id, d) { urgQty(id, (Number(URG.qty[id]) || 1) + d); }
+
+function urgCount() {
+  const S = URG, sel = S.rows.filter(r => S.sel.has(r.id));
+  const qty = sel.reduce((a, r) => a + (Number(S.qty[r.id]) || 0), 0);
+  const cust = new Set(sel.map(r => String(r.customer_name || '').trim().toLowerCase())).size;
+  const set = (id, key, html, val) => {
+    const el = urgEl(id); el.innerHTML = html;
+    if (S.st[key] !== undefined && S.st[key] !== val) { const c = el.closest('.ugm-stat'); c.classList.remove('pulse'); void c.offsetWidth; c.classList.add('pulse'); }
+    S.st[key] = val;
+  };
+  set('StLines', 'l', `${sel.length}<span class="text-muted fs-6 fw-semibold"> / ${S.rows.length}</span>`, sel.length);
+  set('StCust', 'c', String(cust), cust);
+  set('StQty', 'q', urgNum(qty), qty);
+  const diff = S.rows.filter(r => r.order_code !== r.part_code).length, skip = S.rows.filter(r => r.skip).length;
+  const defs = [['all', 'Tất cả', S.rows.length], ['sel', 'Đã chọn', sel.length], ['unsel', 'Chưa chọn', S.rows.filter(r => !r.skip && !S.sel.has(r.id)).length]];
+  if (diff) defs.push(['diff', 'Đã quy mã', diff]);
+  if (skip) defs.push(['skip', 'Không đặt được', skip]);
+  urgEl('Chips').innerHTML = defs.map(([k, t, n]) => `<button type="button" class="ugm-chip ${S.view === k ? 'on' : ''}" onclick="urgChip('${k}')">${t}<em>${n}</em></button>`).join('');
+  const f = urgFiltered().filter(r => !r.skip), n = f.filter(r => S.sel.has(r.id)).length, all = urgEl('All');
+  all.checked = f.length > 0 && n === f.length; all.indeterminate = n > 0 && n < f.length;
+  urgEl('AskN').textContent = sel.length; urgEl('BtnAsk').disabled = !sel.length;
+}
+
+function urgAsk() {
+  const S = URG; if (!S || !S.sel.size) return;
+  const sel = S.rows.filter(r => S.sel.has(r.id)), qty = sel.reduce((a, r) => a + (Number(S.qty[r.id]) || 0), 0);
+  const cust = new Set(sel.map(r => String(r.customer_name || '').trim().toLowerCase())).size, note = urgEl('Note').value.trim();
+  urgEl('CfText').innerHTML = `Gửi <span class="text-danger">${sel.length}</span> dòng khách (${cust} khách, tổng SL ${urgNum(qty)})<br>thành 1 đơn KHẨN cho admin duyệt?`;
+  urgEl('CfNote').innerHTML = note ? `Ghi chú cho admin: “${U_esc(note)}”` : '<span class="text-muted">Không có ghi chú cho admin.</span>';
+  urgErr(''); urgView('confirm');
+}
+async function urgSend() {
+  const S = URG; if (S.busy || !S.sel.size) return;
+  S.busy = true;
+  const btn = urgEl('BtnSend'), back = urgEl('BtnBack');
+  btn.disabled = back.disabled = true; btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Đang gửi...';
+  const items = [...S.sel].map(id => ({ id, qty: S.qty[id] }));
+  try {
+    const j = await U_post('/api/gom-don-hang/urgent/create', { store: S.store, items, note: urgEl('Note').value.trim() });
+    S.sent = true;
+    try { U_onSent(j); } catch (_) { /* không để lỗi làm mới giao diện nền làm hỏng thông báo gửi thành công */ }
+    urgView('list'); urgStep(3);
+    const rows = [...urgEl('Body').querySelectorAll('tr.sel')];          // hiệu ứng "gôm": các dòng đã chọn trượt đi lần lượt
+    rows.forEach((tr, i) => { tr.style.animationDelay = Math.min(i, 14) * 35 + 'ms'; tr.classList.add('gom-out'); });
+    if (rows.length) await new Promise(res => setTimeout(res, Math.min(rows.length, 15) * 35 + 600));
+    urgDone(j);
+  } catch (e) {
+    urgView('list'); urgErr(e.message);
+    try { await urgLoad(true); } catch (_) { /* giữ nguyên danh sách */ }
+  } finally {
+    S.busy = false; btn.disabled = back.disabled = false; btn.innerHTML = '<i class="bi bi-send-fill me-1"></i>Xác nhận gửi';
+  }
+}
+function urgDone(j) {
+  const sk = (j.skipped || []).length;
+  urgEl('Done').innerHTML = `<svg class="ugm-check" viewBox="0 0 52 52"><circle cx="26" cy="26" r="25"/><path d="M14 27l8 8 16-17"/></svg>`
+    + `<h5 class="fw-bold mb-1">Đã gửi đơn khẩn #${U_esc(j.batch_id)} cho admin</h5><div class="text-muted">Đơn đang ở trạng thái <b>Chờ duyệt</b>.</div>`
+    + `<div class="ugm-pills"><span class="ugm-pill">${urgNum(j.lines)} dòng khách</span><span class="ugm-pill">${urgNum(j.parts)} mã đặt</span>${sk ? `<span class="ugm-pill warn">Bỏ ${sk} mã không được đặt</span>` : ''}</div>`;
+  urgView('done');
+}
+
 </script>
 </body>
 </html>

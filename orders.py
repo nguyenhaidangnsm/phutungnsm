@@ -105,7 +105,7 @@ LIST_COLUMNS = (
     'quantity, order_value, deposit_amount, order_date, order_type, '
     'customer_request_date, expected_delivery_date, customer_call_date, '
     'actual_delivery_date, call_note, unit_price, order_value_manual, source, source_store, '
-    'quote_no'
+    'quote_no, urgent_batch_id'
 )
 
 
@@ -228,6 +228,7 @@ def init_orders_tables():
             'source_store VARCHAR(20)',  # chi nhánh được xin tồn (khi xin nội bộ)
             'order_value_manual BOOLEAN',
             'quote_no VARCHAR(50)',     # SỐ BÁO GIÁ - "Số phiếu" trên Phiếu thu đặt cọc/Báo giá của khách (chung cho cả đơn)
+            'urgent_batch_id INTEGER',  # ĐƠN KHẨN: NULL = chưa gửi; 0 = đang giữ chỗ (tạm); >0 = id đơn khẩn (gdh_batches, CSDL chính) đã gửi admin
         ):
             cursor.execute(f'ALTER TABLE bo_orders ADD COLUMN IF NOT EXISTS {col_def}')
 
@@ -268,6 +269,7 @@ def init_orders_tables():
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_bo_orders_part_code ON bo_orders(part_code)')
         cursor.execute(norm_index_sql('bo_orders'))   # tra 'khách đang chờ mã' theo mã chuẩn hoá
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_bo_orders_request ON bo_orders(request_id)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_bo_orders_urgent ON bo_orders(urgent_batch_id) WHERE urgent_batch_id IS NOT NULL')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_bo_orders_store_seq ON bo_orders(store_code, seq_no)')
         db.commit()
         cursor.close()
@@ -376,6 +378,7 @@ def _item_to_dict(r):
         'call_note': r['call_note'],
         'source': r['source'],
         'source_store': r['source_store'],
+        'urgent_batch_id': r.get('urgent_batch_id'),   # >0: dòng này đã được gôm vào đơn khẩn gửi admin
     }
 
 

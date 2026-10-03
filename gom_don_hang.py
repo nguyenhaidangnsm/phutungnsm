@@ -171,7 +171,8 @@ def _ensure_tables(db):
                              ('claimed_by', 'TEXT'), ('claimed_at', 'TIMESTAMP'),
                              ('approved_by', 'TEXT'), ('approved_at', 'TIMESTAMP'), ('review_note', 'TEXT'),
                              ('viewed_by', 'TEXT'), ('viewed_at', 'TIMESTAMP'),
-                             ('ordered_by', 'TEXT'), ('ordered_at', 'TIMESTAMP')):
+                             ('ordered_by', 'TEXT'), ('ordered_at', 'TIMESTAMP'),
+                             ('rejected_by', 'TEXT'), ('rejected_at', 'TIMESTAMP'), ('reject_reason', 'TEXT')):
                 cur.execute(f'ALTER TABLE gdh_batches ADD COLUMN IF NOT EXISTS {col} {typ}')
             cur.execute("CREATE INDEX IF NOT EXISTS idx_gdh_batches_status ON gdh_batches (status) "
                         "WHERE owner = '' AND status <> 'draft'")
@@ -242,6 +243,39 @@ def _ensure_tables(db):
             # Cờ "chi nhánh đã tải về máy" - TÁCH RIÊNG với downloaded_at của admin, để 2 bên không đè trạng thái của nhau.
             cur.execute('ALTER TABLE gdh_archives ADD COLUMN IF NOT EXISTS store_downloaded_at TIMESTAMP')
             cur.execute('ALTER TABLE gdh_archives ADD COLUMN IF NOT EXISTS store_downloaded_by TEXT')
+            # ---- ĐƠN KHẨN TỪ DANH SÁCH KHÁCH HÀNG: đơn tạo nhanh từ bảng bo_orders, đẩy thẳng sang admin (Chờ duyệt) ----
+            cur.execute("ALTER TABLE gdh_batches ADD COLUMN IF NOT EXISTS kind VARCHAR(20) NOT NULL DEFAULT 'regular'")
+            cur.execute('''
+                CREATE TABLE IF NOT EXISTS gdh_urgent_lines (
+                    id SERIAL PRIMARY KEY,
+                    batch_id INTEGER NOT NULL REFERENCES gdh_batches(id) ON DELETE CASCADE,
+                    bo_order_id INTEGER NOT NULL,          -- id dòng trong bo_orders (CSDL Supabase)
+                    request_id VARCHAR(40),
+                    seq_no INTEGER,                         -- STT yêu cầu của khách (theo chi nhánh)
+                    part_code VARCHAR(100),                 -- mã khách yêu cầu
+                    part_name TEXT,
+                    qty NUMERIC,                            -- SL khách yêu cầu
+                    order_code VARCHAR(100),                -- MÃ ĐẶT (đã quy mã thay thế / mã cha)
+                    order_qty NUMERIC,                      -- SL ĐẶT (đã quy ra đơn vị mã đặt)
+                    customer_request_date DATE,
+                    customer_name VARCHAR(255),
+                    quote_no VARCHAR(50),
+                    vehicle_type VARCHAR(100),
+                    frame_number VARCHAR(50),
+                    UNIQUE (batch_id, bo_order_id)
+                )''')
+            cur.execute('CREATE INDEX IF NOT EXISTS idx_gdh_urgent_batch ON gdh_urgent_lines (batch_id, seq_no)')
+            # ---- LỊCH SỬ TỪ CHỐI: mỗi lần admin từ chối 1 dòng (không gắn khoá ngoại để đơn khẩn bị xoá / đơn bị chi nhánh xoá vẫn còn lịch sử) ----
+            cur.execute('''
+                CREATE TABLE IF NOT EXISTS gdh_rejections (
+                    id SERIAL PRIMARY KEY,
+                    batch_id INTEGER, store_code VARCHAR(20) NOT NULL, kind VARCHAR(20) NOT NULL DEFAULT 'regular',
+                    order_name TEXT, period_from DATE, period_to DATE,
+                    parts INTEGER, qty NUMERIC,
+                    submitted_by TEXT, submitted_at TIMESTAMP,
+                    rejected_by TEXT, rejected_at TIMESTAMP NOT NULL DEFAULT NOW(), reason TEXT
+                )''')
+            cur.execute('CREATE INDEX IF NOT EXISTS idx_gdh_rejections_sto ON gdh_rejections (store_code, rejected_at DESC)')
             db.commit()
         finally:
             cur.close()
@@ -275,6 +309,12 @@ def _read_raw(file_storage):
     name = (getattr(file_storage, 'filename', '') or '').lower()
     if name.endswith('.csv'):
         return pd.read_csv(file_storage, header=None, dtype=object)
+    try:                                   # nếu đã cài python-calamine thì đọc Excel nhanh hơn nhiều; không có / lỗi thì dùng cách cũ
+        import importlib.util
+        if importlib.util.find_spec('python_calamine') is not None:
+            return pd.read_excel(file_storage, header=None, dtype=object, engine='calamine')
+    except Exception:
+        file_storage.seek(0)
     return pd.read_excel(file_storage, header=None, dtype=object)
 
 
@@ -363,8 +403,9 @@ def parse_stock_file(file_storage, today=None):
         return r[c] if c is not None and c < len(r) else None
 
     acc = {}
-    for i in range(first, len(raw)):
-        r = raw.iloc[i].tolist()
+    all_rows = raw.values.tolist()          # 1 lần cho cả bảng (raw.iloc[i] từng dòng rất chậm với file nhiều chục nghìn dòng)
+    for i in range(first, len(all_rows)):
+        r = all_rows[i]
         code = str(cell(r, c_code)).strip() if cell(r, c_code) is not None else ''
         if not code or code.lower() == 'nan' or _norm(code).startswith(('tổng', 'mã hàng')):
             continue
@@ -677,7 +718,8 @@ def _fmt_dt(d):
 
 def _batch_json(b, extra=None):
     days, weeks, months = period_metrics(b['period_from'], b['period_to'])
-    out = {'id': b['id'], 'store': b['store_code'], 'space': 'mine' if b['owner'] else 'store', 'from': b['period_from'].isoformat(),
+    out = {'id': b['id'], 'store': b['store_code'], 'kind': b.get('kind') or 'regular',
+           'space': 'mine' if b['owner'] else 'store', 'from': b['period_from'].isoformat(),
            'to': b['period_to'].isoformat(), 'days': days, 'weeks': weeks, 'months': round(months, 2),
            'forecast_weeks': b['forecast_weeks'], 'filenames': b['filenames'],
            'uploaded_by': b['uploaded_by'], 'uploaded_at': _fmt_dt(b['uploaded_at'])}
@@ -690,6 +732,7 @@ def _batch_json(b, extra=None):
         'approved_by': b.get('approved_by'), 'approved_at': _fmt_dt(b.get('approved_at')), 'review_note': b.get('review_note') or '',
         'viewed_by': b.get('viewed_by'), 'viewed_at': _fmt_dt(b.get('viewed_at')),
         'ordered_by': b.get('ordered_by'), 'ordered_at': _fmt_dt(b.get('ordered_at')),
+        'rejected_by': b.get('rejected_by'), 'rejected_at': _fmt_dt(b.get('rejected_at')), 'reject_reason': b.get('reject_reason') or '',
         'can_edit': _can_edit(b),
     })
     if extra:
@@ -783,10 +826,12 @@ def gdh_import():
     f = request.files.get('file')
     if not f:
         return jsonify({'error': 'Vui lòng chọn file Tổng hợp tồn kho.'}), 400
+    _t0 = time.perf_counter()
     try:
         parsed = parse_stock_file(f)
     except Exception as e:
         return jsonify({'error': f'Không đọc được file: {e}'}), 400
+    _t_parse = time.perf_counter() - _t0
     rows = {c: r for c, r in parsed['rows'].items() if not _is_excluded_from_reorder(c)}
     if not rows:
         return jsonify({'error': 'File không có dòng dữ liệu hợp lệ.'}), 400
@@ -831,6 +876,7 @@ def gdh_import():
                 sold = COALESCE(EXCLUDED.sold, gdh_lines.sold),
                 unit_cost = COALESCE(EXCLUDED.unit_cost, gdh_lines.unit_cost)''', data, page_size=1000)
         db.commit()
+        print(f"[gdh_import] {f.filename}: đọc+phân tích file {_t_parse:.1f}s, ghi {len(rows)} mã vào CSDL {time.perf_counter() - _t0 - _t_parse:.1f}s")
     except Exception:
         db.rollback()
         raise
@@ -1295,7 +1341,8 @@ def gdh_submit():
                             'duplicate': True, 'blocking': False, 'need_confirm': True, 'dups': dups}), 409
         cur.execute('''UPDATE gdh_batches SET status = 'pending', submitted_by = %s, submitted_at = NOW(), submit_note = %s,
                               claimed_by = NULL, claimed_at = NULL, approved_by = NULL, approved_at = NULL, review_note = NULL,
-                              viewed_by = NULL, viewed_at = NULL
+                              viewed_by = NULL, viewed_at = NULL,
+                              rejected_by = NULL, rejected_at = NULL, reject_reason = NULL
                        WHERE id = %s AND status = 'draft' ''', (_actor_name(), note, batch['id']))
         if cur.rowcount != 1:
             db.rollback()
@@ -1330,6 +1377,19 @@ def gdh_recall():
         if err:
             return err
         st = batch.get('status') or 'draft'
+        if (batch.get('kind') or 'regular') == 'urgent' and st == 'pending':
+            # Đơn khẩn không có bản Nháp để quay về: thu hồi = xoá đơn + trả các dòng khách về trạng thái chưa gửi khẩn
+            bid = batch['id']
+            cur.execute("DELETE FROM gdh_batches WHERE id = %s AND status = 'pending' AND kind = 'urgent'", (bid,))
+            if cur.rowcount != 1:
+                db.rollback()
+                return _bad_state(batch, 'Chờ duyệt')
+            db.commit()
+            _urgent_release_marks(bid)
+            audit_record('Thu hồi đơn khẩn', 'Gôm đơn hàng', target=f"đợt {bid}",
+                         summary=f"Đợt {bid} ({batch['store_code']}): thu hồi đơn khẩn (xoá đơn, trả các dòng về danh sách khách hàng)",
+                         after={'status': 'deleted'})
+            return jsonify({'success': True, 'status': 'deleted', 'urgent': True})
         if st == 'reviewing':
             return jsonify({'error': f"Admin {batch.get('claimed_by') or ''} đang duyệt đơn này nên không thu hồi được. "
                                      'Hãy nhờ admin trả đơn về hàng chờ.'}), 409
@@ -1421,6 +1481,143 @@ def gdh_release():
     return jsonify({'success': True, 'status': 'pending'})
 
 
+def _rejection_log(cur, batch, parts, qty, name, reason):
+    cur.execute('''INSERT INTO gdh_rejections (batch_id, store_code, kind, order_name, period_from, period_to, parts, qty,
+                                               submitted_by, submitted_at, rejected_by, rejected_at, reason)
+                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,NOW(),%s)''',
+                (batch['id'], batch['store_code'], batch.get('kind') or 'regular', name, batch['period_from'], batch['period_to'],
+                 parts, qty, batch.get('submitted_by'), batch.get('submitted_at'), _actor_name(), reason))
+
+
+@gom_don_hang_bp.route('/api/gom-don-hang/rejections', methods=['GET'])
+def gdh_rejections():
+    """Lịch sử đơn bị admin từ chối. Admin: mọi chi nhánh (lọc được); user cửa hàng: chỉ chi nhánh mình.
+    open = số đơn đang chờ chi nhánh chỉnh sửa (đã bị từ chối, chưa đẩy lại)."""
+    db, cur = _ctx()
+    try:
+        store, err = _resolve_store(cur, request.args.get('store'), allow_all=True)
+        if err:
+            return err
+        try:
+            d_from, d_to = _parse_date(request.args.get('from')), _parse_date(request.args.get('to'))
+        except ValueError:
+            return jsonify({'error': 'Ngày không hợp lệ (định dạng YYYY-MM-DD).'}), 400
+        sql = ('SELECT r.*, b.status AS b_status, b.reject_reason AS b_reject, b.rejected_at AS b_rejected_at '
+               'FROM gdh_rejections r LEFT JOIN gdh_batches b ON b.id = r.batch_id WHERE 1=1')
+        params = []
+        if store:
+            sql += ' AND r.store_code = %s'; params.append(store)
+        if d_from:
+            sql += ' AND r.rejected_at::date >= %s'; params.append(d_from)
+        if d_to:
+            sql += ' AND r.rejected_at::date <= %s'; params.append(d_to)
+        data = []
+        rej_rows = []
+        if request.args.get('counts_only') != '1':          # chỉ cần số đếm (huy hiệu) thì khỏi nạp danh sách
+            cur.execute(sql + ' ORDER BY r.rejected_at DESC, r.id DESC LIMIT 500', params)
+            rej_rows = cur.fetchall()
+        for r in rej_rows:
+            # Đơn còn là Nháp và dấu từ chối vẫn là của chính lần này -> đang chờ chi nhánh sửa; đã đẩy lại / đã xoá thì không.
+            waiting = (r['b_status'] == 'draft' and r['b_rejected_at'] is not None and r['rejected_at'] is not None
+                       and abs((r['b_rejected_at'] - r['rejected_at']).total_seconds()) < 5)
+            data.append({'id': r['id'], 'batch_id': r['batch_id'], 'store': r['store_code'], 'kind': r['kind'],
+                         'name': r['order_name'] or ('Đơn hàng ' + r['store_code']),
+                         'from': r['period_from'].isoformat() if r['period_from'] else None,
+                         'to': r['period_to'].isoformat() if r['period_to'] else None,
+                         'parts': r['parts'], 'qty': _f(r['qty']),
+                         'submitted_by': r['submitted_by'], 'submitted_at': _fmt_dt(r['submitted_at']),
+                         'rejected_by': r['rejected_by'], 'rejected_at': _fmt_dt(r['rejected_at']), 'reason': r['reason'] or '',
+                         'waiting': waiting,
+                         'state': 'waiting' if waiting else ('deleted' if r['b_status'] is None else 'resubmitted')})
+        osql, oparams = "SELECT COUNT(*) AS n FROM gdh_batches WHERE owner = '' AND status = 'draft' AND rejected_at IS NOT NULL", []
+        if store:
+            osql += ' AND store_code = %s'; oparams.append(store)
+        cur.execute(osql, oparams)
+        open_n = int(cur.fetchone()['n'] or 0)
+    finally:
+        cur.close()
+    return jsonify({'success': True, 'data': data, 'open': open_n})
+
+
+@gom_don_hang_bp.route('/api/gom-don-hang/reject', methods=['POST'])
+def gdh_reject():
+    """Admin TỪ CHỐI duyệt đơn chưa ổn: Chờ duyệt / Đang duyệt -> Nháp (trả về chi nhánh kèm lý do bắt buộc để sửa rồi đẩy lại).
+    Đơn Đang duyệt chỉ chính admin đã lấy đơn mới từ chối được. Đơn khẩn (tạo từ danh sách khách hàng) không có bản Nháp để quay về:
+    từ chối = xoá đơn + trả các dòng về danh sách khách hàng (giống chi nhánh thu hồi đơn khẩn)."""
+    blk = _need_role('admin')
+    if blk:
+        return blk
+    payload = request.get_json(silent=True) or {}
+    reason = str(payload.get('reason') or '').strip()[:500]
+    if not reason:
+        return jsonify({'error': 'Cần nhập lý do từ chối để chi nhánh biết cần chỉnh sửa gì.'}), 400
+    me = str(session.get('user') or '')
+    db, cur = _ctx()
+    try:
+        batch, err = _get_batch(cur, payload.get('batch_id'))
+        if err:
+            return err
+        if batch['owner']:
+            return jsonify({'error': 'Đây là đơn gôm riêng của admin, không nằm trong luồng duyệt.'}), 400
+        st = batch.get('status') or 'draft'
+        if st not in ('pending', 'reviewing'):
+            return _bad_state(batch, 'Chờ duyệt hoặc Đang duyệt')
+        if st == 'reviewing' and (batch.get('claimed_by') or '') != me:
+            return jsonify({'error': f"Đơn đang do {batch.get('claimed_by') or 'admin khác'} duyệt, bạn không từ chối thay được."}), 403
+        bid = batch['id']
+        if (batch.get('kind') or 'regular') == 'urgent':
+            cur.execute('SELECT COUNT(*) AS n, COALESCE(SUM(order_qty), 0) AS q FROM gdh_urgent_lines WHERE batch_id = %s', (bid,))
+            u = cur.fetchone()
+            _rejection_log(cur, batch, int(u['n'] or 0), float(u['q'] or 0), _order_name(batch, ['Khẩn']), reason)
+            cur.execute("""DELETE FROM gdh_batches WHERE id = %s AND kind = 'urgent' AND owner = '' AND status = %s
+                             AND (status = 'pending' OR claimed_by = %s)""", (bid, st, me))
+            if cur.rowcount != 1:
+                db.rollback()
+                return _bad_state(batch, 'Chờ duyệt hoặc Đang duyệt')
+            db.commit()
+            _urgent_release_marks(bid)
+            audit_record('Từ chối đơn khẩn', 'Gôm đơn hàng', target=f"đợt {bid}",
+                         summary=f"Đợt {bid} ({batch['store_code']}): admin từ chối đơn khẩn (xoá đơn, trả các dòng về danh sách khách hàng). Lý do: {reason}",
+                         after={'status': 'deleted', 'reason': reason})
+            return jsonify({'success': True, 'status': 'deleted', 'urgent': True})
+        conflict_msg = ('Chi nhánh đang có một đơn Nháp khác cùng kỳ số bán nên chưa trả đơn này về Nháp được. '
+                        'Hãy nhờ chi nhánh xoá hoặc đẩy đơn Nháp đó trước rồi từ chối lại.')
+        cur.execute("""SELECT 1 FROM gdh_batches WHERE store_code = %s AND owner = '' AND period_from = %s
+                         AND period_to = %s AND status = 'draft' LIMIT 1""",
+                    (batch['store_code'], batch['period_from'], batch['period_to']))
+        if cur.fetchone():
+            db.rollback()
+            return jsonify({'error': conflict_msg}), 409
+        try:
+            cur.execute("""UPDATE gdh_batches SET status = 'draft', submitted_by = NULL, submitted_at = NULL, submit_note = NULL,
+                                  claimed_by = NULL, claimed_at = NULL,
+                                  rejected_by = %s, rejected_at = NOW(), reject_reason = %s
+                           WHERE id = %s AND owner = '' AND status = %s AND (status = 'pending' OR claimed_by = %s)""",
+                        (_actor_name(), reason, bid, st, me))
+        except psycopg2.IntegrityError:          # vừa có đơn Nháp cùng kỳ được tạo xen vào
+            db.rollback()
+            return jsonify({'error': conflict_msg}), 409
+        if cur.rowcount != 1:
+            db.rollback()
+            return _bad_state(batch, 'Chờ duyệt hoặc Đang duyệt')
+        items = _snap_load(cur, bid, 'submitted')
+        tot = _items_totals(items)
+        _rejection_log(cur, batch, tot['parts'], tot['qty'],
+                       _order_name(batch, [t for t in ORDER_TYPES if tot['by_type'][t]['parts'] > 0]), reason)
+        cur.execute("DELETE FROM gdh_batch_snap WHERE batch_id = %s AND stage = 'submitted'", (bid,))
+        _log_event(cur, bid, st, 'draft', 'Admin từ chối duyệt: ' + reason)
+        db.commit()
+        audit_record('Từ chối duyệt đơn gôm', 'Gôm đơn hàng', target=f"đợt {bid}",
+                     summary=f"Đợt {bid} ({batch['store_code']}): {STATUS_LABELS.get(st, st)} -> Nháp (từ chối duyệt). Lý do: {reason}",
+                     after={'status': 'draft', 'reason': reason})
+    except Exception:
+        db.rollback()
+        raise
+    finally:
+        cur.close()
+    return jsonify({'success': True, 'status': 'draft'})
+
+
 def _review_map(cur, bid, codes=None):
     """{mã: (SL duyệt, ghi chú)} CỦA RIÊNG đơn này. Ghi chú không lấy từ ghi chú chung theo mã ở menu Duyệt Đơn Hàng
     nữa, để ghi chú của đơn khác không bị kéo sang."""
@@ -1436,8 +1633,11 @@ def _review_payload(cur, batch):
     cur.execute('SELECT part_code, approved_qty, note, updated_at FROM gdh_review_draft WHERE batch_id = %s', (batch['id'],))
     drows = cur.fetchall()
     draft = {r['part_code']: {'qty': _f(r['approved_qty']), 'note': r['note'] or ''} for r in drows}
-    return {'batch': _batch_json(batch), 'items': items, 'draft': draft,
-            'draft_saved_at': _fmt_dt(max((r['updated_at'] for r in drows), default=None))}
+    out = {'batch': _batch_json(batch), 'items': items, 'draft': draft,
+           'draft_saved_at': _fmt_dt(max((r['updated_at'] for r in drows), default=None))}
+    if (batch.get('kind') or 'regular') == 'urgent':
+        out['urgent_lines'] = _urgent_lines(cur, batch['id'])        # thông tin khách để admin xem ngay trong khung duyệt
+    return out
 
 
 @gom_don_hang_bp.route('/api/gom-don-hang/review-lines', methods=['GET'])
@@ -1690,6 +1890,246 @@ def gdh_orders():
 
 
 # ----------------------------------------------------------------------------
+# 4a. ĐƠN KHẨN TỪ DANH SÁCH KHÁCH HÀNG
+# Chi nhánh chọn các dòng khách "Chưa đặt" (không xin nội bộ) trong Danh sách đặt hàng (bo_orders - Supabase) rồi bấm
+# "Gôm đơn khẩn": máy chủ tạo NGAY 1 đơn loại Khẩn ở trạng thái Chờ duyệt (không qua Nháp) trong CSDL chính (Neon).
+# Admin thấy đơn ở Duyệt Đơn Hàng như mọi đơn đã đẩy, kèm bảng thông tin khách của từng dòng (gdh_urgent_lines).
+# Dòng bo_orders được đánh dấu urgent_batch_id để không gửi khẩn trùng; thu hồi đơn / xoá đơn thì gỡ dấu.
+# ----------------------------------------------------------------------------
+def _orders_conn():
+    """(odb, ocur) của CSDL đặt hàng khách (Supabase); lỗi cấu hình thì trả (None, None)."""
+    try:
+        from orders import get_orders_db
+        odb = get_orders_db()
+        return odb, odb.cursor()
+    except Exception:
+        traceback.print_exc()
+        return None, None
+
+
+def _urgent_release_marks(batch_id=None, bo_ids=None):
+    """Gỡ dấu 'đã gửi khẩn' trên bo_orders: theo đơn (thu hồi/xoá) hoặc theo danh sách dòng đang giữ chỗ (urgent_batch_id = 0)."""
+    odb, ocur = _orders_conn()
+    if not odb:
+        return
+    try:
+        if batch_id is not None:
+            ocur.execute('UPDATE bo_orders SET urgent_batch_id = NULL WHERE urgent_batch_id = %s', (batch_id,))
+        if bo_ids:
+            ocur.execute('UPDATE bo_orders SET urgent_batch_id = NULL WHERE id = ANY(%s) AND urgent_batch_id = 0', (list(bo_ids),))
+        odb.commit()
+    except Exception:
+        odb.rollback()
+        traceback.print_exc()
+    finally:
+        ocur.close()
+
+
+def _qty_int(q):
+    """SL dạng chữ của khách ('2', '2 bộ', '1,5') -> số nguyên >= 1 (làm tròn lên)."""
+    m = re.search(r'\d+(?:[.,]\d+)?', str(q or ''))
+    v = float(m.group().replace(',', '.')) if m else 1.0
+    return max(1, int(math.ceil(v - 1e-9)))
+
+
+def _urgent_resolve(cur, items):
+    """items = [(mã khách yêu cầu, SL)] -> [{order_code, order_qty, skip, locked_no_rep}] theo CÙNG quy tắc của bảng gôm:
+    mã bị khoá có mã thay thế -> đặt bằng mã thay thế; mã CON -> mã CHA (làm tròn LÊN); mã không được đặt thì bỏ (skip)."""
+    keys = list({_bkey(c) for c, _ in items if c})
+    locks = {}
+    if keys:
+        cur.execute('SELECT part_code, is_locked, replacement_code FROM order_lock_items WHERE UPPER(TRIM(part_code)) = ANY(%s)', (keys,))
+        for r in cur.fetchall():
+            locks[_bkey(r['part_code'])] = (bool(r['is_locked']), (r['replacement_code'] or '').strip() or None)
+    bundles = _load_bundles(cur)
+    out = []
+    for code, qty in items:
+        base = (code or '').strip()
+        skip = 'Mã không được đặt hàng' if _is_excluded_from_reorder(base) else None
+        lk = locks.get(_bkey(base))
+        if lk and lk[0] and lk[1]:
+            base = lk[1]
+        b = bundles.get(_bkey(base))
+        if b:
+            oc, oq = b[0], int(math.ceil(qty / b[1] - 1e-9))
+        else:
+            oc, oq = base, int(qty)
+        out.append({'order_code': oc, 'order_qty': max(1, oq), 'skip': skip, 'locked_no_rep': bool(lk and lk[0] and not lk[1])})
+    return out
+
+
+_URGENT_BO_COLS = ('id, request_id, seq_no, part_code, part_name, quantity, customer_request_date, customer_name, '
+                   'quote_no, vehicle_type, frame_number')
+_URGENT_BO_WHERE = ("status = 'Chưa đặt' AND source IS DISTINCT FROM 'Xin nội bộ' "
+                    "AND COALESCE(TRIM(part_code), '') <> '' AND urgent_batch_id IS NULL")
+
+
+@gom_don_hang_bp.route('/api/gom-don-hang/urgent/candidates', methods=['GET'])
+def gdh_urgent_candidates():
+    """Các dòng khách đủ điều kiện gôm đơn khẩn của 1 chi nhánh: Chưa đặt, KHÔNG xin nội bộ, có mã hàng, chưa gửi khẩn.
+    Kèm 'mã đặt' / 'SL đặt' dự kiến (đã quy mã thay thế / mã cha) để chi nhánh biết admin sẽ nhận gì."""
+    db, cur = _ctx()
+    try:
+        store, err = _resolve_store(cur, request.args.get('store'))
+        if err:
+            return err
+        odb, ocur = _orders_conn()
+        if not odb:
+            return jsonify({'error': 'Chưa kết nối được CSDL danh sách đặt hàng (kiểm tra ORDERS_DATABASE_URL).'}), 503
+        try:
+            ocur.execute(f'SELECT {_URGENT_BO_COLS} FROM bo_orders WHERE store_code = %s AND {_URGENT_BO_WHERE} '
+                         'ORDER BY seq_no ASC NULLS LAST, id ASC LIMIT 1000', (store,))
+            rows = ocur.fetchall()
+        finally:
+            ocur.close()
+        qtys = [_qty_int(r['quantity']) for r in rows]
+        res = _urgent_resolve(cur, [(r['part_code'], q) for r, q in zip(rows, qtys)]) if rows else []
+        data = []
+        for r, q, x in zip(rows, qtys, res):
+            data.append({'id': r['id'], 'stt': r['seq_no'], 'part_code': (r['part_code'] or '').strip(), 'part_name': r['part_name'],
+                         'qty': q, 'order_code': x['order_code'], 'order_qty': x['order_qty'], 'skip': x['skip'],
+                         'locked_no_rep': x['locked_no_rep'],
+                         'request_date': r['customer_request_date'].isoformat() if r['customer_request_date'] else None,
+                         'customer_name': r['customer_name'], 'quote_no': r['quote_no'],
+                         'vehicle_type': r['vehicle_type'], 'frame_number': r['frame_number']})
+    finally:
+        cur.close()
+    return jsonify({'success': True, 'store': store, 'data': data})
+
+
+@gom_don_hang_bp.route('/api/gom-don-hang/urgent/create', methods=['POST'])
+def gdh_urgent_create():
+    """Gôm đơn khẩn: items = [{id (dòng bo_orders), qty?}] -> tạo đơn Khẩn Chờ duyệt gửi thẳng admin.
+    Máy chủ đọc lại dữ liệu khách từ bo_orders (không tin dữ liệu trình duyệt gửi lên) và giữ chỗ từng dòng bằng UPDATE có điều kiện
+    nên 2 người bấm cùng lúc không gửi trùng 1 dòng."""
+    payload = request.get_json(silent=True) or {}
+    raw = payload.get('items')
+    if not isinstance(raw, list) or not raw:
+        return jsonify({'error': 'Chưa chọn dòng nào để gôm đơn khẩn.'}), 400
+    if len(raw) > 500:
+        return jsonify({'error': 'Mỗi đơn khẩn tối đa 500 dòng. Hãy chia thành nhiều đơn.'}), 400
+    note = str(payload.get('note') or '').strip()[:500]
+    want = {}
+    for it in raw:
+        try:
+            bid = int((it or {}).get('id'))
+            q = (it or {}).get('qty')
+            want[bid] = None if q in (None, '') else int(math.ceil(float(q) - 1e-9))
+        except (TypeError, ValueError):
+            continue
+    if not want:
+        return jsonify({'error': 'Danh sách dòng không hợp lệ.'}), 400
+    db, cur = _ctx()
+    claimed, done = [], False
+    try:
+        store, err = _resolve_store(cur, payload.get('store'))
+        if err:
+            return err
+        odb, ocur = _orders_conn()
+        if not odb:
+            return jsonify({'error': 'Chưa kết nối được CSDL danh sách đặt hàng (kiểm tra ORDERS_DATABASE_URL).'}), 503
+        try:     # giữ chỗ: urgent_batch_id = 0 (tạm) cho các dòng còn đủ điều kiện, đọc lại thông tin khách từ chính CSDL
+            ocur.execute(f'UPDATE bo_orders SET urgent_batch_id = 0 WHERE id = ANY(%s) AND store_code = %s AND {_URGENT_BO_WHERE} '
+                         f'RETURNING {_URGENT_BO_COLS}', (list(want), store))
+            rows = ocur.fetchall()
+            odb.commit()
+        except Exception:
+            odb.rollback()
+            raise
+        finally:
+            ocur.close()
+        claimed = [r['id'] for r in rows]
+        if not rows:
+            return jsonify({'error': 'Các dòng đã chọn không còn đủ điều kiện (đã đặt, xin nội bộ hoặc đã gửi khẩn). Hãy tải lại danh sách.'}), 409
+        rows.sort(key=lambda r: (r['seq_no'] is None, r['seq_no'] or 0, r['id']))
+        qtys = [want[r['id']] if (want.get(r['id']) or 0) > 0 else _qty_int(r['quantity']) for r in rows]
+        res = _urgent_resolve(cur, [(r['part_code'], q) for r, q in zip(rows, qtys)])
+        skipped = [{'id': r['id'], 'part_code': r['part_code'], 'reason': x['skip']} for r, x in zip(rows, res) if x['skip']]
+        keep = [(r, q, x) for r, q, x in zip(rows, qtys, res) if not x['skip']]
+        if skipped:
+            _urgent_release_marks(bo_ids=[s['id'] for s in skipped])
+            claimed = [r['id'] for r, _, _ in keep]
+        if not keep:
+            return jsonify({'error': 'Các mã đã chọn đều thuộc nhóm không được đặt hàng nên không gôm được.', 'skipped': skipped}), 400
+        agg = {}                                              # 1 mã đặt = 1 dòng trong đơn (nhiều khách cùng mã -> cộng SL)
+        for r, q, x in keep:
+            a = agg.setdefault(_bkey(x['order_code']), {'code': x['order_code'], 'name': r['part_name'], 'qty': 0})
+            a['qty'] += x['order_qty']
+            a['name'] = a['name'] or r['part_name']
+        today = datetime.now(_VN_TZ).date()
+        actor = _actor_name()
+        cur.execute('''INSERT INTO gdh_batches (store_code, owner, period_from, period_to, forecast_weeks, filenames, uploaded_by,
+                                                kind, status, submitted_by, submitted_at, submit_note)
+                       VALUES (%s, '', %s, %s, %s, %s, %s, 'urgent', 'pending', %s, NOW(), %s) RETURNING id''',
+                    (store, today, today, DEFAULT_FORECAST_WEEKS, 'Đơn khẩn từ danh sách khách hàng', actor, actor, note))
+        bid = cur.fetchone()['id']
+        execute_values(cur, '''INSERT INTO gdh_lines (batch_id, part_code, part_name, adj_qty, order_type, updated_by, updated_at)
+                               VALUES %s''', [(bid, a['code'], a['name'], a['qty'], 'Khẩn', actor) for a in agg.values()],
+                       template='(%s, %s, %s, %s, %s, %s, NOW())', page_size=500)
+        execute_values(cur, '''INSERT INTO gdh_urgent_lines (batch_id, bo_order_id, request_id, seq_no, part_code, part_name, qty,
+                                                            order_code, order_qty, customer_request_date, customer_name,
+                                                            quote_no, vehicle_type, frame_number) VALUES %s''',
+                       [(bid, r['id'], r['request_id'], r['seq_no'], (r['part_code'] or '').strip(), r['part_name'], q,
+                         x['order_code'], x['order_qty'], r['customer_request_date'], r['customer_name'],
+                         r['quote_no'], r['vehicle_type'], r['frame_number']) for r, q, x in keep], page_size=500)
+        cur.execute('SELECT * FROM gdh_batches WHERE id = %s', (bid,))
+        batch = cur.fetchone()
+        n = _snapshot(cur, batch, 'submitted')                # 'đơn lúc đẩy' để admin duyệt / so sánh như đơn thường
+        _log_event(cur, bid, 'draft', 'pending', note or 'Chi nhánh gôm đơn khẩn từ danh sách khách hàng')
+        db.commit()
+        done = True
+        odb2, oc2 = _orders_conn()                            # gắn mã đơn khẩn vào các dòng khách (thay dấu giữ chỗ 0)
+        if odb2:
+            for attempt in (1, 2):
+                try:
+                    oc2.execute('UPDATE bo_orders SET urgent_batch_id = %s WHERE id = ANY(%s) AND urgent_batch_id = 0', (bid, claimed))
+                    odb2.commit()
+                    break
+                except Exception:
+                    odb2.rollback()
+                    traceback.print_exc()
+            oc2.close()
+        audit_record('Gôm đơn khẩn gửi admin duyệt', 'Gôm đơn hàng', target=f'đợt {bid}',
+                     summary=f'Đợt {bid} ({store}): đơn khẩn từ danh sách khách hàng, {len(keep)} dòng khách -> {n} mã đặt',
+                     after={'status': 'pending', 'note': note}, extra={'so_dong_khach': len(keep), 'bo_skipped': len(skipped)})
+    except Exception:
+        db.rollback()
+        raise
+    finally:
+        cur.close()
+        if not done and claimed:                              # lỗi giữa chừng: trả các dòng đã giữ chỗ về trạng thái chưa gửi
+            _urgent_release_marks(bo_ids=claimed)
+    return jsonify({'success': True, 'batch_id': bid, 'status': 'pending', 'lines': len(keep), 'parts': n, 'skipped': skipped})
+
+
+def _urgent_lines(cur, bid):
+    cur.execute('SELECT * FROM gdh_urgent_lines WHERE batch_id = %s ORDER BY seq_no ASC NULLS LAST, id ASC', (bid,))
+    return [{'stt': r['seq_no'], 'order_code': r['order_code'], 'order_qty': _f(r['order_qty']),
+             'part_code': r['part_code'], 'part_name': r['part_name'], 'qty': _f(r['qty']),
+             'request_date': r['customer_request_date'].isoformat() if r['customer_request_date'] else None,
+             'customer_name': r['customer_name'], 'quote_no': r['quote_no'],
+             'vehicle_type': r['vehicle_type'], 'frame_number': r['frame_number']} for r in cur.fetchall()]
+
+
+@gom_don_hang_bp.route('/api/gom-don-hang/urgent/lines', methods=['GET'])
+def gdh_urgent_lines_api():
+    """Thông tin khách của đơn khẩn: STT, mã đặt, SL đặt, ngày khách yêu cầu, tên khách, số báo giá, loại xe, số khung.
+    Admin xem mọi đơn; user chi nhánh chỉ xem đơn của chi nhánh mình (_get_batch kiểm tra)."""
+    db, cur = _ctx()
+    try:
+        batch, err = _get_batch(cur, request.args.get('batch_id'))
+        if err:
+            return err
+        if (batch.get('kind') or 'regular') != 'urgent':
+            return jsonify({'error': 'Đây không phải đơn khẩn từ danh sách khách hàng.'}), 400
+        data = _urgent_lines(cur, batch['id'])
+        info = _batch_json(batch)
+    finally:
+        cur.close()
+    return jsonify({'success': True, 'batch': info, 'data': data})
+
+
+# ----------------------------------------------------------------------------
 # 4b. ĐẨY ĐƠN: TÓM TẮT TRƯỚC KHI ĐẨY + CHẶN TRÙNG KỲ; NHÁP DUYỆT CỦA ADMIN
 # ----------------------------------------------------------------------------
 def _dup_batches(cur, batch, kinds=None):
@@ -1700,6 +2140,7 @@ def _dup_batches(cur, batch, kinds=None):
     cur.execute('''SELECT DISTINCT b.id, b.status, b.submitted_at, b.submitted_by FROM gdh_batches b
                    JOIN gdh_batch_snap s ON s.batch_id = b.id AND s.stage = 'submitted' AND s.qty_final > 0 AND s.order_type = ANY(%s)
                    WHERE b.owner = '' AND b.store_code = %s AND b.period_from = %s AND b.period_to = %s AND b.id <> %s
+                     AND COALESCE(b.kind, 'regular') = 'regular'
                      AND b.status = ANY(%s) ORDER BY b.id DESC''',
                 (list(kinds), batch['store_code'], batch['period_from'], batch['period_to'], batch['id'], POST_SUBMIT_STATUSES))
     return [{'id': r['id'], 'status': r['status'], 'status_label': STATUS_LABELS.get(r['status'], r['status']),

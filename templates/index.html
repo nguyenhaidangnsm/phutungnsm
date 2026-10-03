@@ -2394,6 +2394,7 @@
         #gdh-pane .gdh-statusbar[data-st="approved"]  { --sc:#16a34a; background:#f0fdf4; }
         #gdh-pane .gdh-statusbar[data-st="viewed"]    { --sc:#2563eb; background:#eff6ff; }
         #gdh-pane .gdh-statusbar[data-st="ordered"]   { --sc:#0f172a; background:#f8fafc; }
+        #gdh-pane .gdh-statusbar[data-st="rejected"]  { --sc:#dc2626; background:#fef2f2; }
         #gdh-pane.gdh-ro .gdh-in:disabled { background:#f1f5f9; color:#334155; opacity:1; cursor:not-allowed; }
         #gdh-pane.gdh-max #gdhGomView > .card { position:fixed; top:0; left:0; right:0; bottom:0; z-index:1060; margin:0 !important; border-radius:0; display:flex; flex-direction:column; overflow:hidden; padding:.6rem .9rem !important; }
         #gdh-pane.gdh-max #gdhGomView > .card > * { flex-shrink:0; }
@@ -2444,6 +2445,8 @@
         #gdh-pane #gdhBulkType[data-t="Đơn 26"] { --c:var(--gdh-c-d26); }
         #gdh-pane #gdhAssignBtn { border-color:#94a3b8; color:#334155; font-weight:600; }
         #gdh-pane #gdhAssignBtn:hover { background:#0f766e; border-color:#0f766e; color:#fff; }
+        #gdh-pane #gdhAssignBtn:disabled { background:#f1f5f9; border-color:#94a3b8; color:#334155; opacity:.85; cursor:progress; }
+        #gdh-pane label.gdh-busy { pointer-events:none; opacity:.8; cursor:progress; background:#eff6ff; }
         #gdh-pane #gdhCount { background:#e2e8f0; color:#0f172a; border-radius:999px; padding:.2rem .65rem; }
         /* Tiêu đề bảng: chia nhóm màu - Tồn (vàng/xanh xám có sẵn) | Xuất-Nợ-VC | Quyết định đặt */
         #gdh-pane .gdh-table th.gdh-h-out  { background:#dff3ef; color:#0f5c53; border-bottom-color:#14b8a6; }
@@ -2462,6 +2465,7 @@
                     <span id="gdhDirty" class="badge d-none"></span>
                 </div>
                 <div class="d-flex flex-wrap gap-2">
+                    <button type="button" class="btn btn-danger btn-sm fw-semibold" id="gdhUrgBtn" onclick="gdhUrgOpen()" title="Chọn các mã khách chưa đặt (không xin nội bộ) và gửi thẳng admin duyệt"><i class="bi bi-lightning-charge-fill me-1"></i>Gôm đơn khẩn</button>
                     <button type="button" class="btn btn-outline-secondary btn-sm" id="gdhMaxBtn" onclick="gdhToggleMax()" title="Phóng to khu vực soạn đơn (bấm Esc để thu nhỏ)"><i class="bi bi-arrows-fullscreen me-1"></i><span>Phóng to</span></button>
                     <button class="btn btn-outline-secondary btn-sm" id="gdhTopBtn" onclick="gdhToggleTop()" title="Thu gọn / mở rộng phần thống kê để xem được nhiều mã hơn"><i class="bi bi-arrows-collapse me-1"></i><span>Thu gọn</span></button>
                     <button class="btn btn-primary btn-sm gdh-edit-only" onclick="gdhSave()"><i class="bi bi-save me-1"></i>Lưu</button>
@@ -2485,7 +2489,7 @@
                 <select class="form-select form-select-sm" style="width:auto;min-width:300px;" id="gdhBatch" onchange="gdhBatchChanged()"></select>
                 <button class="btn btn-outline-danger btn-sm gdh-edit-only" onclick="gdhDeleteBatch()" title="Xoá đợt gôm đang chọn"><i class="bi bi-trash"></i></button>
                 <span class="gdh-sep"></span>
-                <label class="btn btn-outline-primary btn-sm mb-0 gdh-edit-only"><i class="bi bi-upload me-1"></i>Import file Tổng hợp tồn kho
+                <label class="btn btn-outline-primary btn-sm mb-0 gdh-edit-only"><i class="bi bi-upload me-1 gdh-imp-ico"></i><span class="gdh-imp-txt">Import file Tổng hợp tồn kho</span>
                     <input type="file" accept=".xlsx,.xls,.csv" class="d-none" onchange="gdhImport(this)"></label>
                 {% if role == 'admin' %}<button type="button" class="btn btn-link btn-sm text-decoration-none p-0 gdh-edit-only" onclick="document.getElementById('gdhImpPeriod').classList.toggle('d-none')">Chọn kỳ thủ công</button>{% endif %}
                 <span id="gdhImpPeriod" class="d-none"><span class="d-flex align-items-center gap-2">
@@ -2591,6 +2595,7 @@
                     <option value="all">Tất cả (lưu trữ)</option>
                     <option value="pending">Chờ duyệt</option><option value="reviewing">Đang duyệt</option>
                     <option value="approved">Đã duyệt</option><option value="viewed">Đã xem</option><option value="ordered">Đã đặt</option>
+                    <option value="rejected">Đã từ chối</option>
                 </select>
                 <label class="small text-muted mb-0">Đẩy từ ngày</label>
                 <input type="date" class="form-control form-control-sm" style="width:auto;" id="gdhOFrom" onchange="gdhOrdersLoad()">
@@ -2600,6 +2605,7 @@
             {% if role != 'admin' %}
             <ul class="nav nav-pills mb-2 gap-1" id="gdhUTabs">
                 <li class="nav-item"><button type="button" class="nav-link py-1 px-3 active" data-tab="active" onclick="gdhUTab('active')">Đang xử lý <span class="badge bg-light text-dark n">0</span></button></li>
+                <li class="nav-item"><button type="button" class="nav-link py-1 px-3" data-tab="rejected" onclick="gdhUTab('rejected')" title="Đơn bị admin từ chối duyệt, kèm lý do để chỉnh sửa và đẩy lại">Bị từ chối <span class="badge bg-danger n">0</span></button></li>
                 <li class="nav-item"><button type="button" class="nav-link py-1 px-3" data-tab="done" onclick="gdhUTab('done')">Đã duyệt <span class="badge bg-light text-dark n">0</span></button></li>
                 <li class="nav-item"><button type="button" class="nav-link py-1 px-3" data-tab="archive" onclick="gdhUTab('archive')">Lưu trữ <span class="badge bg-light text-dark n">0</span></button></li>
                 <li class="nav-item"><button type="button" class="nav-link py-1 px-3" data-tab="files" onclick="gdhUTab('files')" title="File Excel của các đơn đã tự động lưu trữ + xoá khỏi hệ thống"><i class="bi bi-file-earmark-excel me-1"></i>File Excel <span class="badge bg-warning text-dark n">0</span></button></li>
@@ -4115,6 +4121,7 @@
                 <ul class="nav nav-pills mb-2 gap-1" id="ocGdhTabs">
                     <li class="nav-item"><button type="button" class="nav-link py-1 px-3 active" data-tab="active" onclick="ocGdhTab('active')">Cần xử lý <span class="badge bg-light text-dark n">0</span></button></li>
                     <li class="nav-item"><button type="button" class="nav-link py-1 px-3" data-tab="done" onclick="ocGdhTab('done')">Đã duyệt <span class="badge bg-light text-dark n">0</span></button></li>
+                    <li class="nav-item"><button type="button" class="nav-link py-1 px-3" data-tab="rejected" onclick="ocGdhTab('rejected')" title="Lịch sử các đơn đã từ chối duyệt kèm lý do">Đã từ chối <span class="badge bg-danger n">0</span></button></li>
                     <li class="nav-item"><button type="button" class="nav-link py-1 px-3" data-tab="archive" onclick="ocGdhTab('archive')">Lưu trữ <span class="badge bg-light text-dark n">0</span></button></li>
                     <li class="nav-item"><button type="button" class="nav-link py-1 px-3" data-tab="files" onclick="ocGdhTab('files')" title="File Excel của các đơn đã tự động lưu trữ + xoá"><i class="bi bi-file-earmark-excel me-1"></i>File Excel <span class="badge bg-warning text-dark n">0</span></button></li>
                 </ul>
@@ -5779,6 +5786,39 @@
         if (!res.ok || j.error) { const e = new Error(j.error || ('Lỗi ' + res.status)); e.data = j; throw e; }
         return j;
     }
+    // Hiệu ứng chờ xử lý cho nút bấm: khoá nút + hiện vòng xoay, trả lại nguyên trạng khi xong (gọi lại với on=false).
+    function _gdhBusy(btn, on, text) {
+        if (!btn) return;
+        if (on) {
+            if (btn.dataset.busy === '1') return;
+            btn.dataset.busy = '1'; btn.dataset.html = btn.innerHTML; btn.disabled = true;
+            btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true"></span>' + text;
+        } else {
+            if (btn.dataset.busy !== '1') return;
+            btn.innerHTML = btn.dataset.html; btn.disabled = false;
+            delete btn.dataset.busy; delete btn.dataset.html;
+        }
+    }
+    // Giống _gdhBusy nhưng cho nút dạng <label> chứa <input type=file> (không được thay innerHTML vì sẽ mất ô chọn file).
+    function _gdhBusyLabel(lbl, on, text) {
+        if (!lbl) return;
+        const ico = lbl.querySelector('.gdh-imp-ico'), txt = lbl.querySelector('.gdh-imp-txt'), inp = lbl.querySelector('input[type=file]');
+        if (on) {
+            if (lbl.dataset.busy === '1') return;
+            lbl.dataset.busy = '1';
+            if (ico) { lbl.dataset.ico = ico.className; ico.className = 'spinner-border spinner-border-sm me-1'; }
+            if (txt) { lbl.dataset.txt = txt.textContent; txt.textContent = text; }
+            if (inp) inp.disabled = true;
+            lbl.classList.add('gdh-busy');
+        } else {
+            if (lbl.dataset.busy !== '1') return;
+            if (ico && lbl.dataset.ico !== undefined) ico.className = lbl.dataset.ico;
+            if (txt && lbl.dataset.txt !== undefined) txt.textContent = lbl.dataset.txt;
+            if (inp) inp.disabled = false;
+            lbl.classList.remove('gdh-busy');
+            delete lbl.dataset.busy; delete lbl.dataset.ico; delete lbl.dataset.txt;
+        }
+    }
     function _gdhConfirmLeave() {
         return !_gdhDirty || confirm('Có thay đổi chưa lưu. Tiếp tục sẽ mất các thay đổi này. Tiếp tục?');
     }
@@ -5854,15 +5894,22 @@
         const pf = document.getElementById('gdhImpFrom')?.value, pt = document.getElementById('gdhImpTo')?.value;
         if (pf && pt) { fd.append('period_from', pf); fd.append('period_to', pt); }
         input.value = '';
+        const impLbl = input.closest('label');
+        _gdhBusyLabel(impLbl, true, 'Đang import...');
+        const impCtl = new AbortController(), impTimer = setTimeout(() => impCtl.abort(), 180000);      // quá 3 phút không thấy máy chủ trả lời thì dừng chờ, không để nút xoay mãi
         try {
-            const j = await _gdhJson('/api/gom-don-hang/import', {method: 'POST', body: fd});
+            const j = await _gdhJson('/api/gom-don-hang/import', {method: 'POST', body: fd, signal: impCtl.signal});
+            _gdhBusyLabel(impLbl, false);          // server đã import xong: tắt vòng xoay ngay (bước tải lại bảng bên dưới có hiệu ứng làm mờ riêng)
             let msg = `Đã import ${j.total_parts} mã, kỳ ${_gdhDate(j.period_from)} - ${_gdhDate(j.period_to)}.\n(${j.period_note})`;
             if (j.template === '1') msg += '\n\nLưu ý: file mẫu có giá trị chỉ có cột "Xuất kho" (gồm cả xuất chuyển kho...), thường lớn hơn số bán thật. Import thêm file mẫu "SL bán hàng" cho cùng kỳ để có số bán chính xác.';
             alert(msg);
             _gdhMarkDirty(false); await gdhLoadBatches(j.batch_id);
         } catch (e) {
-            alert(e.message);
+            alert(e.name === 'AbortError' ? 'Máy chủ xử lý file quá lâu (hơn 3 phút) hoặc mất kết nối nên đã dừng chờ. Hãy kiểm tra lại danh sách đợt gôm (file có thể đã import xong), nếu chưa có thì thử lại hoặc báo admin.' : e.message);
             if (e.data && e.data.need_period) { if (CURRENT_ROLE === 'admin') { document.getElementById('gdhImpPeriod').classList.remove('d-none'); document.getElementById('gdhImpFrom').focus(); } }
+        } finally {
+            clearTimeout(impTimer);
+            _gdhBusyLabel(impLbl, false);
         }
     }
 
@@ -6186,11 +6233,15 @@
         if (_gdhDirty && !(await gdhSave(true))) return;
         const ot = document.getElementById('gdhBulkType').value;
         if (!confirm(`Đặt loại đơn "${ot}" cho TOÀN BỘ mã cần đặt (SL cuối > 0) của đơn này?\nMỗi đơn hàng chỉ được gôm 1 loại đơn; mã đã chọn loại khác sẽ được đổi sang "${ot}".`)) return;
+        const asgBtn = document.getElementById('gdhAssignBtn');
+        _gdhBusy(asgBtn, true, 'Đang áp dụng...');
         try {
             const j = await _gdhJson('/api/gom-don-hang/assign-type', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({batch_id: _gdhBatchId, order_type: ot, overwrite: true})});
+            _gdhBusy(asgBtn, false);               // server đã gán xong: tắt vòng xoay ngay, không chờ hộp thoại / tải lại bảng
             alert('Đã đặt loại đơn "' + ot + '" cho ' + j.assigned + ' mã.');
             await gdhLoadBatches(_gdhBatchId);
         } catch (e) { alert(e.message); }
+        finally { _gdhBusy(asgBtn, false); }
     }
     // Hoàn tác đúng lần Gán nhanh vừa rồi: chỉ bỏ gán các mã vừa được gán, không đụng mã bạn đã chọn tay trước đó.
     async function gdhUndoLastAssign() {
@@ -6268,7 +6319,9 @@
         const note = (label, v) => v ? ` · ${label}: <i>${e(v)}</i>` : '';
         let info = '', acts = '';
         if (st === 'draft') {
-            info = isAdmin ? 'Chi nhánh chưa đẩy đơn này (đang là bảng gôm nháp).' : 'Đơn nháp. Soạn xong hãy đẩy cho admin duyệt.';
+            info = b.reject_reason
+                ? `<b class="text-danger">Đơn bị admin từ chối duyệt</b> bởi <b>${e(b.rejected_by)}</b> lúc ${e(b.rejected_at)} · Lý do: <i>${e(b.reject_reason)}</i>. ` + (isAdmin ? 'Đang chờ chi nhánh chỉnh sửa và đẩy lại.' : 'Hãy chỉnh sửa theo lý do trên rồi đẩy lại cho admin.')
+                : (isAdmin ? 'Chi nhánh chưa đẩy đơn này (đang là bảng gôm nháp).' : 'Đơn nháp. Soạn xong hãy đẩy cho admin duyệt.');
             if (!isAdmin) acts = _gdhBtn('btn-primary', 'bi-send', 'Đẩy đơn cho admin', 'gdhSubmit()');
         } else if (st === 'pending') {
             info = `Đẩy bởi <b>${e(b.submitted_by)}</b> lúc ${e(b.submitted_at)}${note('Ghi chú', b.submit_note)}. ` + (isAdmin ? 'Duyệt tại menu Quản Trị Hệ Thống > Duyệt Đơn Hàng.' : 'Đang chờ admin lấy về duyệt - đơn đã khoá.');
@@ -6282,8 +6335,8 @@
             acts = _gdhBtn(st === 'approved' && !isAdmin ? 'btn-warning' : 'btn-outline-secondary', 'bi-eye', 'Xem kết quả duyệt', `gdhOpenCompare(${b.id})`);
             if (!isAdmin) acts += _gdhBtn(st === 'ordered' ? 'btn-outline-success' : 'btn-success', 'bi-download', st === 'ordered' ? 'Tải lại file đặt hàng' : 'Tải đơn về', `gdhDownloadOrder(${b.id})`);
         }
-        bar.dataset.st = st;
-        bar.innerHTML = `<span>${_gdhStBadge(st, b.status_label)}</span><span class="gdh-sub flex-grow-1" style="font-size:.85rem">${info}</span><span class="d-flex flex-wrap gap-2">${acts}</span>`;
+        bar.dataset.st = (st === 'draft' && b.reject_reason) ? 'rejected' : st;
+        bar.innerHTML = `<span>${_gdhStBadge(st, b.status_label)}${st === 'draft' && b.reject_reason ? ' <span class="badge bg-danger">Bị từ chối</span>' : ''}</span><span class="gdh-sub flex-grow-1" style="font-size:.85rem">${info}</span><span class="d-flex flex-wrap gap-2">${acts}</span>`;
         bar.classList.remove('d-none');
     }
 
@@ -6306,47 +6359,126 @@
     async function gdhSubmit() {
         if (!_gdhBatchId) return;
         if (_gdhDirty && !(await gdhSave(true))) return;
-        let pv;
-        try { pv = await _gdhJson('/api/gom-don-hang/submit-preview?batch_id=' + _gdhBatchId); } catch (err) { alert(err.message); return; }
-        _gdhShowSubmitModal(pv);
+        _gdhSubOpen();
     }
-    function _gdhShowSubmitModal(pv) {
-        let el = document.getElementById('gdhSubmitModal');
-        if (!el) {
-            el = document.createElement('div'); el.id = 'gdhSubmitModal'; el.className = 'modal fade'; el.tabIndex = -1;
-            el.innerHTML = '<div class="modal-dialog modal-dialog-centered"><div class="modal-content"><div class="modal-header"><h5 class="modal-title"><i class="bi bi-send-check me-2 text-primary"></i>Đẩy đơn cho admin duyệt</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div><div class="modal-body" id="gdhSubBody"></div><div class="modal-footer" id="gdhSubFoot"></div></div></div>';
-            document.body.appendChild(el);
+    let _gdhSub = null;
+    const _gdhSubEl = id => document.getElementById('gdhSub' + id);
+    const _GDH_SUB_COLOR = {'Định kỳ': '#2563eb', 'Khẩn': '#dc2626', 'Đơn 26': '#7c3aed'};
+    const _GDH_SUB_THEME = {'Định kỳ': 't-blue', 'Khẩn': '', 'Đơn 26': 't-violet'};
+    let _GDH_SUB_SKEL = '';
+    function _gdhSubEnsure() {
+        _ugmCss();
+        if (_gdhSubEl('Modal')) return;
+        document.body.insertAdjacentHTML('beforeend', `<div class="modal fade ugm t-blue" id="gdhSubModal" data-bs-backdrop="static" tabindex="-1"><div class="modal-dialog modal-lg modal-dialog-scrollable modal-dialog-centered"><div class="modal-content">
+  <div class="modal-header ugm-head">
+    <div class="ugm-ico"><i class="bi bi-send-check-fill"></i></div>
+    <div><div class="ugm-ttl">Đẩy đơn cho admin duyệt <span class="badge bg-light ms-1 d-none" id="gdhSubTag" style="color:inherit"></span></div><div class="ugm-sub" id="gdhSubSub">Đang kiểm tra đơn...</div></div>
+    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Đóng"></button>
+  </div>
+  <div class="ugm-steps" id="gdhSubSteps"><span data-s="1" class="on"><b>1</b>Kiểm tra đơn</span><i class="sep"></i><span data-s="2"><b>2</b>Xác nhận</span><i class="sep"></i><span data-s="3"><b>3</b>Gửi admin</span></div>
+  <div class="modal-body p-3">
+    <div id="gdhSubLoad" class="ugm-view"><div class="ugm-stats"><div class="ugm-stat"><small>&nbsp;</small><strong>&nbsp;</strong></div><div class="ugm-stat"><small>&nbsp;</small><strong>&nbsp;</strong></div><div class="ugm-stat"><small>&nbsp;</small><strong>&nbsp;</strong></div></div>
+      <div class="ugm-box"><table class="table mb-0"><tbody class="ugm-skel"><tr><td><div></div></td></tr><tr><td><div></div></td></tr><tr><td><div></div></td></tr></tbody></table></div></div>
+    <div id="gdhSubReview" class="ugm-view d-none"></div>
+    <div id="gdhSubConfirm" class="ugm-confirm ugm-view d-none"></div>
+    <div id="gdhSubDone" class="ugm-done ugm-view d-none"></div>
+  </div>
+  <div class="modal-footer py-2" id="gdhSubFootLoad"><button type="button" class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">Đóng</button></div>
+  <div class="modal-footer py-2 d-none" id="gdhSubFootReview"><button type="button" class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">Huỷ</button>
+    <button type="button" class="btn btn-sm px-3 ugm-go" id="gdhSubNext" onclick="_gdhSubAsk()">Tiếp tục <i class="bi bi-arrow-right ms-1"></i></button></div>
+  <div class="modal-footer py-2 d-none" id="gdhSubFootConfirm"><button type="button" class="btn btn-outline-secondary btn-sm" id="gdhSubBack" onclick="_gdhSubView('review')"><i class="bi bi-arrow-left me-1"></i>Quay lại</button>
+    <button type="button" class="btn btn-sm px-3 ugm-go" id="gdhSubGo" onclick="gdhSubmitConfirm()"><i class="bi bi-send-fill me-1"></i>Xác nhận đẩy đơn</button></div>
+  <div class="modal-footer py-2 d-none" id="gdhSubFootDone"><button type="button" class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">Đóng</button>
+    <button type="button" class="btn btn-success btn-sm fw-bold px-3" onclick="_gdhSubToOrders()"><i class="bi bi-list-check me-1"></i>Xem ở Đơn đã đẩy</button></div>
+</div></div></div>`);
+        _GDH_SUB_SKEL = _gdhSubEl('Load').innerHTML;
+    }
+    function _gdhSubTheme(t) { const m = _gdhSubEl('Modal'); m.classList.remove('t-blue', 't-violet'); if (t) m.classList.add(t); }
+    function _gdhSubView(v) {          // load | review | confirm | done
+        const map = {load: 'Load', review: 'Review', confirm: 'Confirm', done: 'Done'};
+        Object.keys(map).forEach(k => {
+            _gdhSubEl(map[k]).classList.toggle('d-none', k !== v);
+            _gdhSubEl('Foot' + map[k]).classList.toggle('d-none', k !== v);
+        });
+        _ugmSetStep(_gdhSubEl('Steps'), v === 'confirm' ? 2 : v === 'done' ? 4 : 1);
+    }
+    async function _gdhSubOpen() {
+        _gdhSubEnsure();
+        _gdhSub = {pv: null, busy: false};
+        _gdhSubTheme('t-blue');
+        if (!_gdhSubEl('Load').querySelector('.ugm-skel')) _gdhSubEl('Load').innerHTML = _GDH_SUB_SKEL;
+        _gdhSubEl('Tag').classList.add('d-none'); _gdhSubEl('Sub').textContent = 'Đang kiểm tra đơn...';
+        _gdhSubView('load');
+        bootstrap.Modal.getOrCreateInstance(_gdhSubEl('Modal')).show();
+        try {
+            const pv = await _gdhJson('/api/gom-don-hang/submit-preview?batch_id=' + _gdhBatchId);
+            _gdhSub.pv = pv; _gdhSubRender(pv);
+        } catch (err) {
+            _gdhSubEl('Load').innerHTML = `<div class="ugm-empty text-danger"><i class="bi bi-exclamation-triangle"></i>${_gdhEsc(err.message)}</div>`;
         }
+    }
+    function _gdhSubRender(pv) {
         const e = _gdhEsc, b = pv.batch, blocking = !!pv.blocking, dups = pv.dups || [], nonBlock = dups.length > 0 && !blocking;
-        const rows = ['Định kỳ', 'Khẩn', 'Đơn 26'].map(t => { const v = (pv.by_type || {})[t] || {parts: 0, qty: 0, amount: 0}; return `<tr class="${v.parts ? '' : 'text-muted'}"><td>${e(t)}</td><td class="text-end">${_gdhFmt(v.parts, 0)}</td><td class="text-end">${_gdhFmt(v.qty, 0)}</td><td class="text-end">${_gdhFmt(v.amount, 0)}</td></tr>`; }).join('');
+        const types = ['Định kỳ', 'Khẩn', 'Đơn 26'], act = types.filter(t => ((pv.by_type || {})[t] || {}).parts > 0);
+        const theme = act.length === 1 ? _GDH_SUB_THEME[act[0]] : 't-blue';
+        _gdhSubTheme(theme);
+        _gdhSubEl('Sub').textContent = pv.order_name || ('Đơn hàng ' + b.store);
+        const tag = _gdhSubEl('Tag'); tag.textContent = act.length === 1 ? act[0] : (b.store || ''); tag.classList.toggle('d-none', !(act.length === 1 || b.store));
+        const total = pv.amount > 0 ? pv.amount : pv.qty;
+        const rows = types.map(t => {
+            const v = (pv.by_type || {})[t] || {parts: 0, qty: 0, amount: 0}, val = pv.amount > 0 ? v.amount : v.qty, pct = total > 0 ? Math.round(val * 100 / total) : 0;
+            return `<div class="ugm-type ${v.parts ? '' : 'zero'}"><span class="nm"><span class="dot" style="background:${_GDH_SUB_COLOR[t]}"></span>${e(t)}</span><span class="n">${_gdhFmt(v.parts, 0)} mã</span><span class="n">SL ${_gdhFmt(v.qty, 0)}</span>` +
+                `<span><span class="n d-block fw-semibold">${_gdhFmt(v.amount, 0)} đ</span><div class="ugm-bar"><i data-w="${pct}" style="background:${_GDH_SUB_COLOR[t]}"></i></div></span></div>`;
+        }).join('');
+        const W = (cls, ico, html) => `<div class="ugm-warn ${cls}"><i class="bi ${ico}"></i><div class="flex-grow-1">${html}</div></div>`;
         let warn = '';
-        if (pv.unassigned_type > 0) warn += `<div class="alert alert-warning py-2 small mb-2"><i class="bi bi-exclamation-triangle me-1"></i>Còn <b>${pv.unassigned_type}</b> mã SL cuối &gt; 0 <b>chưa chọn loại đơn</b>: các mã này sẽ <b>không được gửi</b> cho admin.</div>`;
-        if (dups.length) warn += `<div class="alert ${blocking ? 'alert-danger' : 'alert-warning'} py-2 small mb-2"><i class="bi bi-copy me-1"></i>${blocking ? '<b>Đã có đơn cùng loại đang chờ admin xử lý</b> - hãy chờ admin xử lý xong hoặc Thu hồi đơn đó ở tab Đơn đã đẩy trước khi đẩy thêm.' : '<b>Đã có đơn cùng loại được đẩy trước đó.</b> Đẩy thêm có thể làm trùng hàng.'}` +
-            `<ul class="mb-0 mt-1">${dups.map(d => `<li>Đợt ${d.id} · ${e(d.status_label)} · đẩy ${e(d.submitted_at)} bởi ${e(d.submitted_by || '')}</li>`).join('')}</ul>` +
-            (nonBlock ? `<div class="form-check mt-2"><input class="form-check-input" type="checkbox" id="gdhSubDup" onchange="document.getElementById('gdhSubGo').disabled = !this.checked"><label class="form-check-label" for="gdhSubDup">Tôi vẫn muốn đẩy thêm một đơn cho cùng kỳ</label></div>` : '') + `</div>`;
-        if (pv.no_cost > 0) warn += `<div class="small text-muted mb-2">${pv.no_cost} mã chưa có giá nhập nên chưa tính vào giá trị.</div>`;
-        const nm = pv.order_name || ('Đơn hàng ' + b.store);
-        if (pv.mixed) warn += `<div class="alert alert-danger py-2 small mb-2"><i class="bi bi-x-octagon me-1"></i>${e(pv.mixed_msg)}</div>`;
-        document.getElementById('gdhSubBody').innerHTML = `<div class="fw-semibold mb-1">${e(nm)}</div><div class="small text-muted mb-2">Chỉ gửi các mã có SL cuối &gt; 0 và đã chọn loại đơn. Sau khi đẩy, đơn bị khoá (chỉ thu hồi được khi còn "Chờ duyệt").</div>` +
-            `<table class="table table-sm align-middle mb-2"><thead class="table-light"><tr><th>Loại đơn</th><th class="text-end">Số mã</th><th class="text-end">Tổng SL</th><th class="text-end">Giá trị (đ)</th></tr></thead><tbody>${rows}</tbody>` +
-            `<tfoot><tr class="fw-bold"><td>Tổng gửi</td><td class="text-end">${_gdhFmt(pv.typed, 0)}</td><td class="text-end">${_gdhFmt(pv.qty, 0)}</td><td class="text-end">${_gdhFmt(pv.amount, 0)}</td></tr></tfoot></table>` + warn +
-            `<label class="form-label small mb-1">Ghi chú cho admin (không bắt buộc)</label><textarea class="form-control form-control-sm" id="gdhSubNote" rows="2" maxlength="500"></textarea>`;
-        const off = blocking || pv.mixed || !(pv.typed > 0) || nonBlock;
-        document.getElementById('gdhSubFoot').innerHTML = `<button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Huỷ</button>` +
-            `<button type="button" class="btn btn-primary" id="gdhSubGo" ${off ? 'disabled' : ''} onclick="gdhSubmitConfirm(${pv.unassigned_type > 0 ? 'true' : 'false'})"><i class="bi bi-send me-1"></i>Đẩy ${_gdhFmt(pv.typed, 0)} mã cho admin</button>`;
-        bootstrap.Modal.getOrCreateInstance(el).show();
+        if (pv.mixed) warn += W('d', 'bi-x-octagon-fill', e(pv.mixed_msg));
+        if (pv.unassigned_type > 0) warn += W('w', 'bi-exclamation-triangle-fill', `Còn <b>${pv.unassigned_type}</b> mã SL cuối &gt; 0 <b>chưa chọn loại đơn</b>: các mã này sẽ <b>không được gửi</b> cho admin.`);
+        if (dups.length) warn += W(blocking ? 'd' : 'w', 'bi-copy', (blocking ? '<b>Đã có đơn cùng loại đang chờ admin xử lý</b> - hãy chờ admin xử lý xong hoặc Thu hồi đơn đó ở tab Đơn đã đẩy trước khi đẩy thêm.' : '<b>Đã có đơn cùng loại được đẩy trước đó.</b> Đẩy thêm có thể làm trùng hàng.') +
+            `<ul>${dups.map(d => `<li>Đợt ${d.id} · ${e(d.status_label)} · đẩy ${e(d.submitted_at)} bởi ${e(d.submitted_by || '')}</li>`).join('')}</ul>` +
+            (nonBlock ? `<div class="form-check mt-2"><input class="form-check-input" type="checkbox" id="gdhSubDup" onchange="document.getElementById('gdhSubNext').disabled = !this.checked"><label class="form-check-label fw-semibold" for="gdhSubDup">Tôi vẫn muốn đẩy thêm một đơn cho cùng kỳ</label></div>` : ''));
+        if (pv.no_cost > 0) warn += W('m', 'bi-info-circle', `${pv.no_cost} mã chưa có giá nhập nên chưa tính vào giá trị.`);
+        _gdhSubEl('Review').innerHTML = `<div class="small text-muted mb-2">Chỉ gửi các mã có SL cuối &gt; 0 và đã chọn loại đơn. Sau khi đẩy, đơn bị khoá (chỉ thu hồi được khi còn "Chờ duyệt").</div>` +
+            `<div class="ugm-stats"><div class="ugm-stat"><small>Số mã gửi</small><strong>${_gdhFmt(pv.typed, 0)}</strong></div><div class="ugm-stat"><small>Tổng SL</small><strong>${_gdhFmt(pv.qty, 0)}</strong></div><div class="ugm-stat"><small>Giá trị (đ)</small><strong class="fs-5">${_gdhFmt(pv.amount, 0)}</strong></div></div>` +
+            `<div class="ugm-box"><div class="ugm-type head"><span>Loại đơn</span><span class="n">Số mã</span><span class="n">Tổng SL</span><span class="n">Giá trị</span></div>${rows}</div>` + warn +
+            `<label class="form-label small fw-semibold mb-1">Ghi chú cho admin <span class="text-muted fw-normal">(không bắt buộc)</span></label><textarea class="form-control form-control-sm" id="gdhSubNote" rows="2" maxlength="500" placeholder="Ví dụ: cần hàng gấp trước thứ Sáu..."></textarea>`;
+        _gdhSubEl('Next').disabled = blocking || pv.mixed || !(pv.typed > 0) || nonBlock;
+        _gdhSubView('review');
+        requestAnimationFrame(() => requestAnimationFrame(() => _gdhSubEl('Review').querySelectorAll('.ugm-bar i').forEach(i => i.style.width = i.dataset.w + '%')));
+    }
+    function _gdhSubAsk() {
+        const S = _gdhSub, pv = S && S.pv; if (!pv) return;
+        const e = _gdhEsc, note = (_gdhSubEl('Note').value || '').trim();
+        _gdhSubEl('Confirm').innerHTML = `<div class="big"><i class="bi bi-send-exclamation-fill"></i></div>` +
+            `<h5 class="fw-bold mb-2">Đẩy <span class="hl">${_gdhFmt(pv.typed, 0)}</span> mã (SL ${_gdhFmt(pv.qty, 0)} · ${_gdhFmt(pv.amount, 0)} đ)<br>cho admin duyệt?</h5>` +
+            `<div class="small">${note ? 'Ghi chú cho admin: “' + e(note) + '”' : '<span class="text-muted">Không có ghi chú cho admin.</span>'}</div>` +
+            (pv.unassigned_type > 0 ? `<div class="small text-warning-emphasis mt-1">${pv.unassigned_type} mã chưa chọn loại đơn sẽ không được gửi.</div>` : '') +
+            `<div class="ugm-lock"><i class="bi bi-lock-fill me-1"></i>Sau khi đẩy, đơn bị khoá; chỉ thu hồi được khi admin chưa lấy về duyệt.</div>` +
+            `<div class="alert alert-danger py-2 mt-3 mb-0 d-none text-start small" id="gdhSubErr"></div>`;
+        _gdhSubView('confirm');
     }
     async function gdhSubmitConfirm() {
-        const btn = document.getElementById('gdhSubGo');
-        const oldHtml = btn ? btn.innerHTML : '';
-        if (btn) { btn.disabled = true; btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Đang đẩy đơn...'; }
-        const note = (document.getElementById('gdhSubNote')?.value || '').trim();
-        const dup = !!document.getElementById('gdhSubDup')?.checked;
+        const S = _gdhSub; if (!S || S.busy) return;
+        S.busy = true;
+        const btn = _gdhSubEl('Go'), back = _gdhSubEl('Back'), err = _gdhSubEl('Err');
+        btn.disabled = back.disabled = true; btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Đang đẩy đơn...';
+        if (err) err.classList.add('d-none');
+        const note = (_gdhSubEl('Note')?.value || '').trim();
+        const dup = !!_gdhSubEl('Dup')?.checked;
         try {
             await _gdhJson('/api/gom-don-hang/submit', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({batch_id: _gdhBatchId, note, confirm_unassigned: true, confirm_duplicate: dup})});
-        } catch (err) { alert(err.message); if (btn) { btn.disabled = false; btn.innerHTML = oldHtml; } return; }
-        bootstrap.Modal.getOrCreateInstance(document.getElementById('gdhSubmitModal')).hide();
-        _ocToast('Đã đẩy đơn cho admin (Chờ duyệt). Theo dõi ở tab "Đơn đã đẩy".', () => gdhSwitchView('orders'));
+        } catch (ex) {
+            if (err) { err.textContent = ex.message; err.classList.remove('d-none'); }
+            S.busy = false; btn.disabled = back.disabled = false; btn.innerHTML = '<i class="bi bi-send-fill me-1"></i>Xác nhận đẩy đơn';
+            return;
+        }
+        S.busy = false; btn.disabled = back.disabled = false; btn.innerHTML = '<i class="bi bi-send-fill me-1"></i>Xác nhận đẩy đơn';
+        const pv = S.pv, e = _gdhEsc;
+        _gdhSubEl('Done').innerHTML = `<svg class="ugm-check" viewBox="0 0 52 52"><circle cx="26" cy="26" r="25"/><path d="M14 27l8 8 16-17"/></svg>` +
+            `<h5 class="fw-bold mb-1">Đã đẩy đơn cho admin</h5><div class="text-muted">Đơn đang ở trạng thái <b>Chờ duyệt</b> và đã được khoá.</div>` +
+            `<div class="ugm-pills"><span class="ugm-pill">${_gdhFmt(pv.typed, 0)} mã</span><span class="ugm-pill">SL ${_gdhFmt(pv.qty, 0)}</span><span class="ugm-pill">${_gdhFmt(pv.amount, 0)} đ</span></div>` +
+            `<div class="small text-muted mt-3">Theo dõi tiến độ duyệt ở tab <b>Đơn đã đẩy</b>.</div>`;
+        _gdhSubView('done');
         // Phản hồi NGAY: khoá bảng + hiện trạng thái "Chờ duyệt"; việc tải lại danh sách chạy ngầm, người dùng không phải đứng chờ.
         document.getElementById('gdh-pane').classList.add('gdh-ro');
         const tb = document.getElementById('gdh-body'); if (tb) tb.style.opacity = '.45';
@@ -6354,7 +6486,17 @@
         if (bar) { bar.dataset.st = 'pending'; bar.innerHTML = '<span class="badge bg-warning text-dark">Chờ duyệt</span><span class="gdh-sub flex-grow-1" style="font-size:.85rem">Đã đẩy đơn cho admin - đang cập nhật danh sách...</span>'; bar.classList.remove('d-none'); }
         _gdhAfterAct();
     }
+    function _gdhSubToOrders() {
+        bootstrap.Modal.getOrCreateInstance(_gdhSubEl('Modal')).hide();
+        gdhSwitchView('orders');
+    }
     async function gdhRecall(id) {
+        const _o = id ? (_gdhOrdersCache || []).find(x => String(x.id) === String(id)) : null;
+        if (_o && _o.kind === 'urgent') {          // đơn khẩn từ danh sách khách hàng: không có bản Nháp, thu hồi = xoá đơn
+            if (!confirm('Thu hồi đơn KHẨN? Đơn sẽ bị xoá và các mã khách được trả về Danh sách đặt hàng để gôm lại. (Chỉ được khi admin chưa lấy về duyệt)')) return;
+            if (await _gdhAct('recall', {batch_id: id}, 'Đã thu hồi đơn khẩn. Các mã khách đã về lại Danh sách đặt hàng.')) await _gdhAfterAct();
+            return;
+        }
         if (!confirm('Thu hồi đơn về Nháp để sửa lại? (Chỉ được khi admin chưa lấy về duyệt)')) return;
         if (await _gdhAct('recall', id ? {batch_id: id} : {}, id ? 'Đã thu hồi đơn về Nháp. Đơn nằm lại ở tab Gôm đơn hàng để bạn sửa.' : '')) await _gdhAfterAct();
     }
@@ -6370,6 +6512,23 @@
         if (id) _gdhBatchId = id;
         if (_gdhDirty && !(await gdhSave(true))) return;
         if (await _gdhAct('release')) _gdhGoOrders();
+    }
+    function _gdhAskReject() {             // hỏi lý do từ chối (bắt buộc); trả null nếu admin huỷ hoặc bỏ trống
+        const r = prompt('Từ chối duyệt đơn này và trả về chi nhánh chỉnh sửa?\nNhập lý do từ chối (bắt buộc) - chi nhánh sẽ thấy lý do này:', '');
+        if (r === null) return null;
+        const t = r.trim();
+        if (!t) { alert('Cần nhập lý do từ chối để chi nhánh biết cần chỉnh sửa gì.'); return null; }
+        return t.slice(0, 500);
+    }
+    async function gdhReject(id, btn) {    // từ danh sách đơn: Từ chối đơn Chờ duyệt / Đang duyệt (của mình)
+        const reason = _gdhAskReject(); if (reason === null) return;
+        _gdhBusy(btn, true, 'Đang từ chối...');
+        try {
+            const j = await _gdhJson('/api/gom-don-hang/reject', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({batch_id: id, reason})});
+            alert(j.urgent ? 'Đã từ chối đơn khẩn. Các dòng được trả về danh sách khách hàng của chi nhánh.' : 'Đã từ chối đơn. Đơn được trả về chi nhánh (Nháp) kèm lý do để chỉnh sửa và đẩy lại.');
+        } catch (e) { alert(e.message); }
+        finally { _gdhBusy(btn, false); }
+        gdhOrdersLoad(); gdhOrdersBadge();
     }
     async function gdhDownloadOrder(id) {
         id = id || _gdhBatchId;
@@ -6396,9 +6555,10 @@
         const el = document.getElementById('gdhOBadge'); if (!el) return;
         try {
             const j = await _gdhJson('/api/gom-don-hang/orders?counts_only=1');
-            const n = CURRENT_ROLE === 'admin' ? (j.counts.pending || 0) : ((j.counts.approved || 0) + (j.counts.viewed || 0));
+            let n = CURRENT_ROLE === 'admin' ? (j.counts.pending || 0) : ((j.counts.approved || 0) + (j.counts.viewed || 0)), rej = 0;
+            if (CURRENT_ROLE !== 'admin') { try { rej = (await _gdhRejFetch('', true)).open || 0; } catch (e2) { rej = 0; } n += rej; }
             el.textContent = n; el.classList.toggle('d-none', !n);
-            el.title = CURRENT_ROLE === 'admin' ? n + ' đơn đang chờ duyệt' : n + ' đơn đã duyệt, chưa tải về';
+            el.title = CURRENT_ROLE === 'admin' ? n + ' đơn đang chờ duyệt' : (n - rej) + ' đơn đã duyệt, chưa tải về' + (rej ? ' · ' + rej + ' đơn bị từ chối cần sửa' : '');
         } catch (e) { /* không chặn giao diện nếu lỗi */ }
     }
     // ---- User chi nhánh: các tab Đang xử lý / Đã duyệt / Lưu trữ / File Excel (giống màn duyệt của admin) ----
@@ -6456,6 +6616,39 @@
         const p = new URLSearchParams(); const t = document.getElementById('gdhUArcType')?.value; if (t) p.set('type', t);
         await _gdhDownload('/api/gom-don-hang/archives/zip?' + p);
     }
+    // ---- Đơn bị admin từ chối: lịch sử cho admin (mọi chi nhánh) và cho chi nhánh (của mình) ----
+    const _GDH_REJ_STATE = {waiting: ['bg-warning text-dark', 'Chờ chi nhánh sửa'], resubmitted: ['bg-info text-dark', 'Đã đẩy lại'], deleted: ['bg-secondary', 'Đã xoá']};
+    const _gdhRejStateBadge = st => { const x = _GDH_REJ_STATE[st]; return x ? `<span class="badge ${x[0]}">${x[1]}</span>` : ''; };
+    async function _gdhRejFetch(store, countsOnly) {
+        const p = new URLSearchParams(); if (store) p.set('store', store); if (countsOnly) p.set('counts_only', '1');
+        return _gdhJson('/api/gom-don-hang/rejections?' + p);
+    }
+    async function _gdhRejOpenBadge() {      // huy hiệu tab "Bị từ chối" của chi nhánh = số đơn đang chờ sửa
+        if (CURRENT_ROLE === 'admin') return;
+        try { _gdhUSetBadge('rejected', (await _gdhRejFetch('', true)).open || 0); } catch (e) { /* không chặn giao diện */ }
+    }
+    function _gdhOHeadMode(rej) {            // đổi tiêu đề cột 4 của bảng danh sách đơn: "Admin duyệt" <-> "Admin từ chối"
+        const th = document.getElementById('gdhOBody')?.closest('table')?.querySelectorAll('thead th')[3];
+        if (th) th.textContent = rej ? 'Admin từ chối · lý do' : 'Admin duyệt';
+    }
+    async function gdhRejListLoad() {
+        const isAdmin = CURRENT_ROLE === 'admin', body = document.getElementById('gdhOBody'), e = _gdhEsc;
+        const resBox = document.getElementById('gdhOResult'); if (resBox) resBox.innerHTML = '';
+        try {
+            const j = await _gdhRejFetch(isAdmin ? (document.getElementById('gdhOStore')?.value || '') : '');
+            if (!isAdmin) _gdhUSetBadge('rejected', j.open || 0);
+            document.getElementById('gdhOCounts').innerHTML = `Chờ chi nhánh sửa: <b>${j.open || 0}</b> · Tổng số lần từ chối: <b>${j.data.length}</b>`;
+            body.innerHTML = j.data.length ? j.data.map(r => {
+                const acts = (r.waiting && r.batch_id) ? _gdhBtn('btn-outline-primary', isAdmin ? 'bi-eye' : 'bi-pencil-square', isAdmin ? 'Xem đơn' : 'Mở để sửa', `gdhOpenBatch('${e(r.store)}', ${r.batch_id})`) : '';
+                return `<tr><td class="fw-semibold">${e(r.name)}${r.kind === 'urgent' ? ' <span class="badge bg-danger-subtle text-danger border border-danger-subtle">Từ danh sách KH</span>' : ''} <span class="gdh-sub fw-normal">#${r.batch_id || ''}${r.from ? ' · Kỳ ' + _gdhDate(r.from) + ' - ' + _gdhDate(r.to) : ''}</span></td>` +
+                    `<td><span class="badge bg-danger">Bị từ chối</span> ${_gdhRejStateBadge(r.state)}</td>` +
+                    `<td>${e(r.submitted_by)}<div class="gdh-sub">${e(r.submitted_at)}</div></td>` +
+                    `<td>${e(r.rejected_by)}<div class="gdh-sub">${e(r.rejected_at)}</div><div class="small text-danger text-wrap" style="min-width:200px;max-width:380px">${e(r.reason)}</div></td>` +
+                    `<td class="text-end">${r.parts != null ? _gdhFmt(r.parts, 0) + ' mã · SL ' + _gdhFmt(r.qty, 0) : '<span class="text-muted">–</span>'}</td>` +
+                    `<td><div class="d-flex flex-wrap gap-1">${acts}</div></td></tr>`;
+            }).join('') : '<tr><td colspan="6" class="text-center text-muted py-3">Chưa có đơn nào bị từ chối.</td></tr>';
+        } catch (err) { body.innerHTML = `<tr><td colspan="6" class="text-center text-danger py-3">${e(err.message)}</td></tr>`; }
+    }
     async function gdhOrdersLoad() {
         const g = id => document.getElementById(id)?.value || '';
         const isStoreUser = CURRENT_ROLE !== 'admin';
@@ -6464,6 +6657,9 @@
             _gdhUApplyTabs(files);
             if (files) { gdhUArcLoad(); gdhOrdersBadge(); return; }
         }
+        const rejMode = isStoreUser ? _gdhUTabCur === 'rejected' : g('gdhOStatus') === 'rejected';
+        _gdhOHeadMode(rejMode);
+        if (rejMode) { await gdhRejListLoad(); gdhOrdersBadge(); return; }
         const p = new URLSearchParams({status: isStoreUser ? (_GDH_U_STATUS[_gdhUTabCur] || 'active') : g('gdhOStatus'), from: g('gdhOFrom'), to: g('gdhOTo')});
         if (CURRENT_ROLE === 'admin' && g('gdhOStore')) p.set('store', g('gdhOStore'));
         const body = document.getElementById('gdhOBody');
@@ -6477,6 +6673,7 @@
             if (isStoreUser) {
                 _gdhUSetBadge('active', (c.pending || 0) + (c.reviewing || 0)); _gdhUSetBadge('done', (c.approved || 0) + (c.viewed || 0));
                 _gdhUSetBadge('archive', c.ordered || 0); _gdhUSetBadge('files', j.archive_files || 0);
+                _gdhRejOpenBadge();
                 document.querySelectorAll('.gdhArcDaysTxt').forEach(x => { if (j.archive_days) x.textContent = j.archive_days; });
             }
             document.getElementById('gdhOCounts').innerHTML = ['pending', 'reviewing', 'approved', 'viewed', 'ordered'].map(k => `${_gdhEsc(L[k])}: <b>${c[k] || 0}</b>`).join(' · ');
@@ -6493,7 +6690,9 @@
                 let acts = '';
                 if (isAdmin && o.status === 'pending') acts += _gdhBtn('btn-primary', 'bi-box-arrow-in-down', 'Lấy về duyệt', `gdhClaim(${o.id})`);
                 else if (isAdmin && o.status === 'reviewing' && o.claimed_by_me) acts += _gdhBtn('btn-outline-primary', 'bi-pencil-square', 'Mở để duyệt', `gdhOpenBatch('${_gdhEsc(o.store)}', ${o.id})`);
+                if (isAdmin && (o.status === 'pending' || (o.status === 'reviewing' && o.claimed_by_me))) acts += _gdhBtn('btn-outline-danger', 'bi-x-circle', 'Từ chối', `gdhReject(${o.id}, this)`);
                 if (!isAdmin && o.status === 'pending') acts += _gdhBtn('btn-outline-danger', 'bi-arrow-counterclockwise', 'Thu hồi', `gdhRecall(${o.id})`);
+                if (o.kind === 'urgent') acts += _gdhBtn('btn-outline-danger', 'bi-people', 'Thông tin khách', `gdhUrgentDetail(${o.id})`);
                 if (o.status !== 'pending' && (isAdmin || ['approved', 'viewed', 'ordered'].includes(o.status))) acts += _gdhBtn(!isAdmin && o.status === 'approved' ? 'btn-warning' : 'btn-outline-secondary', 'bi-eye', 'Xem kết quả duyệt', `gdhOpenCompare(${o.id})`);
                 if (!isAdmin && ['approved', 'viewed', 'ordered'].includes(o.status)) acts += _gdhBtn(o.status === 'ordered' ? 'btn-outline-success' : 'btn-success', 'bi-download', o.status === 'ordered' ? 'Tải lại file đặt hàng' : 'Tải đơn về', `gdhDownloadOrder(${o.id})`);
                 const who = o.status === 'reviewing' ? `${_gdhEsc(o.claimed_by)}<div class="gdh-sub">${_gdhEsc(o.claimed_at)}</div>`
@@ -6501,7 +6700,7 @@
                 const rs = o.result;
                 const last = (o.ordered_at ? `Đặt ${_gdhEsc(o.ordered_at)}` : (o.viewed_at ? `Xem ${_gdhEsc(o.viewed_at)}` : '')) +
                     (rs ? `<div class="gdh-sub">Duyệt ${rs.approved_parts}/${rs.total} mã · giảm SL ${rs.reduced} · về 0: ${rs.zeroed}</div>` : '');
-                return `<tr><td class="fw-semibold">${_gdhEsc(_gdhOrderName(o))} <span class="gdh-sub fw-normal">#${o.id} · ${_gdhEsc(String(o.submitted_at || '').slice(11))}</span><div class="mt-1">${_gdhTypeChips(o)}</div></td>` +
+                return `<tr><td class="fw-semibold">${_gdhEsc(_gdhOrderName(o))}${o.kind === 'urgent' ? ' <span class="badge bg-danger-subtle text-danger border border-danger-subtle">Từ danh sách KH</span>' : ''} <span class="gdh-sub fw-normal">#${o.id} · ${_gdhEsc(String(o.submitted_at || '').slice(11))}</span><div class="mt-1">${_gdhTypeChips(o)}</div></td>` +
                     `<td>${_gdhStBadge(o.status, o.status_label)}<div class="gdh-sub">${last}</div></td>` +
                     `<td>${_gdhEsc(o.submitted_by)}<div class="gdh-sub">${_gdhEsc(o.submitted_at)}</div>${o.submit_note ? `<div class="gdh-sub" title="${_gdhEsc(o.submit_note)}">“${_gdhEsc(o.submit_note.slice(0, 40))}${o.submit_note.length > 40 ? '…' : ''}”</div>` : ''}</td>` +
                     `<td>${who}</td><td class="text-end">${sum(o.submitted_sum)}</td>` +
@@ -7717,8 +7916,9 @@
             `<button type="button" class="btn btn-outline-secondary btn-sm" onclick="ocGdhResetSuggest()" title="Đặt lại SL Duyệt của mọi mã về số hệ thống đề xuất"><i class="bi bi-arrow-counterclockwise me-1"></i>Về đề xuất</button>` +
             `<button type="button" class="btn btn-outline-secondary btn-sm" onclick="ocToggleMax()"><i class="bi ${isMax ? 'bi-fullscreen-exit' : 'bi-arrows-fullscreen'} me-1"></i>${isMax ? 'Thu nhỏ' : 'Phóng to'}</button>` +
             `<button type="button" class="btn btn-outline-secondary btn-sm" onclick="ocGdhRelease()"><i class="bi bi-box-arrow-up me-1"></i>Trả về hàng chờ</button>` +
+            `<button type="button" class="btn btn-outline-danger btn-sm" onclick="ocGdhReject()" title="Đơn chưa ổn: từ chối duyệt và trả về chi nhánh kèm lý do"><i class="bi bi-x-circle me-1"></i>Từ chối</button>` +
             `<button type="button" class="btn btn-success btn-sm" onclick="ocGdhApprove()"><i class="bi bi-check2-circle me-1"></i>Duyệt xong</button></div>` +
-            `<div class="d-flex flex-wrap gap-1 mt-2 align-items-center"><span class="small text-muted me-1">Xem nhanh:</span>${chip('', 'Tất cả', null)}${chip('diff', 'SL duyệt ≠ SL gửi', st.diff)}${chip('locked', 'Bị khoá', st.locked)}${chip('short', 'Vẫn thiếu sau luân chuyển', st.short)}</div>`;
+            `<div class="d-flex flex-wrap gap-1 mt-2 align-items-center"><span class="small text-muted me-1">Xem nhanh:</span>${chip('', 'Tất cả', null)}${chip('diff', 'SL duyệt ≠ SL gửi', st.diff)}${chip('locked', 'Bị khoá', st.locked)}${chip('short', 'Vẫn thiếu sau luân chuyển', st.short)}</div>` + _ocUrgPanel();
     }
     function ocGdhQuick(k) { _ocQuick = (_ocQuick === k) ? '' : k; renderOrderCheckTable(); _ocGdhRenderBar(); }
     function ocGdhResetSuggest() {
@@ -7809,6 +8009,379 @@
         document.querySelectorAll('#ocGdhTypes [data-type]').forEach(b => b.classList.toggle('on', b.dataset.type === t));
         ocGdhLoad();
     }
+    // ---------------------------------------------------------------------
+    // ĐƠN KHẨN TỪ DANH SÁCH KHÁCH HÀNG: bảng thông tin khách của từng dòng (STT, mã đặt, SL đặt, ngày KH yêu cầu,
+    // tên KH, số báo giá, loại xe, số khung) - xem ở thẻ đơn (nút "Thông tin khách") và ngay trong khung duyệt.
+    // ---------------------------------------------------------------------
+    function _urgTableHtml(lines) {
+        const e = _gdhEsc;
+        if (!lines || !lines.length) return '<div class="text-center text-muted py-3 small">Không có dòng khách nào.</div>';
+        return '<table class="table table-sm table-hover mb-0 align-middle" style="font-size:.82rem"><thead class="table-light"><tr>' +
+            '<th>STT</th><th>Mã đặt</th><th class="text-end">SL đặt</th><th>Ngày KH yêu cầu</th><th>Tên khách hàng</th><th>Số báo giá</th><th>Loại xe</th><th>Số khung</th></tr></thead><tbody>' +
+            lines.map(l => {
+                const diff = l.part_code && l.order_code && l.part_code !== l.order_code;
+                return `<tr><td class="fw-bold">${e(l.stt)}</td>` +
+                    `<td><span class="fw-semibold">${e(l.order_code)}</span>${diff ? `<div class="text-muted" style="font-size:.7rem">KH yêu cầu: ${e(l.part_code)} × ${_gdhFmt(l.qty, 0)}</div>` : ''}</td>` +
+                    `<td class="text-end fw-semibold">${_gdhFmt(l.order_qty, 0)}</td><td>${l.request_date ? _gdhDate(l.request_date) : '—'}</td>` +
+                    `<td>${e(l.customer_name)}</td><td class="font-monospace">${e(l.quote_no)}</td><td>${e(l.vehicle_type)}</td><td class="font-monospace">${e(l.frame_number)}</td></tr>`;
+            }).join('') + '</tbody></table>';
+    }
+    function _ugmCss() {        // CSS dùng chung cho các khung "chuyên nghiệp" (gôm đơn khẩn, đẩy đơn gôm)
+        if (document.getElementById('ugm-css')) return;
+        document.head.insertAdjacentHTML('beforeend', `<style id="ugm-css">
+    .ugm .modal-content{border:0;border-radius:14px;overflow:hidden;box-shadow:0 20px 60px rgba(15,23,42,.35)}
+    .ugm-head{background:linear-gradient(135deg,#b91c1c,#ef4444);color:#fff;border:0;padding:.8rem 1.1rem;align-items:center;gap:.7rem}
+    .ugm-head .btn-close{filter:invert(1) grayscale(1) brightness(2);opacity:.85;margin:0 0 0 auto}
+    .ugm-ico{width:40px;height:40px;border-radius:50%;background:rgba(255,255,255,.18);display:grid;place-items:center;font-size:1.25rem;flex:none}
+    .ugm-ttl{font-weight:800;font-size:1.05rem;line-height:1.2}
+    .ugm-sub{font-size:.76rem;opacity:.88}
+    .ugm-steps{display:flex;align-items:center;gap:.5rem;padding:.55rem 1.1rem;background:#fef2f2;border-bottom:1px solid #fecaca;font-size:.76rem;font-weight:700;color:#9ca3af}
+    .ugm-steps span{display:flex;align-items:center;gap:.35rem}
+    .ugm-steps b{width:20px;height:20px;border-radius:50%;background:#e5e7eb;color:#6b7280;display:grid;place-items:center;font-size:.7rem;transition:background .25s,color .25s}
+    .ugm-steps i.sep{flex:0 0 28px;height:2px;background:#e5e7eb;border-radius:2px}
+    .ugm-steps .on{color:#b91c1c}.ugm-steps .on b{background:#dc2626;color:#fff}
+    .ugm-steps .ok{color:#15803d}.ugm-steps .ok b{background:#16a34a;color:#fff}
+    .ugm-stats{display:grid;grid-template-columns:repeat(3,1fr);gap:.6rem;margin-bottom:.7rem}
+    .ugm-stat{border:1px solid #e2e8f0;border-radius:10px;padding:.4rem .75rem;background:#fff}
+    .ugm-stat small{display:block;color:#64748b;font-size:.68rem;font-weight:700;text-transform:uppercase;letter-spacing:.04em}
+    .ugm-stat strong{display:inline-block;font-size:1.3rem;font-variant-numeric:tabular-nums}
+    .ugm-stat.pulse strong{animation:ugmPop .35s}
+    @keyframes ugmPop{40%{transform:scale(1.2);color:#dc2626}}
+    .ugm-chips{display:flex;flex-wrap:wrap;gap:.35rem}
+    .ugm-chip{border:1px solid #cbd5e1;background:#fff;border-radius:999px;padding:.12rem .7rem;font-size:.76rem;font-weight:700;color:#475569;cursor:pointer;transition:background .15s,color .15s}
+    .ugm-chip:hover{background:#f1f5f9}
+    .ugm-chip.on{background:#dc2626;border-color:#dc2626;color:#fff}
+    .ugm-chip em{font-style:normal;opacity:.75;margin-left:.3rem}
+    .ugm-search{position:relative;flex:1;max-width:340px;min-width:200px}
+    .ugm-search i{position:absolute;left:.6rem;top:50%;transform:translateY(-50%);color:#94a3b8;font-size:.8rem}
+    .ugm-search input{padding-left:1.9rem}
+    .ugm-wrap{max-height:46vh;overflow:auto;border:1px solid #e2e8f0;border-radius:10px}
+    .ugm-t{margin:0;font-size:.82rem}
+    .ugm-t th{position:sticky;top:0;z-index:2;background:#f1f5f9;font-size:.7rem;text-transform:uppercase;letter-spacing:.03em;color:#475569;white-space:nowrap;box-shadow:0 1px 0 #e2e8f0}
+    .ugm-t td{vertical-align:middle}
+    .ugm-t tbody tr{cursor:pointer;transition:background .15s}
+    .ugm-t tbody tr:hover{background:#f8fafc}
+    .ugm-t tbody tr.sel{background:#fef2f2;box-shadow:inset 3px 0 0 #dc2626}
+    .ugm-t tbody tr.off{cursor:not-allowed;opacity:.5}
+    .ugm-t tbody tr.gom-out{animation:ugmOut .55s cubic-bezier(.5,0,.75,0) forwards}
+    @keyframes ugmOut{to{opacity:0;transform:translateX(70px) scale(.96);background:#fecaca}}
+    .ugm-qty{display:inline-flex;align-items:center;border:1px solid #cbd5e1;border-radius:8px;overflow:hidden;background:#fff}
+    .ugm-qty button{border:0;background:#f1f5f9;width:24px;height:28px;font-weight:800;color:#475569;line-height:1}
+    .ugm-qty button:hover:not(:disabled){background:#fee2e2;color:#b91c1c}
+    .ugm-qty input{width:46px;border:0;text-align:center;font-weight:700;font-size:.82rem;padding:0;outline:0;-moz-appearance:textfield;background:transparent}
+    .ugm-qty input::-webkit-outer-spin-button,.ugm-qty input::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
+    .ugm-skel td div{height:12px;border-radius:6px;background:linear-gradient(90deg,#eef2f7 25%,#f8fafc 50%,#eef2f7 75%);background-size:200% 100%;animation:ugmSh 1.1s infinite}
+    @keyframes ugmSh{to{background-position:-200% 0}}
+    .ugm-empty{padding:2.2rem 1rem;text-align:center;color:#94a3b8}
+    .ugm-empty i{font-size:2.2rem;display:block;margin-bottom:.4rem}
+    .ugm-confirm,.ugm-done{padding:1.8rem 1rem;text-align:center}
+    .ugm-confirm .big{width:64px;height:64px;border-radius:50%;background:#fee2e2;color:#dc2626;display:grid;place-items:center;font-size:1.9rem;margin:0 auto .9rem}
+    .ugm-lock{display:inline-block;margin-top:.7rem;background:#fffbeb;border:1px solid #fde68a;color:#92400e;border-radius:8px;padding:.35rem .8rem;font-size:.8rem}
+    .ugm-check{width:78px;height:78px;margin:0 auto 1rem;display:block}
+    .ugm-check circle{fill:none;stroke:#16a34a;stroke-width:3;stroke-dasharray:158;stroke-dashoffset:158;animation:ugmDraw .6s ease forwards}
+    .ugm-check path{fill:none;stroke:#16a34a;stroke-width:4;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:40;stroke-dashoffset:40;animation:ugmDraw .4s .5s ease forwards}
+    @keyframes ugmDraw{to{stroke-dashoffset:0}}
+    .ugm-pills{display:flex;justify-content:center;flex-wrap:wrap;gap:.5rem;margin-top:.9rem}
+    .ugm-pill{background:#f1f5f9;border-radius:999px;padding:.25rem .85rem;font-size:.82rem;font-weight:700}
+    .ugm-pill.warn{background:#fef3c7;color:#92400e}
+    .ugm-view{animation:ugmIn .25s ease}
+    @keyframes ugmIn{from{opacity:0;transform:translateY(8px)}}
+    @media (max-width:576px){.ugm-stats{grid-template-columns:repeat(3,1fr);gap:.35rem}.ugm-stat strong{font-size:1.05rem}}
+    @media (prefers-reduced-motion:reduce){.ugm *{animation-duration:.01ms!important;animation-delay:0ms!important;transition-duration:.01ms!important}}
+    
+.ugm .ugm-go{--c:#dc2626;background:var(--c);border-color:var(--c);color:#fff;font-weight:700}
+.ugm .ugm-go:hover:not(:disabled){filter:brightness(.92);color:#fff}
+.ugm .ugm-go:disabled{opacity:.55;color:#fff;background:var(--c);border-color:var(--c)}
+.ugm.t-blue .ugm-go{--c:#2563eb}.ugm.t-violet .ugm-go{--c:#7c3aed}
+.ugm.t-blue .ugm-head{background:linear-gradient(135deg,#1d4ed8,#3b82f6)}
+.ugm.t-blue .ugm-steps{background:#eff6ff;border-bottom-color:#bfdbfe}
+.ugm.t-blue .ugm-steps .on{color:#1d4ed8}.ugm.t-blue .ugm-steps .on b{background:#2563eb}
+.ugm.t-blue .ugm-confirm .big{background:#dbeafe;color:#2563eb}.ugm.t-blue .ugm-confirm h5 .hl{color:#2563eb}
+.ugm.t-violet .ugm-head{background:linear-gradient(135deg,#6d28d9,#8b5cf6)}
+.ugm.t-violet .ugm-steps{background:#f5f3ff;border-bottom-color:#ddd6fe}
+.ugm.t-violet .ugm-steps .on{color:#6d28d9}.ugm.t-violet .ugm-steps .on b{background:#7c3aed}
+.ugm.t-violet .ugm-confirm .big{background:#ede9fe;color:#7c3aed}.ugm.t-violet .ugm-confirm h5 .hl{color:#7c3aed}
+.ugm-confirm h5 .hl{color:#dc2626}
+.ugm-type{display:grid;grid-template-columns:minmax(92px,1.1fr) 70px 80px minmax(110px,1.2fr);gap:.5rem;align-items:center;padding:.5rem .8rem;border-bottom:1px solid #eef2f7;font-size:.84rem}
+.ugm-type:last-child{border-bottom:0}
+.ugm-type.head{background:#f1f5f9;font-size:.68rem;font-weight:800;color:#475569;text-transform:uppercase;letter-spacing:.04em}
+.ugm-type.zero{opacity:.45}
+.ugm-type .nm{font-weight:700;display:flex;align-items:center;gap:.4rem}
+.ugm-type .dot{width:10px;height:10px;border-radius:50%;flex:none}
+.ugm-type .n{text-align:right;font-variant-numeric:tabular-nums}
+.ugm-bar{height:6px;border-radius:6px;background:#e5e7eb;overflow:hidden;margin-top:3px}
+.ugm-bar i{display:block;height:100%;border-radius:6px;width:0;transition:width .7s cubic-bezier(.2,.8,.2,1)}
+.ugm-box{border:1px solid #e2e8f0;border-radius:10px;overflow:hidden;margin-bottom:.7rem}
+.ugm-warn{display:flex;gap:.6rem;border-radius:10px;padding:.55rem .8rem;font-size:.82rem;margin-bottom:.6rem;border:1px solid}
+.ugm-warn>i{font-size:1.05rem;margin-top:.05rem}
+.ugm-warn.w{background:#fffbeb;border-color:#fde68a;color:#92400e}
+.ugm-warn.d{background:#fef2f2;border-color:#fecaca;color:#991b1b}
+.ugm-warn.m{background:#f8fafc;border-color:#e2e8f0;color:#64748b}
+.ugm-warn ul{margin:.3rem 0 0;padding-left:1.1rem}
+@media (max-width:576px){.ugm-type{grid-template-columns:1fr 54px 64px 1fr;padding:.45rem .5rem;font-size:.78rem}}
+</style>`);
+    }
+    function _ugmSetStep(box, n) {
+        box.querySelectorAll('span').forEach(sp => {
+            const s = +sp.dataset.s;
+            sp.className = s < n ? 'ok' : s === n ? 'on' : '';
+            sp.firstChild.innerHTML = s < n ? '<i class="bi bi-check-lg"></i>' : s;
+        });
+    }
+    // ---------- Gôm đơn khẩn từ danh sách khách hàng (bảng chọn mã khách) ----------
+    const U_esc = _gdhEsc, U_date = _gdhDate, U_store = () => _gdhStore(), U_isAdmin = () => CURRENT_ROLE === 'admin';
+    const U_get = url => _gdhJson(url);
+    const U_post = (url, body) => _gdhJson(url, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)});
+    const U_warn = m => showToast('Gôm đơn khẩn', m, 'warning');
+    const U_onSent = () => gdhOrdersBadge();
+    const U_onClosed = () => {      // đóng bảng xong: sang tab Đơn đã đẩy để thấy ngay đơn khẩn vừa gửi (nếu đang có thay đổi chưa lưu thì chỉ làm mới)
+        if (!_gdhDirty) gdhSwitchView('orders');
+        else if (!document.getElementById('gdhOrdersView').classList.contains('d-none')) gdhOrdersLoad();
+    };
+    /* ===== Gôm đơn khẩn: chọn mã khách -> xác nhận -> gửi thẳng admin duyệt (khối dùng chung) ===== */
+    let _GDH_URG = null;
+    const gdhUrgEl = id => document.getElementById('gdhUrg' + id);
+    const gdhUrgNum = n => Number(n || 0).toLocaleString('vi-VN');
+
+    function gdhUrgEnsure() {
+      if (gdhUrgEl('Modal')) return;
+      _ugmCss();
+      document.body.insertAdjacentHTML('beforeend', `<div class="modal fade ugm" id="gdhUrgModal" data-bs-backdrop="static" tabindex="-1"><div class="modal-dialog modal-xl modal-dialog-scrollable modal-dialog-centered"><div class="modal-content">
+      <div class="modal-header ugm-head">
+        <div class="ugm-ico"><i class="bi bi-lightning-charge-fill"></i></div>
+        <div><div class="ugm-ttl">Gôm đơn khẩn <span class="badge bg-light text-danger ms-1 d-none" id="gdhUrgStore"></span></div><div class="ugm-sub">Chọn mã khách chưa đặt và gửi thẳng admin duyệt</div></div>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Đóng"></button>
+      </div>
+      <div class="ugm-steps" id="gdhUrgSteps"><span data-s="1" class="on"><b>1</b>Chọn mã khách</span><i class="sep"></i><span data-s="2"><b>2</b>Xác nhận</span><i class="sep"></i><span data-s="3"><b>3</b>Gửi admin</span></div>
+      <div class="modal-body p-3">
+        <div id="gdhUrgMain" class="ugm-view">
+          <div class="small text-muted mb-2">Chỉ hiện các mã khách <b>Chưa đặt</b>, <b>không xin nội bộ</b> và chưa gửi khẩn. Đơn khẩn được gửi <b>thẳng cho admin</b> ở trạng thái Chờ duyệt.</div>
+          <div class="ugm-stats">
+            <div class="ugm-stat"><small>Dòng đã chọn</small><strong id="gdhUrgStLines">0</strong></div>
+            <div class="ugm-stat"><small>Số khách</small><strong id="gdhUrgStCust">0</strong></div>
+            <div class="ugm-stat"><small>Tổng SL</small><strong id="gdhUrgStQty">0</strong></div>
+          </div>
+          <div class="d-flex flex-wrap gap-2 align-items-center mb-2">
+            <div class="ugm-search"><i class="bi bi-search"></i><input type="text" id="gdhUrgSearch" class="form-control form-control-sm" placeholder="Lọc theo khách, mã, số báo giá, số khung..." oninput="gdhUrgRender()"></div>
+            <div class="ugm-chips" id="gdhUrgChips"></div>
+            <span class="ms-auto small text-muted" id="gdhUrgHint"></span>
+          </div>
+          <div class="ugm-wrap"><table class="table ugm-t"><thead><tr>
+            <th style="width:34px"><input type="checkbox" class="form-check-input" id="gdhUrgAll" onchange="gdhUrgSelectAll(this.checked)" title="Chọn / bỏ chọn tất cả dòng đang lọc"></th>
+            <th>STT</th><th>Mã đặt</th><th>Tên hàng</th><th class="text-center">SL đặt</th><th>Ngày KH yêu cầu</th><th>Khách hàng</th><th>Số báo giá</th><th>Loại xe</th><th>Số khung</th>
+          </tr></thead><tbody id="gdhUrgBody"></tbody></table></div>
+          <input type="text" id="gdhUrgNote" class="form-control form-control-sm mt-2" maxlength="500" placeholder="Ghi chú cho admin (không bắt buộc)" onkeydown="if(event.key==='Enter')gdhUrgAsk()">
+          <div class="alert alert-danger py-2 mt-2 mb-0 d-none" id="gdhUrgErr"></div>
+          <div class="small text-muted mt-2">Bấm vào dòng để chọn · giữ <b>Shift</b> + bấm để chọn cả khoảng · sửa SL bằng nút − / +</div>
+        </div>
+        <div id="gdhUrgConfirm" class="ugm-confirm ugm-view d-none">
+          <div class="big"><i class="bi bi-send-exclamation-fill"></i></div>
+          <h5 class="fw-bold mb-2" id="gdhUrgCfText"></h5>
+          <div class="small" id="gdhUrgCfNote"></div>
+          <div class="ugm-lock"><i class="bi bi-lock-fill me-1"></i>Sau khi gửi, đơn bị khoá; chỉ thu hồi được khi admin chưa lấy về duyệt.</div>
+        </div>
+        <div id="gdhUrgDone" class="ugm-done ugm-view d-none"></div>
+      </div>
+      <div class="modal-footer py-2" id="gdhUrgFootList">
+        <button type="button" class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">Đóng</button>
+        <button type="button" class="btn btn-danger btn-sm fw-bold px-3" id="gdhUrgBtnAsk" onclick="gdhUrgAsk()"><i class="bi bi-send-fill me-1"></i>Gửi admin duyệt <span class="badge bg-light text-danger ms-1" id="gdhUrgAskN">0</span></button>
+      </div>
+      <div class="modal-footer py-2 d-none" id="gdhUrgFootConfirm">
+        <button type="button" class="btn btn-outline-secondary btn-sm" id="gdhUrgBtnBack" onclick="gdhUrgView('list')"><i class="bi bi-arrow-left me-1"></i>Quay lại chỉnh</button>
+        <button type="button" class="btn btn-danger btn-sm fw-bold px-3" id="gdhUrgBtnSend" onclick="gdhUrgSend()"><i class="bi bi-send-fill me-1"></i>Xác nhận gửi</button>
+      </div>
+      <div class="modal-footer py-2 d-none" id="gdhUrgFootDone">
+        <button type="button" class="btn btn-success btn-sm fw-bold px-4" data-bs-dismiss="modal"><i class="bi bi-check2 me-1"></i>Hoàn tất</button>
+      </div>
+    </div></div></div>`);
+    }
+
+    function gdhUrgStep(n) {
+      gdhUrgEl('Steps').querySelectorAll('span').forEach(sp => {
+        const s = +sp.dataset.s;
+        sp.className = s < n ? 'ok' : s === n ? 'on' : '';
+        sp.firstChild.innerHTML = s < n ? '<i class="bi bi-check-lg"></i>' : s;
+      });
+    }
+    function gdhUrgView(v) {          // list | confirm | done
+      const show = (id, on) => gdhUrgEl(id).classList.toggle('d-none', !on);
+      show('Main', v === 'list'); show('Confirm', v === 'confirm'); show('Done', v === 'done');
+      show('FootList', v === 'list'); show('FootConfirm', v === 'confirm'); show('FootDone', v === 'done');
+      gdhUrgStep(v === 'list' ? 1 : v === 'confirm' ? 2 : 4);
+    }
+    function gdhUrgErr(m) { const e = gdhUrgEl('Err'); e.textContent = m || ''; e.classList.toggle('d-none', !m); }
+    function gdhUrgSkel() {
+      gdhUrgEl('Body').innerHTML = Array.from({ length: 6 }, () => '<tr class="ugm-skel">' + Array.from({ length: 10 }, () => '<td><div></div></td>').join('') + '</tr>').join('');
+    }
+
+    async function gdhUrgOpen() {
+      if (U_isAdmin() && !U_store()) { U_warn('Admin: hãy chọn 1 chi nhánh ở ô chọn chi nhánh rồi bấm lại Gôm đơn khẩn.'); return; }
+      gdhUrgEnsure();
+      _GDH_URG = { rows: [], by: {}, sel: new Set(), qty: {}, store: U_store(), view: 'all', last: null, shown: [], busy: false, sent: false, st: {} };
+      const st = gdhUrgEl('Store'); st.textContent = U_isAdmin() ? _GDH_URG.store : ''; st.classList.toggle('d-none', !U_isAdmin());
+      gdhUrgEl('Note').value = ''; gdhUrgEl('Search').value = ''; gdhUrgErr('');
+      gdhUrgView('list'); gdhUrgSkel(); gdhUrgCount();
+      const m = gdhUrgEl('Modal');
+      m.addEventListener('hidden.bs.modal', () => { if (_GDH_URG && _GDH_URG.sent) U_onClosed(); }, { once: true });
+      bootstrap.Modal.getOrCreateInstance(m).show();
+      try { await gdhUrgLoad(false); }
+      catch (e) { gdhUrgEl('Body').innerHTML = `<tr><td colspan="10"><div class="ugm-empty text-danger"><i class="bi bi-exclamation-triangle"></i>${U_esc(e.message)}</div></td></tr>`; }
+    }
+    async function gdhUrgLoad(keep) {        // keep = true: nạp lại sau lỗi (dòng bị người khác gửi/đổi trạng thái), giữ lựa chọn còn hợp lệ
+      const S = _GDH_URG;
+      const j = await U_get('/api/gom-don-hang/urgent/candidates?' + new URLSearchParams(S.store ? { store: S.store } : {}));
+      if (keep) S.sel = new Set([...S.sel].filter(id => j.data.some(r => r.id === id)));
+      j.data.forEach(r => { if (!keep || !(r.id in S.qty)) S.qty[r.id] = r.qty; });
+      S.rows = j.data; S.by = Object.fromEntries(j.data.map(r => [r.id, r]));
+      gdhUrgRender();
+    }
+
+    function gdhUrgFiltered() {
+      const S = _GDH_URG, q = gdhUrgEl('Search').value.trim().toLowerCase(), v = S.view;
+      return S.rows.filter(r => (!q || [r.part_code, r.order_code, r.part_name, r.customer_name, r.quote_no, r.vehicle_type, r.frame_number, r.stt].join(' ').toLowerCase().includes(q))
+        && (v === 'all' || (v === 'sel' && S.sel.has(r.id)) || (v === 'unsel' && !r.skip && !S.sel.has(r.id)) || (v === 'diff' && r.order_code !== r.part_code) || (v === 'skip' && r.skip)));
+    }
+    function gdhUrgOQ(r) {            // mã đặt khác mã khách yêu cầu (mã cha / thay thế): ước lượng theo tỉ lệ, số chính xác do máy chủ tính khi gửi
+      const q = Number(_GDH_URG.qty[r.id]) || 0;
+      return r.order_code === r.part_code ? q : Math.max(1, Math.ceil(q * r.order_qty / r.qty - 1e-9));
+    }
+    function gdhUrgRender() {
+      const S = _GDH_URG, rows = gdhUrgFiltered(), MAXR = 400, shown = rows.slice(0, MAXR);
+      S.shown = shown.map(r => r.id);
+      gdhUrgEl('Body').innerHTML = shown.length ? shown.map(r => {
+        const diff = r.order_code !== r.part_code, off = !!r.skip, on = S.sel.has(r.id);
+        return `<tr class="${off ? 'off' : on ? 'sel' : ''}" data-id="${r.id}" onclick="gdhUrgRow(event,${r.id})"><td><input type="checkbox" class="form-check-input" ${off ? 'disabled' : ''} ${on ? 'checked' : ''}></td>`
+          + `<td class="fw-bold">${U_esc(r.stt)}</td>`
+          + `<td><span class="fw-semibold">${U_esc(r.order_code)}</span>${diff ? `<div class="text-muted" style="font-size:.7rem">khách yêu cầu: ${U_esc(r.part_code)}</div>` : ''}${r.skip ? `<div class="text-danger" style="font-size:.7rem">${U_esc(r.skip)}</div>` : ''}${r.locked_no_rep ? '<div class="text-warning-emphasis" style="font-size:.7rem">Mã đang bị khoá</div>' : ''}</td>`
+          + `<td>${U_esc(r.part_name)}</td>`
+          + `<td class="text-center"><div class="ugm-qty"><button type="button" ${off ? 'disabled' : ''} onclick="gdhUrgBump(${r.id},-1)">−</button><input type="number" min="1" id="gdhUrgq${r.id}" value="${U_esc(S.qty[r.id])}" ${off ? 'disabled' : ''} onchange="gdhUrgQty(${r.id},this.value)"><button type="button" ${off ? 'disabled' : ''} onclick="gdhUrgBump(${r.id},1)">+</button></div><div class="text-muted" style="font-size:.7rem" id="gdhUrgo${r.id}">${diff ? 'đặt ~' + gdhUrgOQ(r) : ''}</div></td>`
+          + `<td>${U_date(r.request_date) || '—'}</td><td>${U_esc(r.customer_name)}</td><td class="font-monospace">${U_esc(r.quote_no)}</td><td>${U_esc(r.vehicle_type)}</td><td class="font-monospace">${U_esc(r.frame_number)}</td></tr>`;
+      }).join('') : `<tr><td colspan="10"><div class="ugm-empty"><i class="bi bi-inbox"></i>${S.rows.length ? 'Không có dòng nào khớp bộ lọc.' : 'Không có mã nào đủ điều kiện gôm đơn khẩn.'}</div></td></tr>`;
+      gdhUrgEl('Hint').textContent = rows.length > MAXR ? `Đang hiện ${MAXR}/${rows.length} dòng — dùng ô lọc để thu hẹp.` : '';
+      gdhUrgCount();
+    }
+
+    function gdhUrgMark(id, on) {
+      const S = _GDH_URG, r = S.by[id]; if (!r || r.skip) return;
+      if (on) S.sel.add(id); else S.sel.delete(id);
+      const tr = gdhUrgEl('Body').querySelector(`tr[data-id="${id}"]`);
+      if (tr) { tr.classList.toggle('sel', on); const c = tr.querySelector('input[type=checkbox]'); if (c) c.checked = on; }
+    }
+    function gdhUrgRow(ev, id) {
+      if (ev.target.closest('.ugm-qty')) return;
+      const S = _GDH_URG, r = S.by[id]; if (!r || r.skip) return;
+      if (ev.shiftKey) window.getSelection().removeAllRanges();
+      const on = !S.sel.has(id), a = S.shown.indexOf(S.last), b = S.shown.indexOf(id);
+      if (ev.shiftKey && a >= 0 && b >= 0 && S.last !== id) S.shown.slice(Math.min(a, b), Math.max(a, b) + 1).forEach(x => gdhUrgMark(x, on));
+      else gdhUrgMark(id, on);
+      S.last = id; gdhUrgCount();
+    }
+    function gdhUrgSelectAll(on) { gdhUrgFiltered().forEach(r => { if (!r.skip) { if (on) _GDH_URG.sel.add(r.id); else _GDH_URG.sel.delete(r.id); } }); gdhUrgRender(); }
+    function gdhUrgChip(k) { _GDH_URG.view = k; gdhUrgRender(); }
+    function gdhUrgQty(id, v) {
+      const S = _GDH_URG, n = Math.max(1, Math.ceil(Number(v) || 1)); S.qty[id] = n;
+      const inp = gdhUrgEl('q' + id); if (inp) inp.value = n;
+      const r = S.by[id], el = gdhUrgEl('o' + id); if (r && el && r.order_code !== r.part_code) el.textContent = 'đặt ~' + gdhUrgOQ(r);
+      if (r && !r.skip && !S.sel.has(id)) gdhUrgMark(id, true);          // sửa SL = có ý định đặt dòng đó
+      gdhUrgCount();
+    }
+    function gdhUrgBump(id, d) { gdhUrgQty(id, (Number(_GDH_URG.qty[id]) || 1) + d); }
+
+    function gdhUrgCount() {
+      const S = _GDH_URG, sel = S.rows.filter(r => S.sel.has(r.id));
+      const qty = sel.reduce((a, r) => a + (Number(S.qty[r.id]) || 0), 0);
+      const cust = new Set(sel.map(r => String(r.customer_name || '').trim().toLowerCase())).size;
+      const set = (id, key, html, val) => {
+        const el = gdhUrgEl(id); el.innerHTML = html;
+        if (S.st[key] !== undefined && S.st[key] !== val) { const c = el.closest('.ugm-stat'); c.classList.remove('pulse'); void c.offsetWidth; c.classList.add('pulse'); }
+        S.st[key] = val;
+      };
+      set('StLines', 'l', `${sel.length}<span class="text-muted fs-6 fw-semibold"> / ${S.rows.length}</span>`, sel.length);
+      set('StCust', 'c', String(cust), cust);
+      set('StQty', 'q', gdhUrgNum(qty), qty);
+      const diff = S.rows.filter(r => r.order_code !== r.part_code).length, skip = S.rows.filter(r => r.skip).length;
+      const defs = [['all', 'Tất cả', S.rows.length], ['sel', 'Đã chọn', sel.length], ['unsel', 'Chưa chọn', S.rows.filter(r => !r.skip && !S.sel.has(r.id)).length]];
+      if (diff) defs.push(['diff', 'Đã quy mã', diff]);
+      if (skip) defs.push(['skip', 'Không đặt được', skip]);
+      gdhUrgEl('Chips').innerHTML = defs.map(([k, t, n]) => `<button type="button" class="ugm-chip ${S.view === k ? 'on' : ''}" onclick="gdhUrgChip('${k}')">${t}<em>${n}</em></button>`).join('');
+      const f = gdhUrgFiltered().filter(r => !r.skip), n = f.filter(r => S.sel.has(r.id)).length, all = gdhUrgEl('All');
+      all.checked = f.length > 0 && n === f.length; all.indeterminate = n > 0 && n < f.length;
+      gdhUrgEl('AskN').textContent = sel.length; gdhUrgEl('BtnAsk').disabled = !sel.length;
+    }
+
+    function gdhUrgAsk() {
+      const S = _GDH_URG; if (!S || !S.sel.size) return;
+      const sel = S.rows.filter(r => S.sel.has(r.id)), qty = sel.reduce((a, r) => a + (Number(S.qty[r.id]) || 0), 0);
+      const cust = new Set(sel.map(r => String(r.customer_name || '').trim().toLowerCase())).size, note = gdhUrgEl('Note').value.trim();
+      gdhUrgEl('CfText').innerHTML = `Gửi <span class="text-danger">${sel.length}</span> dòng khách (${cust} khách, tổng SL ${gdhUrgNum(qty)})<br>thành 1 đơn KHẨN cho admin duyệt?`;
+      gdhUrgEl('CfNote').innerHTML = note ? `Ghi chú cho admin: “${U_esc(note)}”` : '<span class="text-muted">Không có ghi chú cho admin.</span>';
+      gdhUrgErr(''); gdhUrgView('confirm');
+    }
+    async function gdhUrgSend() {
+      const S = _GDH_URG; if (S.busy || !S.sel.size) return;
+      S.busy = true;
+      const btn = gdhUrgEl('BtnSend'), back = gdhUrgEl('BtnBack');
+      btn.disabled = back.disabled = true; btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Đang gửi...';
+      const items = [...S.sel].map(id => ({ id, qty: S.qty[id] }));
+      try {
+        const j = await U_post('/api/gom-don-hang/urgent/create', { store: S.store, items, note: gdhUrgEl('Note').value.trim() });
+        S.sent = true;
+        try { U_onSent(j); } catch (_) { /* không để lỗi làm mới giao diện nền làm hỏng thông báo gửi thành công */ }
+        gdhUrgView('list'); gdhUrgStep(3);
+        const rows = [...gdhUrgEl('Body').querySelectorAll('tr.sel')];          // hiệu ứng "gôm": các dòng đã chọn trượt đi lần lượt
+        rows.forEach((tr, i) => { tr.style.animationDelay = Math.min(i, 14) * 35 + 'ms'; tr.classList.add('gom-out'); });
+        if (rows.length) await new Promise(res => setTimeout(res, Math.min(rows.length, 15) * 35 + 600));
+        gdhUrgDone(j);
+      } catch (e) {
+        gdhUrgView('list'); gdhUrgErr(e.message);
+        try { await gdhUrgLoad(true); } catch (_) { /* giữ nguyên danh sách */ }
+      } finally {
+        S.busy = false; btn.disabled = back.disabled = false; btn.innerHTML = '<i class="bi bi-send-fill me-1"></i>Xác nhận gửi';
+      }
+    }
+    function gdhUrgDone(j) {
+      const sk = (j.skipped || []).length;
+      gdhUrgEl('Done').innerHTML = `<svg class="ugm-check" viewBox="0 0 52 52"><circle cx="26" cy="26" r="25"/><path d="M14 27l8 8 16-17"/></svg>`
+        + `<h5 class="fw-bold mb-1">Đã gửi đơn khẩn #${U_esc(j.batch_id)} cho admin</h5><div class="text-muted">Đơn đang ở trạng thái <b>Chờ duyệt</b>.</div>`
+        + `<div class="ugm-pills"><span class="ugm-pill">${gdhUrgNum(j.lines)} dòng khách</span><span class="ugm-pill">${gdhUrgNum(j.parts)} mã đặt</span>${sk ? `<span class="ugm-pill warn">Bỏ ${sk} mã không được đặt</span>` : ''}</div>`;
+      gdhUrgView('done');
+    }
+
+    async function gdhUrgentDetail(id) {
+        _ocBusy(true, 'Đang tải thông tin khách...');
+        let j;
+        try { j = await _gdhJson('/api/gom-don-hang/urgent/lines?batch_id=' + id); }
+        catch (err) { _ocBusy(false); alert(err.message); return; }
+        _ocBusy(false);
+        let el = document.getElementById('urgDetailOv');
+        if (el) el.remove();
+        el = document.createElement('div'); el.id = 'urgDetailOv';
+        el.style.cssText = 'position:fixed;inset:0;z-index:2050;background:rgba(15,23,42,.45);display:flex;align-items:center;justify-content:center;padding:1rem';
+        el.onclick = ev => { if (ev.target === el) el.remove(); };
+        el.innerHTML = '<div style="background:#fff;border-radius:.8rem;box-shadow:0 10px 30px rgba(0,0,0,.3);width:min(1100px,100%);max-height:88vh;display:flex;flex-direction:column">' +
+            `<div class="d-flex align-items-center gap-2 px-3 py-2 border-bottom"><div class="flex-grow-1 fw-semibold"><i class="bi bi-lightning-charge-fill text-danger me-1"></i>Đơn khẩn #${j.batch.id} · ${_gdhEsc(j.batch.store)} · ${j.data.length} dòng khách` +
+            `<span class="ms-2 small text-muted fw-normal">${_gdhEsc(j.batch.status_label)}${j.batch.submit_note ? ' · “' + _gdhEsc(j.batch.submit_note) + '”' : ''}</span></div>` +
+            '<button type="button" class="btn btn-outline-secondary btn-sm" onclick="document.getElementById(\'urgDetailOv\').remove()">Đóng</button></div>' +
+            `<div style="overflow:auto">${_urgTableHtml(j.data)}</div></div>`;
+        document.body.appendChild(el);
+    }
+    let _ocUrg = {id: null, lines: [], open: true, loading: false};
+    async function _ocUrgFetch(id) {              // khôi phục sau khi tải lại trang (localStorage chỉ giữ id đơn đang duyệt)
+        if (_ocUrg.loading) return;
+        _ocUrg.loading = true;
+        try {
+            const j = await _gdhJson('/api/gom-don-hang/urgent/lines?batch_id=' + id);
+            _ocUrg = {id: id, lines: j.data, open: true, loading: false};
+        } catch (err) { _ocUrg = {id: id, lines: [], open: true, loading: false}; }
+        _ocGdhRenderBar();
+    }
+    function _ocUrgPanel() {
+        if (!_ocGdh || _ocGdh.kind !== 'urgent') return '';
+        if (_ocUrg.id !== _ocGdh.id) { _ocUrgFetch(_ocGdh.id); return '<div class="small text-muted mt-2">Đang tải thông tin khách của đơn khẩn...</div>'; }
+        return `<details class="mt-2" ${_ocUrg.open ? 'open' : ''} ontoggle="_ocUrg.open = this.open"><summary class="small fw-semibold text-danger" style="cursor:pointer">` +
+            `<i class="bi bi-people me-1"></i>Thông tin khách của đơn khẩn · ${_ocUrg.lines.length} dòng</summary>` +
+            `<div class="border rounded mt-1" style="max-height:220px;overflow:auto">${_urgTableHtml(_ocUrg.lines)}</div></details>`;
+    }
     function _ocGdhCardHtml(o) {
         const e = _gdhEsc, sub = o.submitted_sum, rs = o.result;
         const mine = o.status === 'reviewing' && o.claimed_by_me;
@@ -7817,6 +8390,7 @@
         let acts = '';
         if (o.status === 'pending') acts += _gdhBtn('btn-primary', 'bi-box-arrow-in-down', 'Lấy về duyệt', `ocGdhClaim(${o.id})`);
         else if (mine) acts += _gdhBtn('btn-primary', 'bi-pencil-square', 'Mở để duyệt', `ocGdhOpen(${o.id})`);
+        if (o.kind === 'urgent') acts += _gdhBtn('btn-outline-danger', 'bi-people', 'Thông tin khách', `gdhUrgentDetail(${o.id})`);
         if (o.status !== 'pending') acts += _gdhBtn('btn-outline-secondary', 'bi-eye', 'Xem kết quả', `gdhOpenCompare(${o.id})`);
         let wait = '';
         if (open && o.waiting_min !== null && o.waiting_min !== undefined) {
@@ -7828,10 +8402,34 @@
         else if (rs && ['approved', 'viewed', 'ordered'].includes(o.status)) extra = `Duyệt bởi ${e(o.approved_by)} lúc ${e(o.approved_at)} · giảm SL ${rs.reduced} mã · về 0: ${rs.zeroed}${rs.increased ? ' · tăng SL ' + rs.increased : ''}`;
         const note = o.submit_note ? `<div class="small fst-italic text-muted text-truncate" style="max-width:520px" title="${e(o.submit_note)}">“${e(o.submit_note)}”</div>` : '';
         return `<div class="oc-gcard ${urgent ? 'urgent' : ''} ${mine ? 'mine' : ''}"><div class="oc-g-main">` +
-            `<div><span class="oc-g-store">${e(_gdhOrderName(o))}</span><span class="text-muted small me-2">#${o.id} · ${e(String(o.submitted_at || '').slice(11))}</span>${_gdhStBadge(o.status, o.status_label)}${wait}</div>` +
+            `<div><span class="oc-g-store">${e(_gdhOrderName(o))}</span>${o.kind === 'urgent' ? '<span class="badge bg-danger-subtle text-danger border border-danger-subtle me-1">Từ danh sách KH</span>' : ''}<span class="text-muted small me-2">#${o.id} · ${e(String(o.submitted_at || '').slice(11))}</span>${_gdhStBadge(o.status, o.status_label)}${wait}</div>` +
             `<div class="oc-g-meta">${_gdhTypeChips(o)}${sub ? `<b>${_gdhFmt(sub.parts, 0)}</b> mã · SL <b>${_gdhFmt(sub.qty, 0)}</b> · ` : ''}đẩy bởi ${e(o.submitted_by)} lúc ${e(o.submitted_at)}</div>` +
             (extra ? `<div class="small text-muted">${extra}</div>` : '') + note +
             `</div><div class="d-flex flex-wrap gap-1">${acts}</div></div>`;
+    }
+    async function _ocGdhRejBadge() {          // huy hiệu tab "Đã từ chối" = số đơn đang chờ chi nhánh sửa
+        try {
+            const j = await _gdhRejFetch(document.getElementById('ocGdhStore')?.value || '', true);
+            const s = document.querySelector('#ocGdhTabs [data-tab="rejected"] .n'); if (s) s.textContent = j.open || 0;
+        } catch (err) { /* không chặn giao diện */ }
+    }
+    function _ocGdhRejCardHtml(r) {
+        const e = _gdhEsc;
+        const open = (r.waiting && r.batch_id) ? `<button type="button" class="btn btn-outline-primary btn-sm" onclick="document.getElementById('gdh-tab')?.click(); gdhOpenBatch('${e(r.store)}', ${r.batch_id});"><i class="bi bi-eye me-1"></i>Xem đơn</button>` : '';
+        return `<div class="oc-gcard"><div class="oc-g-main">` +
+            `<div><span class="oc-g-store">${e(r.name)}</span>${r.kind === 'urgent' ? '<span class="badge bg-danger-subtle text-danger border border-danger-subtle me-1">Từ danh sách KH</span>' : ''}<span class="text-muted small me-2">#${r.batch_id || ''}</span><span class="badge bg-danger me-1">Bị từ chối</span>${_gdhRejStateBadge(r.state)}</div>` +
+            `<div class="oc-g-meta">${r.parts != null ? `<b>${_gdhFmt(r.parts, 0)}</b> mã · SL <b>${_gdhFmt(r.qty, 0)}</b> · ` : ''}đẩy bởi ${e(r.submitted_by)} lúc ${e(r.submitted_at)}</div>` +
+            `<div class="small text-danger">Từ chối bởi <b>${e(r.rejected_by)}</b> lúc ${e(r.rejected_at)} · Lý do: <i>${e(r.reason)}</i></div>` +
+            `</div><div class="d-flex flex-wrap gap-1">${open}</div></div>`;
+    }
+    async function ocGdhRejLoad() {
+        const list = document.getElementById('ocGdhList'); if (!list) return;
+        try {
+            const j = await _gdhRejFetch(document.getElementById('ocGdhStore')?.value || '');
+            const s = document.querySelector('#ocGdhTabs [data-tab="rejected"] .n'); if (s) s.textContent = j.open || 0;
+            list.innerHTML = j.data.length ? j.data.map(_ocGdhRejCardHtml).join('')
+                : '<div class="text-center text-muted py-4"><i class="bi bi-inbox fs-3 d-block mb-1"></i>Chưa có đơn nào bị từ chối.</div>';
+        } catch (err) { list.innerHTML = `<div class="text-center text-danger py-3">${_gdhEsc(err.message)}</div>`; }
     }
     async function ocGdhLoad() {
         const list = document.getElementById('ocGdhList'); if (!list) return;
@@ -7841,6 +8439,9 @@
         document.getElementById('ocGdhTypes')?.classList.toggle('d-none', isFiles);
         document.querySelectorAll('#ocGdhTabs [data-tab]').forEach(b => b.classList.toggle('active', b.dataset.tab === _ocGdhTab));
         if (isFiles) { ocArcLoad(); return; }
+        const isRej = _ocGdhTab === 'rejected';
+        document.getElementById('ocGdhTypes')?.classList.toggle('d-none', isRej);      // lọc loại đơn không áp dụng cho lịch sử từ chối
+        if (isRej) { await ocGdhRejLoad(); return; }
         const store = document.getElementById('ocGdhStore')?.value || '';
         const p = new URLSearchParams({status: {active: 'active', done: 'approved,viewed', archive: 'ordered'}[_ocGdhTab] || 'active'});
         if (store) p.set('store', store);
@@ -7848,6 +8449,7 @@
             const j = await _gdhJson('/api/gom-don-hang/orders?' + p);
             const c = j.counts, n = {active: (c.pending || 0) + (c.reviewing || 0), done: (c.approved || 0) + (c.viewed || 0), archive: c.ordered || 0};
             document.querySelectorAll('#ocGdhTabs [data-tab]').forEach(b => { const s = b.querySelector('.n'); if (s && n[b.dataset.tab] !== undefined) s.textContent = n[b.dataset.tab]; });
+            _ocGdhRejBadge();
             if (!store) _ocGdhApplyCounts(j); else ocArcBadge(j.archive_pending || 0);      // đang lọc theo chi nhánh thì số liệu bị lọc, không dùng cho huy hiệu menu
             const bd = document.getElementById('ocGdhBadge'); if (bd) { bd.textContent = c.pending || 0; bd.classList.toggle('d-none', !(c.pending > 0)); }
             if (_ocGdh) {                                                               // phiên đang duyệt còn thuộc về mình không?
@@ -7884,7 +8486,8 @@
         const sel = document.getElementById('orderCheckStoreSelect');
         if (sel) sel.value = j.batch.store;
         document.getElementById('orderCheckInput').value = j.items.map(i => i.part_code + '\t' + i.qty).join('\n');
-        _ocGdh = {id: id, store: j.batch.store, from: j.batch.from, to: j.batch.to, codes: j.items.map(i => i.part_code)};
+        _ocGdh = {id: id, store: j.batch.store, from: j.batch.from, to: j.batch.to, codes: j.items.map(i => i.part_code), kind: j.batch.kind || 'regular'};
+        if (j.urgent_lines) _ocUrg = {id: id, lines: j.urgent_lines, open: true, loading: false};          // đơn khẩn: nạp sẵn thông tin khách
         _ocGdhSave(); _ocGdhRenderActive();
         _ocQuick = ''; _ocGdhDraftTxt = '';
         _ocBusy(true, `Đang kiểm tra ${j.items.length} mã...`);
@@ -7909,6 +8512,21 @@
         _ocBusy(false);
         clearTimeout(_ocGdhT);
         _ocGdh = null; _ocGdhSave(); _ocGdhRenderActive(); _ocGdhRenderBar(); ocToggleMax(false); ocGdhLoad();
+    }
+    async function ocGdhReject() {          // trong khung duyệt: đơn chưa ổn -> từ chối, trả về chi nhánh kèm lý do
+        if (!_ocGdh) return;
+        const reason = _gdhAskReject(); if (reason === null) return;
+        _ocBusy(true, 'Đang từ chối đơn...');
+        try { await _gdhJson('/api/gom-don-hang/reject', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({batch_id: _ocGdh.id, reason})}); }
+        catch (err) { _ocBusy(false); alert(err.message); return; }
+        _ocBusy(false);
+        _ocToast('Đã từ chối đơn - đơn được trả về chi nhánh để chỉnh sửa.');
+        clearTimeout(_ocGdhT);
+        _ocGdh = null; _ocGdhSave(); _ocGdhRenderActive(); _ocGdhRenderBar(); _ocGdhDraftTxt = ''; _ocQuick = '';
+        ocToggleMax(false);
+        clearOrderCheckSession();
+        document.getElementById('orderCheckInput').value = '';
+        ocGdhLoad();
     }
     async function ocGdhApprove() {
         if (!_ocGdh) return;
