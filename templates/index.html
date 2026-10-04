@@ -2719,11 +2719,11 @@
                 <input type="search" class="form-control form-control-sm" style="width:240px;" id="gdhQ" placeholder="Tìm mã / tên hàng / ghi chú..." oninput="clearTimeout(window._gdhT);window._gdhT=setTimeout(()=>gdhLoad(1),350)">
                 <button type="button" class="btn btn-outline-primary btn-sm gdh-edit-only" onclick="gdhAddToggle()" title="Đặt mã KHÔNG có trong file Tổng hợp tồn kho của kỳ này (tìm trong toàn danh mục hệ thống)"><i class="bi bi-plus-circle me-1"></i>Thêm mã</button>
                 <span class="ms-auto"></span>
-                <span class="small fw-semibold gdh-edit-only" title="Quy tắc: mỗi đơn hàng chỉ được gôm 1 loại đơn">Loại đơn của đơn này:</span>
+                <span class="small fw-semibold gdh-edit-only" title="Một phiên gôm có thể có nhiều loại đơn. Gán nhanh loại đơn cho các mã cần đặt mà chưa chọn loại; muốn đổi từng mã thì chọn ở cột Loại đơn. Khi đẩy, bạn chọn đẩy loại nào.">Gán loại đơn:</span>
                 <select class="form-select form-select-sm gdh-edit-only" style="width:auto;" id="gdhBulkType" data-t="Định kỳ" onchange="this.dataset.t=this.value">
                     <option value="Định kỳ">Định kỳ</option><option value="Khẩn">Khẩn</option><option value="Đơn 26">Đơn 26</option>
                 </select>
-                <button class="btn btn-outline-secondary btn-sm gdh-edit-only" id="gdhAssignBtn" onclick="gdhAssignType()" title="Đặt loại đơn này cho TOÀN BỘ mã cần đặt (SL cuối > 0)">Áp dụng</button>
+                <button class="btn btn-outline-secondary btn-sm gdh-edit-only" id="gdhAssignBtn" onclick="gdhAssignType()" title="Gán loại đơn này cho các mã cần đặt (SL cuối > 0) mà CHƯA chọn loại đơn. Mã đã có loại đơn giữ nguyên.">Áp dụng</button>
                 <button class="btn btn-outline-danger btn-sm d-none gdh-edit-only" id="gdhUndoBtn" onclick="gdhUndoLastAssign()" title="Hoàn tác đúng lần Gán nhanh vừa bấm">Hoàn tác</button>
                 <button class="btn btn-outline-danger btn-sm gdh-edit-only" id="gdhUnassignBtn" onclick="gdhUnassignType()" title="Bỏ loại đơn đang chọn ở ô bên cạnh khỏi TẤT CẢ các mã của đợt gôm">Bỏ gán</button>
                 <span class="small fw-semibold text-body-secondary ms-2" id="gdhCount"></span>
@@ -6486,11 +6486,11 @@
         if (!_gdhBatchId) return;
         if (_gdhDirty && !(await gdhSave(true))) return;
         const ot = document.getElementById('gdhBulkType').value;
-        if (!confirm(`Đặt loại đơn "${ot}" cho TOÀN BỘ mã cần đặt (SL cuối > 0) của đơn này?\nMỗi đơn hàng chỉ được gôm 1 loại đơn; mã đã chọn loại khác sẽ được đổi sang "${ot}".`)) return;
+        if (!confirm(`Gán loại đơn "${ot}" cho các mã cần đặt (SL cuối > 0) mà chưa chọn loại đơn?\nMã đã có loại đơn (kể cả loại khác) được giữ nguyên.`)) return;
         const asgBtn = document.getElementById('gdhAssignBtn');
         _gdhBusy(asgBtn, true, 'Đang áp dụng...');
         try {
-            const j = await _gdhJson('/api/gom-don-hang/assign-type', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({batch_id: _gdhBatchId, order_type: ot, overwrite: true})});
+            const j = await _gdhJson('/api/gom-don-hang/assign-type', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({batch_id: _gdhBatchId, order_type: ot, overwrite: false})});
             _gdhBusy(asgBtn, false);               // server đã gán xong: tắt vòng xoay ngay, không chờ hộp thoại / tải lại bảng
             alert('Đã đặt loại đơn "' + ot + '" cho ' + j.assigned + ' mã.');
             await gdhLoadBatches(_gdhBatchId);
@@ -6672,73 +6672,87 @@
         }
     }
     function _gdhSubRender(pv) {
-        const e = _gdhEsc, b = pv.batch, blocking = !!pv.blocking, dups = pv.dups || [], nonBlock = dups.length > 0 && !blocking;
-        const types = ['Định kỳ', 'Khẩn', 'Đơn 26'], act = types.filter(t => ((pv.by_type || {})[t] || {}).parts > 0);
-        const theme = act.length === 1 ? _GDH_SUB_THEME[act[0]] : 't-blue';
-        _gdhSubTheme(theme);
-        _gdhSubEl('Sub').textContent = pv.order_name || ('Đơn hàng ' + b.store);
-        const tag = _gdhSubEl('Tag'); tag.textContent = act.length === 1 ? act[0] : (b.store || ''); tag.classList.toggle('d-none', !(act.length === 1 || b.store));
+        const e = _gdhEsc, b = pv.batch;
+        const types = ['Định kỳ', 'Khẩn', 'Đơn 26'], bt = pv.by_type || {};
         const total = pv.amount > 0 ? pv.amount : pv.qty;
+        _gdhSub.sel = null;
+        _gdhSubTheme('t-blue');
+        _gdhSubEl('Sub').textContent = 'Chọn loại đơn cần đẩy · ' + (b.store || '');
+        _gdhSubEl('Tag').classList.add('d-none');
         const rows = types.map(t => {
-            const v = (pv.by_type || {})[t] || {parts: 0, qty: 0, amount: 0}, val = pv.amount > 0 ? v.amount : v.qty, pct = total > 0 ? Math.round(val * 100 / total) : 0;
-            return `<div class="ugm-type ${v.parts ? '' : 'zero'}"><span class="nm"><span class="dot" style="background:${_GDH_SUB_COLOR[t]}"></span>${e(t)}</span><span class="n">${_gdhFmt(v.parts, 0)} mã</span><span class="n">SL ${_gdhFmt(v.qty, 0)}</span>` +
-                `<span><span class="n d-block fw-semibold">${_gdhFmt(v.amount, 0)} đ</span><div class="ugm-bar"><i data-w="${pct}" style="background:${_GDH_SUB_COLOR[t]}"></i></div></span></div>`;
+            const v = bt[t] || {parts: 0, qty: 0, amount: 0}, val = pv.amount > 0 ? v.amount : v.qty, pct = total > 0 ? Math.round(val * 100 / total) : 0;
+            return `<label class="ugm-type ${v.parts ? '' : 'zero'}" style="${v.parts ? 'cursor:pointer' : 'cursor:not-allowed'}"><span class="nm"><input type="radio" class="form-check-input me-2" name="gdhSubType" value="${e(t)}" ${v.parts ? '' : 'disabled'} onchange="_gdhSubPick(this.value)"><span class="dot" style="background:${_GDH_SUB_COLOR[t]}"></span>${e(t)}</span><span class="n">${_gdhFmt(v.parts, 0)} mã</span><span class="n">SL ${_gdhFmt(v.qty, 0)}</span>` +
+                `<span><span class="n d-block fw-semibold">${_gdhFmt(v.amount, 0)} đ</span><div class="ugm-bar"><i data-w="${pct}" style="background:${_GDH_SUB_COLOR[t]}"></i></div></span></label>`;
         }).join('');
         const W = (cls, ico, html) => `<div class="ugm-warn ${cls}"><i class="bi ${ico}"></i><div class="flex-grow-1">${html}</div></div>`;
         let warn = '';
-        if (pv.mixed) warn += W('d', 'bi-x-octagon-fill', e(pv.mixed_msg));
-        if (pv.unassigned_type > 0) warn += W('w', 'bi-exclamation-triangle-fill', `Còn <b>${pv.unassigned_type}</b> mã SL cuối &gt; 0 <b>chưa chọn loại đơn</b>: các mã này sẽ <b>không được gửi</b> cho admin.`);
-        if (dups.length) warn += W(blocking ? 'd' : 'w', 'bi-copy', (blocking ? '<b>Đã có đơn cùng loại đang chờ admin xử lý</b> - hãy chờ admin xử lý xong hoặc Thu hồi đơn đó ở tab Đơn đã đẩy trước khi đẩy thêm.' : '<b>Đã có đơn cùng loại được đẩy trước đó.</b> Đẩy thêm có thể làm trùng hàng.') +
-            `<ul>${dups.map(d => `<li>Đợt ${d.id} · ${e(d.status_label)} · đẩy ${e(d.submitted_at)} bởi ${e(d.submitted_by || '')}</li>`).join('')}</ul>` +
-            (nonBlock ? `<div class="form-check mt-2"><input class="form-check-input" type="checkbox" id="gdhSubDup" onchange="document.getElementById('gdhSubNext').disabled = !this.checked"><label class="form-check-label fw-semibold" for="gdhSubDup">Tôi vẫn muốn đẩy thêm một đơn cho cùng kỳ</label></div>` : ''));
+        if (pv.unassigned_type > 0) warn += W('m', 'bi-info-circle', `Còn <b>${pv.unassigned_type}</b> mã SL cuối &gt; 0 <b>chưa chọn loại đơn</b>: các mã này ở lại phiên gôm, không được gửi.`);
         if (pv.no_cost > 0) warn += W('m', 'bi-info-circle', `${pv.no_cost} mã chưa có giá nhập nên chưa tính vào giá trị.`);
-        _gdhSubEl('Review').innerHTML = `<div class="small text-muted mb-2">Chỉ gửi các mã có SL cuối &gt; 0 và đã chọn loại đơn. Sau khi đẩy, đơn bị khoá (chỉ thu hồi được khi còn "Chờ duyệt").</div>` +
-            `<div class="ugm-stats"><div class="ugm-stat"><small>Số mã gửi</small><strong>${_gdhFmt(pv.typed, 0)}</strong></div><div class="ugm-stat"><small>Tổng SL</small><strong>${_gdhFmt(pv.qty, 0)}</strong></div><div class="ugm-stat"><small>Giá trị (đ)</small><strong class="fs-5">${_gdhFmt(pv.amount, 0)}</strong></div></div>` +
-            `<div class="ugm-box"><div class="ugm-type head"><span>Loại đơn</span><span class="n">Số mã</span><span class="n">Tổng SL</span><span class="n">Giá trị</span></div>${rows}</div>` + warn +
+        _gdhSubEl('Review').innerHTML = `<div class="small text-muted mb-2">Chọn <b>1 loại đơn</b> để đẩy cho admin. Chỉ các mã loại đó (SL cuối &gt; 0) được gửi và bị <b>xoá khỏi phiên gôm</b>; mã các loại khác vẫn ở lại để đẩy sau.</div>` +
+            `<div class="ugm-box"><div class="ugm-type head"><span>Loại đơn</span><span class="n">Số mã</span><span class="n">Tổng SL</span><span class="n">Giá trị</span></div>${rows}</div>` +
+            `<div id="gdhSubTypeWarn"></div>` + warn +
             `<label class="form-label small fw-semibold mb-1">Ghi chú cho admin <span class="text-muted fw-normal">(không bắt buộc)</span></label><textarea class="form-control form-control-sm" id="gdhSubNote" rows="2" maxlength="500" placeholder="Ví dụ: cần hàng gấp trước thứ Sáu..."></textarea>`;
-        _gdhSubEl('Next').disabled = blocking || pv.mixed || !(pv.typed > 0) || nonBlock;
+        _gdhSubEl('Next').disabled = true;
         _gdhSubView('review');
         requestAnimationFrame(() => requestAnimationFrame(() => _gdhSubEl('Review').querySelectorAll('.ugm-bar i').forEach(i => i.style.width = i.dataset.w + '%')));
+        const avail = types.filter(t => (bt[t] || {}).parts > 0);
+        if (avail.length === 1) {                // chỉ có 1 loại đơn: chọn sẵn
+            const r = _gdhSubEl('Review').querySelector(`input[name="gdhSubType"][value="${avail[0]}"]`);
+            if (r) { r.checked = true; _gdhSubPick(avail[0]); }
+        }
+    }
+    function _gdhSubPick(t) {           // chọn loại đơn cần đẩy: đổi màu, hiện cảnh báo trùng của RIÊNG loại đó
+        const S = _gdhSub, pv = S && S.pv; if (!pv) return;
+        const e = _gdhEsc, dups = (pv.dups_by_type || {})[t] || [], blocking = !!(pv.blocking_by_type || {})[t], nonBlock = dups.length > 0 && !blocking;
+        S.sel = t;
+        _gdhSubTheme(_GDH_SUB_THEME[t] === undefined ? 't-blue' : _GDH_SUB_THEME[t]);
+        _gdhSubEl('Sub').textContent = (pv.order_names || {})[t] || ('Đơn hàng ' + pv.batch.store);
+        const tag = _gdhSubEl('Tag'); tag.textContent = t; tag.classList.remove('d-none');
+        const W = (cls, ico, html) => `<div class="ugm-warn ${cls}"><i class="bi ${ico}"></i><div class="flex-grow-1">${html}</div></div>`;
+        let warn = '';
+        if (dups.length) warn += W(blocking ? 'd' : 'w', 'bi-copy', (blocking ? `<b>Đã có đơn ${e(t)} đang chờ admin xử lý</b> - hãy chờ admin xử lý xong hoặc Thu hồi đơn đó ở tab Đơn đã đẩy trước khi đẩy thêm.` : `<b>Đã có đơn ${e(t)} được đẩy trước đó cho cùng kỳ.</b> Đẩy thêm có thể làm trùng hàng.`) +
+            `<ul>${dups.map(d => `<li>Đợt ${d.id} · ${e(d.status_label)} · đẩy ${e(d.submitted_at)} bởi ${e(d.submitted_by || '')}</li>`).join('')}</ul>` +
+            (nonBlock ? `<div class="form-check mt-2"><input class="form-check-input" type="checkbox" id="gdhSubDup" onchange="document.getElementById('gdhSubNext').disabled = !this.checked"><label class="form-check-label fw-semibold" for="gdhSubDup">Tôi vẫn muốn đẩy thêm một đơn ${e(t)} cho cùng kỳ</label></div>` : ''));
+        _gdhSubEl('TypeWarn').innerHTML = warn;
+        _gdhSubEl('Next').disabled = blocking || nonBlock;
     }
     function _gdhSubAsk() {
-        const S = _gdhSub, pv = S && S.pv; if (!pv) return;
-        const e = _gdhEsc, note = (_gdhSubEl('Note').value || '').trim();
+        const S = _gdhSub, pv = S && S.pv; if (!pv || !S.sel) return;
+        const e = _gdhEsc, t = S.sel, v = (pv.by_type || {})[t] || {parts: 0, qty: 0, amount: 0}, note = (_gdhSubEl('Note').value || '').trim();
+        const others = ['Định kỳ', 'Khẩn', 'Đơn 26'].filter(x => x !== t && ((pv.by_type || {})[x] || {}).parts > 0);
         _gdhSubEl('Confirm').innerHTML = `<div class="big"><i class="bi bi-send-exclamation-fill"></i></div>` +
-            `<h5 class="fw-bold mb-2">Đẩy <span class="hl">${_gdhFmt(pv.typed, 0)}</span> mã (SL ${_gdhFmt(pv.qty, 0)} · ${_gdhFmt(pv.amount, 0)} đ)<br>cho admin duyệt?</h5>` +
+            `<h5 class="fw-bold mb-2">Đẩy đơn <span class="hl">${e(t)}</span>: <span class="hl">${_gdhFmt(v.parts, 0)}</span> mã (SL ${_gdhFmt(v.qty, 0)} · ${_gdhFmt(v.amount, 0)} đ)<br>cho admin duyệt?</h5>` +
             `<div class="small">${note ? 'Ghi chú cho admin: “' + e(note) + '”' : '<span class="text-muted">Không có ghi chú cho admin.</span>'}</div>` +
-            (pv.unassigned_type > 0 ? `<div class="small text-warning-emphasis mt-1">${pv.unassigned_type} mã chưa chọn loại đơn sẽ không được gửi.</div>` : '') +
-            `<div class="ugm-lock"><i class="bi bi-lock-fill me-1"></i>Sau khi đẩy, đơn bị khoá; chỉ thu hồi được khi admin chưa lấy về duyệt.</div>` +
+            `<div class="small mt-1">Các mã này sẽ bị <b>xoá khỏi phiên gôm</b>. ${others.length ? 'Mã ' + e(others.join(', ')) + ' vẫn giữ nguyên trong phiên gôm.' : 'Phiên gôm vẫn được giữ lại.'}</div>` +
+            `<div class="ugm-lock"><i class="bi bi-lock-fill me-1"></i>Đơn ${e(t)} sau khi đẩy bị khoá; chỉ thu hồi được khi admin chưa lấy về duyệt (thu hồi sẽ trả các mã về phiên gôm).</div>` +
             `<div class="alert alert-danger py-2 mt-3 mb-0 d-none text-start small" id="gdhSubErr"></div>`;
         _gdhSubView('confirm');
     }
     async function gdhSubmitConfirm() {
-        const S = _gdhSub; if (!S || S.busy) return;
+        const S = _gdhSub; if (!S || S.busy || !S.sel) return;
         S.busy = true;
         const btn = _gdhSubEl('Go'), back = _gdhSubEl('Back'), err = _gdhSubEl('Err');
         btn.disabled = back.disabled = true; btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Đang đẩy đơn...';
         if (err) err.classList.add('d-none');
         const note = (_gdhSubEl('Note')?.value || '').trim();
         const dup = !!_gdhSubEl('Dup')?.checked;
+        let j;
         try {
-            await _gdhJson('/api/gom-don-hang/submit', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({batch_id: _gdhBatchId, note, confirm_unassigned: true, confirm_duplicate: dup})});
+            j = await _gdhJson('/api/gom-don-hang/submit', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({batch_id: _gdhBatchId, order_type: S.sel, note, confirm_duplicate: dup})});
         } catch (ex) {
             if (err) { err.textContent = ex.message; err.classList.remove('d-none'); }
             S.busy = false; btn.disabled = back.disabled = false; btn.innerHTML = '<i class="bi bi-send-fill me-1"></i>Xác nhận đẩy đơn';
             return;
         }
         S.busy = false; btn.disabled = back.disabled = false; btn.innerHTML = '<i class="bi bi-send-fill me-1"></i>Xác nhận đẩy đơn';
-        const pv = S.pv, e = _gdhEsc;
+        const e = _gdhEsc, rem = j.remaining || {}, left = Object.keys(rem).filter(k => rem[k] > 0);
         _gdhSubEl('Done').innerHTML = `<svg class="ugm-check" viewBox="0 0 52 52"><circle cx="26" cy="26" r="25"/><path d="M14 27l8 8 16-17"/></svg>` +
-            `<h5 class="fw-bold mb-1">Đã đẩy đơn cho admin</h5><div class="text-muted">Đơn đang ở trạng thái <b>Chờ duyệt</b> và đã được khoá.</div>` +
-            `<div class="ugm-pills"><span class="ugm-pill">${_gdhFmt(pv.typed, 0)} mã</span><span class="ugm-pill">SL ${_gdhFmt(pv.qty, 0)}</span><span class="ugm-pill">${_gdhFmt(pv.amount, 0)} đ</span></div>` +
-            `<div class="small text-muted mt-3">Theo dõi tiến độ duyệt ở tab <b>Đơn đã đẩy</b>.</div>`;
+            `<h5 class="fw-bold mb-1">Đã đẩy đơn ${e(j.order_type)} cho admin</h5><div class="text-muted">Đơn đang ở trạng thái <b>Chờ duyệt</b> và đã được khoá.</div>` +
+            `<div class="ugm-pills"><span class="ugm-pill">${_gdhFmt(j.to_order, 0)} mã</span><span class="ugm-pill">SL ${_gdhFmt(j.qty, 0)}</span><span class="ugm-pill">${_gdhFmt(j.amount, 0)} đ</span></div>` +
+            `<div class="small mt-3">Các mã ${e(j.order_type)} đã được xoá khỏi phiên gôm.` + (left.length ? ' Phiên gôm còn: ' + left.map(k => `<b>${e(k)}</b> (${rem[k]} mã)`).join(', ') + '.' : '') + `</div>` +
+            `<div class="small text-muted mt-1">Theo dõi tiến độ duyệt ở tab <b>Đơn đã đẩy</b>.</div>`;
         _gdhSubView('done');
-        // Phản hồi NGAY: khoá bảng + hiện trạng thái "Chờ duyệt"; việc tải lại danh sách chạy ngầm, người dùng không phải đứng chờ.
-        document.getElementById('gdh-pane').classList.add('gdh-ro');
-        const tb = document.getElementById('gdh-body'); if (tb) tb.style.opacity = '.45';
-        const bar = document.getElementById('gdhStatusBar');
-        if (bar) { bar.dataset.st = 'pending'; bar.innerHTML = '<span class="badge bg-warning text-dark">Chờ duyệt</span><span class="gdh-sub flex-grow-1" style="font-size:.85rem">Đã đẩy đơn cho admin - đang cập nhật danh sách...</span>'; bar.classList.remove('d-none'); }
-        _gdhAfterAct();
+        _gdhAfterAct();            // phiên gôm vẫn mở được để sửa / đẩy loại khác: chỉ tải lại bảng, KHÔNG khoá
     }
     function _gdhSubToOrders() {
         bootstrap.Modal.getOrCreateInstance(_gdhSubEl('Modal')).hide();
@@ -6751,8 +6765,8 @@
             if (await _gdhAct('recall', {batch_id: id}, 'Đã thu hồi đơn khẩn. Các mã khách đã về lại Danh sách đặt hàng.')) await _gdhAfterAct();
             return;
         }
-        if (!confirm('Thu hồi đơn về Nháp để sửa lại? (Chỉ được khi admin chưa lấy về duyệt)')) return;
-        if (await _gdhAct('recall', id ? {batch_id: id} : {}, id ? 'Đã thu hồi đơn về Nháp. Đơn nằm lại ở tab Gôm đơn hàng để bạn sửa.' : '')) await _gdhAfterAct();
+        if (!confirm('Thu hồi đơn để sửa lại? Các mã sẽ được trả về phiên gôm (chỉ được khi admin chưa lấy về duyệt).')) return;
+        if (await _gdhAct('recall', id ? {batch_id: id} : {}, id ? 'Đã thu hồi đơn. Các mã được trả về phiên gôm ở tab Gôm đơn hàng để bạn sửa.' : '')) await _gdhAfterAct();
     }
     async function gdhClaim(id) {          // từ bảng gôm hoặc từ danh sách: lấy về duyệt rồi mở thẳng đơn đó để sửa
         if (id) _gdhBatchId = id;

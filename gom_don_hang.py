@@ -790,6 +790,29 @@ def _log_event(cur, bid, frm, to, note=''):
                 (bid, _actor_name(), frm, to, (note or '')[:500]))
 
 
+def _find_draft(cur, batch, exclude_id=None):
+    """Đợt NHÁP (đơn thường) đang có của cùng chi nhánh + cùng kỳ số bán, khoá dòng để tránh 2 người thao tác cùng lúc."""
+    cur.execute("""SELECT id FROM gdh_batches WHERE store_code = %s AND owner = '' AND period_from = %s AND period_to = %s
+                     AND status = 'draft' AND COALESCE(kind, 'regular') = 'regular' AND id <> %s LIMIT 1 FOR UPDATE""",
+                (batch['store_code'], batch['period_from'], batch['period_to'], exclude_id or batch['id']))
+    return cur.fetchone()
+
+
+def _merge_lines_back(cur, src_id, dst_id):
+    """Trả các mã ĐÃ GẮN LOẠI ĐƠN của đợt src (đơn đã đẩy) về đợt Nháp dst. Mã đã có ở dst: ghi đè +/- thêm, loại đơn, ghi chú.
+    (Dòng chỉ chứa giá vốn mã cha, không gắn loại đơn, không cần trả về.)"""
+    cur.execute('''
+        INSERT INTO gdh_lines (batch_id, part_code, part_name, unit, opening, purchase, out_qty, sold, closing, unit_cost,
+                               adj_qty, order_type, note, updated_by, updated_at)
+        SELECT %s, part_code, part_name, unit, opening, purchase, out_qty, sold, closing, unit_cost,
+               adj_qty, order_type, note, %s, NOW()
+        FROM gdh_lines WHERE batch_id = %s AND order_type IS NOT NULL
+        ON CONFLICT (batch_id, part_code) DO UPDATE SET
+            adj_qty = EXCLUDED.adj_qty, order_type = EXCLUDED.order_type, note = EXCLUDED.note,
+            updated_by = EXCLUDED.updated_by, updated_at = NOW()''', (dst_id, _actor_name(), src_id))
+    return cur.rowcount
+
+
 def _parse_date(s):
     s = (s or '').strip()
     return datetime.strptime(s, '%Y-%m-%d').date() if s else None
@@ -1001,11 +1024,6 @@ def gdh_save():
                 db.rollback()
                 return jsonify({'error': 'Đến ngày phải sau hoặc bằng Từ ngày.'}), 400
             sets.append('period_from = %s, period_to = %s'); args += [pf, pt]
-        if _type_changed:
-            _k = _kinds(compute_rows(cur, batch))
-            if len(_k) > 1:
-                db.rollback()
-                return jsonify({'error': _mixed_msg(_k)}), 409
         if sets:
             try:
                 cur.execute(f'UPDATE gdh_batches SET {", ".join(sets)} WHERE id = %s', args + [bid])
@@ -1174,7 +1192,8 @@ def gdh_add_codes():
 
 @gom_don_hang_bp.route('/api/gom-don-hang/assign-type', methods=['POST'])
 def gdh_assign_type():
-    """Gán 1 loại đơn cho MỌI mã có SL cuối > 0 của đợt (mặc định chỉ mã chưa có loại đơn)."""
+    """Gán 1 loại đơn cho các mã có SL cuối > 0 của đợt (mặc định chỉ mã CHƯA có loại đơn; overwrite=true thì đổi cả mã đã có loại khác).
+    Một phiên gôm được chứa nhiều loại đơn; khi đẩy, chi nhánh chọn đẩy loại nào."""
     payload = request.get_json(silent=True) or {}
     ot = str(payload.get('order_type') or '').strip()
     if ot not in ORDER_TYPES:
@@ -1189,10 +1208,6 @@ def gdh_assign_type():
         if blk:
             return blk
         rows = compute_rows(cur, batch)
-        others = [t for t in _kinds(rows) if t != ot]
-        if others and not overwrite:
-            return jsonify({'error': f"Đơn này đã chọn loại {', '.join(others)}. Mỗi đơn hàng chỉ được gôm 1 loại đơn nên không gán thêm loại '{ot}'. "
-                                     'Muốn đổi loại cho cả đơn, dùng nút Áp dụng ở ô "Loại đơn của đơn này".'}), 409
         codes = [r['part_code'] for r in rows if r['qty_final'] > 0 and (overwrite or not r['order_type'])]
         if codes:
             cur.execute('''UPDATE gdh_lines SET order_type = %s, updated_by = %s, updated_at = NOW()
@@ -1434,66 +1449,92 @@ def _bad_state(batch, expect_label):
 
 @gom_don_hang_bp.route('/api/gom-don-hang/submit', methods=['POST'])
 def gdh_submit():
-    """Chi nhánh đẩy đơn gôm cho admin: Nháp -> Chờ duyệt. Chụp lại 'đơn lúc đẩy' để so sánh về sau."""
+    """Chi nhánh đẩy 1 LOẠI ĐƠN của phiên gôm cho admin (payload.order_type).
+    Một phiên gôm (Nháp) có thể chứa nhiều loại đơn. Đẩy loại nào thì TÁCH các mã loại đó (SL cuối > 0) ra thành một đơn riêng
+    ở trạng thái Chờ duyệt (đơn đẩy đi chỉ có 1 loại), rồi XOÁ các mã đó khỏi phiên gôm. Phiên gôm vẫn giữ nguyên với các mã loại khác.
+    Chụp lại 'đơn lúc đẩy' để so sánh về sau."""
     blk = _need_role('store')
     if blk:
         return blk
     payload = request.get_json(silent=True) or {}
     note = str(payload.get('note') or '').strip()[:500]
+    ot = str(payload.get('order_type') or '').strip()
+    if ot not in ORDER_TYPES:
+        return jsonify({'error': 'Hãy chọn loại đơn cần đẩy cho admin (Định kỳ / Khẩn / Đơn 26).'}), 400
     _t0 = time.perf_counter()
     db, cur = _ctx()
     try:
         batch, err = _get_batch(cur, payload.get('batch_id'))
         if err:
             return err
-        if (batch.get('status') or 'draft') != 'draft':
+        cur.execute("SELECT 1 FROM gdh_batches WHERE id = %s AND status = 'draft' FOR UPDATE", (batch['id'],))   # khoá: 2 lần bấm không đẩy trùng
+        if not cur.fetchone():
+            db.rollback()
             return _bad_state(batch, 'Nháp')
         rows = compute_rows(cur, batch)
-        t = _totals(rows)
-        typed = sum(v['parts'] for v in t['by_type'].values())
-        if typed <= 0:
-            return jsonify({'error': 'Đơn chưa có mã nào có SL cuối > 0 và đã chọn loại đơn nên chưa đẩy được.'}), 400
-        kinds = _kinds(rows)
-        if len(kinds) > 1:
-            return jsonify({'error': _mixed_msg(kinds), 'mixed': True}), 409
-        if t['unassigned_type'] and not payload.get('confirm_unassigned'):
-            return jsonify({'error': f"Có {t['unassigned_type']} mã SL cuối > 0 nhưng CHƯA chọn loại đơn - các mã này sẽ KHÔNG được gửi cho admin. "
-                                     f"Chỉ gửi {typed} mã đã có loại đơn. Vẫn đẩy đơn?",
-                            'need_confirm': True}), 409
-        dups = _dup_batches(cur, batch, kinds)
+        pick = [r for r in rows if r['order_type'] == ot and r['qty_final'] > 0]
+        if not pick:
+            db.rollback()
+            return jsonify({'error': f'Phiên gôm chưa có mã nào loại "{ot}" có SL cuối > 0 nên chưa đẩy được.'}), 400
+        dups = _dup_batches(cur, batch, [ot])
         blocking = [d for d in dups if d['blocking']]
         if blocking:
             d = blocking[0]
-            return jsonify({'error': f"Đã có đơn {kinds[0]} của chi nhánh này cùng kỳ số bán đang \"{d['status_label']}\" "
+            db.rollback()
+            return jsonify({'error': f"Đã có đơn {ot} của chi nhánh này cùng kỳ số bán đang “{d['status_label']}” "
                                      f"(đẩy lúc {d['submitted_at']}). Hãy chờ admin xử lý xong hoặc Thu hồi đơn đó trước khi đẩy thêm.",
                             'duplicate': True, 'blocking': True, 'dups': dups}), 409
         if dups and not payload.get('confirm_duplicate'):
             d = dups[0]
-            return jsonify({'error': f"Đã có đơn {kinds[0]} \"{d['status_label']}\" cùng kỳ số bán (đẩy lúc {d['submitted_at']}). Vẫn đẩy thêm một đơn {kinds[0]} nữa?",
-                            'duplicate': True, 'blocking': False, 'need_confirm': True, 'dups': dups}), 409
-        cur.execute('''UPDATE gdh_batches SET status = 'pending', submitted_by = %s, submitted_at = NOW(), submit_note = %s,
-                              claimed_by = NULL, claimed_at = NULL, approved_by = NULL, approved_at = NULL, review_note = NULL,
-                              viewed_by = NULL, viewed_at = NULL,
-                              rejected_by = NULL, rejected_at = NULL, reject_reason = NULL
-                       WHERE id = %s AND status = 'draft' ''', (_actor_name(), note, batch['id']))
-        if cur.rowcount != 1:
             db.rollback()
-            return _bad_state(batch, 'Nháp')
-        cur.execute('DELETE FROM gdh_batch_review WHERE batch_id = %s; DELETE FROM gdh_review_draft WHERE batch_id = %s',
-                    (batch['id'], batch['id']))                       # 1 vòng gọi DB thay vì 2
-        n = _snapshot(cur, batch, 'submitted', rows)
-        _log_event(cur, batch['id'], 'draft', 'pending', note or 'Chi nhánh đẩy đơn')
+            return jsonify({'error': f"Đã có đơn {ot} “{d['status_label']}” cùng kỳ số bán (đẩy lúc {d['submitted_at']}). Vẫn đẩy thêm một đơn {ot} nữa?",
+                            'duplicate': True, 'blocking': False, 'need_confirm': True, 'dups': dups}), 409
+        codes = [r['part_code'] for r in pick]
+        old_id = int(batch['id'])
+        # 1) đơn mới (Chờ duyệt) = bản sao cấu hình của phiên gôm
+        cur.execute('''INSERT INTO gdh_batches (store_code, owner, period_from, period_to, forecast_weeks, filenames, uploaded_by, uploaded_at,
+                                              kind, status, submitted_by, submitted_at, submit_note)
+                       SELECT store_code, owner, period_from, period_to, forecast_weeks, filenames, uploaded_by, uploaded_at,
+                              'regular', 'pending', %s, NOW(), %s
+                       FROM gdh_batches WHERE id = %s RETURNING id, submitted_at''', (_actor_name(), note, old_id))
+        nb = cur.fetchone()
+        new_id = int(nb['id'])
+        # 2) chép các mã được đẩy sang đơn mới
+        cols = 'part_code, part_name, unit, opening, purchase, out_qty, sold, closing, unit_cost, adj_qty, order_type, note, updated_by, updated_at'
+        cur.execute(f'INSERT INTO gdh_lines (batch_id, {cols}) SELECT %s, {cols} FROM gdh_lines WHERE batch_id = %s AND part_code = ANY(%s)',
+                    (new_id, old_id, codes))
+        # 2b) mã cha chỉ để tra giá vốn (không có SL, không có loại đơn) -> chép dạng dòng rỗng để thành tiền của đơn mới không đổi
+        parents = list({_bkey(r['bundle_parent']) for r in pick if r.get('bundle_parent')})
+        if parents:
+            cur.execute('''INSERT INTO gdh_lines (batch_id, part_code, part_name, unit, unit_cost)
+                           SELECT %s, part_code, part_name, unit, unit_cost FROM gdh_lines
+                           WHERE batch_id = %s AND unit_cost IS NOT NULL AND UPPER(TRIM(part_code)) = ANY(%s)
+                             AND NOT (part_code = ANY(%s))
+                           ON CONFLICT DO NOTHING''', (new_id, old_id, parents, codes))
+        # 3) ảnh chụp 'đơn lúc đẩy' lấy đúng số đã tính ở phiên gôm (giữ nguyên thành tiền)
+        n = _snapshot(cur, {'id': new_id}, 'submitted', pick)
+        # 4) xoá các mã đã đẩy khỏi phiên gôm; mã loại này nhưng SL cuối = 0 (không vào đơn) thì chỉ bỏ gán loại
+        cur.execute('DELETE FROM gdh_lines WHERE batch_id = %s AND part_code = ANY(%s)', (old_id, codes))
+        cur.execute('UPDATE gdh_lines SET order_type = NULL, updated_by = %s, updated_at = NOW() WHERE batch_id = %s AND order_type = %s',
+                    (_actor_name(), old_id, ot))
+        released = cur.rowcount
+        cur.execute('UPDATE gdh_batches SET rejected_by = NULL, rejected_at = NULL, reject_reason = NULL WHERE id = %s', (old_id,))
+        _log_event(cur, new_id, 'draft', 'pending', note or f'Chi nhánh đẩy đơn {ot} (tách từ phiên gôm {old_id})')
+        _log_event(cur, old_id, 'draft', 'draft', f'Đẩy {len(codes)} mã {ot} sang đơn {new_id}, đã xoá khỏi phiên gôm')
         db.commit()
-        print(f"[gdh] submit đợt {batch['id']}: {len(rows)} dòng, {n} mã đẩy, {(time.perf_counter() - _t0) * 1000:.0f} ms")
-        audit_record('Đẩy đơn gôm cho admin duyệt', 'Gôm đơn hàng', target=f"đợt {batch['id']}",
-                     summary=f"Đợt {batch['id']} ({batch['store_code']}): đẩy đơn, {typed} mã (SL cuối > 0 và có loại đơn)",
-                     after={'status': 'pending', 'note': note}, extra={'so_dong_luu': n})
+        remaining = {t: sum(1 for r in rows if r['order_type'] == t and r['qty_final'] > 0) for t in ORDER_TYPES if t != ot}
+        print(f"[gdh] submit {ot}: phiên {old_id} -> đơn {new_id}, {len(codes)} mã, {(time.perf_counter() - _t0) * 1000:.0f} ms")
+        audit_record('Đẩy đơn gôm cho admin duyệt', 'Gôm đơn hàng', target=f"đợt {new_id}",
+                     summary=f"Phiên gôm {old_id} ({batch['store_code']}): đẩy {len(codes)} mã loại {ot} thành đơn {new_id}, xoá các mã này khỏi phiên gôm",
+                     after={'status': 'pending', 'order_type': ot, 'note': note}, extra={'so_dong_luu': n, 'phien_gom': old_id})
     except Exception:
         db.rollback()
         raise
     finally:
         cur.close()
-    return jsonify({'success': True, 'status': 'pending', 'to_order': typed, 'skipped_no_type': t['unassigned_type']})
+    return jsonify({'success': True, 'status': 'pending', 'batch_id': new_id, 'draft_id': old_id, 'order_type': ot,
+                    'to_order': len(codes), 'qty': sum(r['qty_final'] for r in pick),
+                    'amount': sum(r['amount'] or 0.0 for r in pick), 'released_zero_qty': released, 'remaining': remaining})
 
 
 @gom_don_hang_bp.route('/api/gom-don-hang/recall', methods=['POST'])
@@ -1527,6 +1568,20 @@ def gdh_recall():
                                      'Hãy nhờ admin trả đơn về hàng chờ.'}), 409
         if st != 'pending':
             return _bad_state(batch, 'Chờ duyệt')
+        draft = _find_draft(cur, batch)
+        if draft:
+            # Phiên gôm Nháp cùng kỳ vẫn còn (vì đẩy từng loại đơn) -> gộp các mã của đơn này về lại phiên gôm rồi xoá đơn đã đẩy
+            n = _merge_lines_back(cur, batch['id'], draft['id'])
+            cur.execute("DELETE FROM gdh_batches WHERE id = %s AND status = 'pending' AND owner = ''", (batch['id'],))
+            if cur.rowcount != 1:
+                db.rollback()
+                return _bad_state(batch, 'Chờ duyệt')
+            _log_event(cur, draft['id'], 'pending', 'draft', f"Thu hồi đơn {batch['id']}: trả {n} mã về phiên gôm")
+            db.commit()
+            audit_record('Thu hồi đơn gôm', 'Gôm đơn hàng', target=f"đợt {batch['id']}",
+                         summary=f"Đơn {batch['id']} ({batch['store_code']}): thu hồi, trả {n} mã về phiên gôm {draft['id']}",
+                         after={'status': 'merged_to_draft', 'draft_id': draft['id']})
+            return jsonify({'success': True, 'status': 'draft', 'merged': True, 'batch_id': draft['id'], 'moved': n})
         cur.execute('''UPDATE gdh_batches SET status = 'draft', submitted_by = NULL, submitted_at = NULL, submit_note = NULL
                        WHERE id = %s AND status = 'pending' ''', (batch['id'],))
         if cur.rowcount != 1:
@@ -1542,7 +1597,7 @@ def gdh_recall():
         raise
     finally:
         cur.close()
-    return jsonify({'success': True, 'status': 'draft'})
+    return jsonify({'success': True, 'status': 'draft', 'batch_id': batch['id']})
 
 
 @gom_don_hang_bp.route('/api/gom-don-hang/claim', methods=['POST'])
@@ -1712,14 +1767,28 @@ def gdh_reject():
                          summary=f"Đợt {bid} ({batch['store_code']}): admin từ chối đơn khẩn (xoá đơn, trả các dòng về danh sách khách hàng). Lý do: {reason}",
                          after={'status': 'deleted', 'reason': reason})
             return jsonify({'success': True, 'status': 'deleted', 'urgent': True})
-        conflict_msg = ('Chi nhánh đang có một đơn Nháp khác cùng kỳ số bán nên chưa trả đơn này về Nháp được. '
-                        'Hãy nhờ chi nhánh xoá hoặc đẩy đơn Nháp đó trước rồi từ chối lại.')
-        cur.execute("""SELECT 1 FROM gdh_batches WHERE store_code = %s AND owner = '' AND period_from = %s
-                         AND period_to = %s AND status = 'draft' LIMIT 1""",
-                    (batch['store_code'], batch['period_from'], batch['period_to']))
-        if cur.fetchone():
-            db.rollback()
-            return jsonify({'error': conflict_msg}), 409
+        conflict_msg = ('Chi nhánh vừa tạo một đơn Nháp khác cùng kỳ số bán nên chưa trả đơn này về được. Hãy thử từ chối lại.')
+        items = _snap_load(cur, bid, 'submitted')
+        tot = _items_totals(items)
+        draft = _find_draft(cur, batch)
+        if draft:
+            # Phiên gôm Nháp cùng kỳ vẫn còn (chi nhánh đẩy từng loại đơn) -> trả các mã về phiên gôm đó, xoá đơn bị từ chối
+            n = _merge_lines_back(cur, bid, draft['id'])
+            cur.execute("""DELETE FROM gdh_batches WHERE id = %s AND owner = '' AND status = %s
+                             AND (status = 'pending' OR claimed_by = %s)""", (bid, st, me))
+            if cur.rowcount != 1:
+                db.rollback()
+                return _bad_state(batch, 'Chờ duyệt hoặc Đang duyệt')
+            cur.execute("UPDATE gdh_batches SET rejected_by = %s, rejected_at = NOW(), reject_reason = %s WHERE id = %s",
+                        (_actor_name(), reason, draft['id']))
+            _rejection_log(cur, batch, tot['parts'], tot['qty'],
+                           _order_name(batch, [t for t in ORDER_TYPES if tot['by_type'][t]['parts'] > 0]), reason)
+            _log_event(cur, draft['id'], st, 'draft', f'Admin từ chối đơn {bid}: ' + reason)
+            db.commit()
+            audit_record('Từ chối duyệt đơn gôm', 'Gôm đơn hàng', target=f"đợt {bid}",
+                         summary=f"Đơn {bid} ({batch['store_code']}): từ chối, trả {n} mã về phiên gôm {draft['id']}. Lý do: {reason}",
+                         after={'status': 'merged_to_draft', 'draft_id': draft['id'], 'reason': reason})
+            return jsonify({'success': True, 'status': 'draft', 'merged': True, 'batch_id': draft['id']})
         try:
             cur.execute("""UPDATE gdh_batches SET status = 'draft', submitted_by = NULL, submitted_at = NULL, submit_note = NULL,
                                   claimed_by = NULL, claimed_at = NULL,
@@ -1732,8 +1801,6 @@ def gdh_reject():
         if cur.rowcount != 1:
             db.rollback()
             return _bad_state(batch, 'Chờ duyệt hoặc Đang duyệt')
-        items = _snap_load(cur, bid, 'submitted')
-        tot = _items_totals(items)
         _rejection_log(cur, batch, tot['parts'], tot['qty'],
                        _order_name(batch, [t for t in ORDER_TYPES if tot['by_type'][t]['parts'] > 0]), reason)
         cur.execute("DELETE FROM gdh_batch_snap WHERE batch_id = %s AND stage = 'submitted'", (bid,))
@@ -2282,7 +2349,8 @@ def _dup_batches(cur, batch, kinds=None):
 
 @gom_don_hang_bp.route('/api/gom-don-hang/submit-preview', methods=['GET'])
 def gdh_submit_preview():
-    """Chi nhánh xem tóm tắt TRƯỚC khi đẩy: số mã / SL theo từng loại đơn, số mã bị loại vì chưa chọn loại đơn, đơn trùng kỳ."""
+    """Chi nhánh xem tóm tắt TRƯỚC khi đẩy: số mã / SL / giá trị của TỪNG loại đơn trong phiên gôm (để chọn loại cần đẩy),
+    đơn trùng kỳ của từng loại, số mã chưa chọn loại đơn (các mã này ở lại phiên gôm)."""
     blk = _need_role('store')
     if blk:
         return blk
@@ -2295,18 +2363,19 @@ def gdh_submit_preview():
             return _bad_state(batch, 'Nháp')
         rows = compute_rows(cur, batch)
         t = _totals(rows)
-        by_type = {k: {'parts': v['parts'], 'qty': v['qty'], 'amount': v['amount']} for k, v in t['by_type'].items()}
-        kinds = _kinds(rows)
-        dups = _dup_batches(cur, batch, kinds)
+        by_type = {k: {'parts': v['parts'], 'qty': v['qty'], 'amount': v['amount'],
+                       'no_cost': sum(1 for r in rows if r['order_type'] == k and r['qty_final'] > 0 and r['amount'] is None)}
+                   for k, v in t['by_type'].items()}
+        dups_by_type = {k: _dup_batches(cur, batch, [k]) for k, v in by_type.items() if v['parts'] > 0}
     finally:
         cur.close()
-    return jsonify({'success': True, 'batch': _batch_json(batch), 'by_type': by_type,
-                    'typed': sum(v['parts'] for v in by_type.values()), 'qty': sum(v['qty'] for v in by_type.values()),
-                    'amount': sum(v['amount'] for v in by_type.values()), 'unassigned_type': t['unassigned_type'],
-                    'locked_no_replace': t['locked_no_replace'], 'no_cost': t['no_cost'], 'dups': dups,
-                    'kinds': kinds, 'mixed': len(kinds) > 1, 'mixed_msg': _mixed_msg(kinds) if len(kinds) > 1 else '',
-                    'order_name': _order_name({'store_code': batch['store_code'], 'submitted_at': datetime.now(_VN_TZ)}, kinds),
-                    'blocking': any(d['blocking'] for d in dups)})
+    now = datetime.now(_VN_TZ)
+    names = {k: _order_name({'store_code': batch['store_code'], 'submitted_at': now}, [k]) for k in ORDER_TYPES}
+    return jsonify({'success': True, 'batch': _batch_json(batch), 'by_type': by_type, 'dups_by_type': dups_by_type,
+                    'blocking_by_type': {k: any(d['blocking'] for d in v) for k, v in dups_by_type.items()},
+                    'order_names': names, 'typed': sum(v['parts'] for v in by_type.values()),
+                    'qty': sum(v['qty'] for v in by_type.values()), 'amount': sum(v['amount'] for v in by_type.values()),
+                    'unassigned_type': t['unassigned_type'], 'locked_no_replace': t['locked_no_replace'], 'no_cost': t['no_cost']})
 
 
 @gom_don_hang_bp.route('/api/gom-don-hang/review-draft', methods=['POST'])
