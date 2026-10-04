@@ -1040,6 +1040,138 @@ def gdh_save():
     return jsonify({'success': True, 'saved': len(vals), 'totals': totals})
 
 
+# ----------------------------------------------------------------------------
+# 4b. THÊM MÃ NGOÀI FILE: đặt được cả mã chi nhánh KHÔNG có trong file Tổng hợp tồn kho của kỳ
+#     (không có nhập/xuất/tồn trong kỳ nên file không liệt kê). Tìm trong TOÀN DANH MỤC của hệ thống rồi
+#     thêm vào đợt gôm với số liệu 0; người dùng cộng SL ở cột "+/- thêm" như mọi mã khác.
+# ----------------------------------------------------------------------------
+def _catalog_find(cur, q, limit=30):
+    """Tìm mã trong toàn danh mục: tồn kho hệ thống (mọi chi nhánh), bảng giá nhập/dòng xe, quy cách mã cha-con,
+    mã thay thế của khoá đặt hàng và các đợt gôm cũ. Ưu tiên mã khớp từ đầu."""
+    q = (q or '').strip()
+    if len(q) < 2:
+        return []
+    like_any = f'%{q}%'
+    found = {}
+
+    def put(code, name=None, unit=None):
+        k = _bkey(code)
+        if not k or _is_excluded_from_reorder(k):
+            return
+        v = found.setdefault(k, {'code': str(code).strip(), 'name': None, 'unit': None})
+        v['name'] = v['name'] or (name or None)
+        v['unit'] = v['unit'] or (unit or None)
+
+    queries = [
+        ('SELECT part_code, MAX(part_name) AS n, MAX(unit) AS u FROM inventory_items '
+         'WHERE part_code ILIKE %s OR part_name ILIKE %s GROUP BY part_code LIMIT 200', (like_any, like_any)),
+        ('SELECT part_code, NULL AS n, NULL AS u FROM part_vehicle_models WHERE part_code ILIKE %s LIMIT 100', (like_any,)),
+        ('SELECT child_code AS part_code, NULL AS n, NULL AS u FROM gdh_bundles WHERE child_code ILIKE %s '
+         'UNION SELECT parent_code, NULL, NULL FROM gdh_bundles WHERE parent_code ILIKE %s LIMIT 100', (like_any, like_any)),
+        ('SELECT part_code, NULL AS n, NULL AS u FROM order_lock_items WHERE part_code ILIKE %s LIMIT 100', (like_any,)),
+        ('SELECT part_code, MAX(part_name) AS n, MAX(unit) AS u FROM gdh_lines '
+         'WHERE part_code ILIKE %s OR part_name ILIKE %s GROUP BY part_code LIMIT 200', (like_any, like_any)),
+    ]
+    for sql, args in queries:
+        try:
+            cur.execute(sql, args)
+            for r in cur.fetchall():
+                put(r['part_code'], r.get('n'), r.get('u'))
+        except Exception:                      # bảng nào chưa có thì bỏ qua, không làm hỏng tìm kiếm
+            cur.connection.rollback()
+    ql = q.lower()
+    out = sorted(found.values(), key=lambda v: (0 if v['code'].lower().startswith(ql) else 1, v['code']))
+    return out[:limit]
+
+
+@gom_don_hang_bp.route('/api/gom-don-hang/catalog-search', methods=['GET'])
+def gdh_catalog_search():
+    db, cur = _ctx()
+    try:
+        batch, err = _get_batch(cur, request.args.get('batch_id'))
+        if err:
+            return err
+        res = _catalog_find(cur, request.args.get('q'))
+        have = set()
+        if res:
+            cur.execute('SELECT UPPER(TRIM(part_code)) AS c FROM gdh_lines WHERE batch_id = %s AND UPPER(TRIM(part_code)) = ANY(%s)',
+                        (batch['id'], [_bkey(v['code']) for v in res]))
+            have = {r['c'] for r in cur.fetchall()}
+        for v in res:
+            v['in_batch'] = _bkey(v['code']) in have
+    finally:
+        cur.close()
+    return jsonify({'success': True, 'data': res})
+
+
+@gom_don_hang_bp.route('/api/gom-don-hang/add-codes', methods=['POST'])
+def gdh_add_codes():
+    """Thêm mã (không có trong file import) vào đợt gôm với nhập/xuất/tồn = 0. Mã đã có trong đợt thì bỏ qua.
+    Mã KHÔNG có trong danh mục hệ thống chỉ được thêm khi giao diện gửi confirm_new=true (người dùng đã xác nhận)."""
+    payload = request.get_json(silent=True) or {}
+    raw = payload.get('codes') or []
+    if not isinstance(raw, list) or not raw or len(raw) > 200:
+        return jsonify({'error': 'Danh sách mã không hợp lệ (tối đa 200 mã mỗi lần).'}), 400
+    codes, seen = [], set()
+    for c in raw:
+        c = re.sub(r'\s+', '', str(c or ''))[:100]
+        if c and _bkey(c) not in seen:
+            seen.add(_bkey(c))
+            codes.append(c)
+    if not codes:
+        return jsonify({'error': 'Chưa nhập mã nào.'}), 400
+    bad = [c for c in codes if _is_excluded_from_reorder(c)]
+    if bad:
+        return jsonify({'error': 'Mã không được phép đặt (khung xe...): ' + ', '.join(bad[:5])}), 400
+    db, cur = _ctx()
+    try:
+        batch, err = _get_batch(cur, payload.get('batch_id'))
+        if err:
+            return err
+        blk = _edit_block(batch)
+        if blk:
+            return blk
+        bid = int(batch['id'])
+        cur.execute('SELECT UPPER(TRIM(part_code)) AS c FROM gdh_lines WHERE batch_id = %s AND UPPER(TRIM(part_code)) = ANY(%s)',
+                    (bid, [_bkey(c) for c in codes]))
+        exists = {r['c'] for r in cur.fetchall()}
+        todo = [c for c in codes if _bkey(c) not in exists]
+        info = {}
+        for c in todo:                          # tra danh mục theo ĐÚNG mã (không phân biệt hoa/thường)
+            for v in _catalog_find(cur, c, limit=60):
+                if _bkey(v['code']) == _bkey(c):
+                    info[_bkey(c)] = v
+                    break
+        unknown = [c for c in todo if _bkey(c) not in info]
+        if unknown and not payload.get('confirm_new'):
+            return jsonify({'error': 'Mã chưa có trong danh mục hệ thống: ' + ', '.join(unknown[:10]) +
+                            '. Kiểm tra lại mã; nếu đúng thì xác nhận để thêm mã mới.',
+                            'need_confirm': True, 'unknown': unknown}), 409
+        actor = _actor_name()
+        data = []
+        for c in todo:
+            v = info.get(_bkey(c)) or {}
+            data.append((bid, v.get('code') or c, v.get('name'), v.get('unit'), actor))
+        if data:
+            execute_values(cur, '''
+                INSERT INTO gdh_lines (batch_id, part_code, part_name, unit, opening, purchase, out_qty, sold, closing, updated_by, updated_at)
+                SELECT v.b, v.c, v.n, v.u, 0, 0, 0, NULL, 0, v.a, NOW()
+                FROM (VALUES %s) AS v(b, c, n, u, a)
+                ON CONFLICT (batch_id, part_code) DO NOTHING''', data, template='(%s::int, %s, %s, %s, %s)')
+        db.commit()
+        if data:
+            audit_record('Thêm mã ngoài file vào gôm đơn', 'Gôm đơn hàng', target=f'đợt {bid}',
+                         summary=f'Đợt {bid}: thêm {len(data)} mã không có trong file tồn kho',
+                         after={'codes': [d[1] for d in data], 'ma_moi_ngoai_danh_muc': unknown})
+    except Exception:
+        db.rollback()
+        raise
+    finally:
+        cur.close()
+    return jsonify({'success': True, 'added': [d[1] for d in data],
+                    'existing': [c for c in codes if _bkey(c) in exists]})
+
+
 @gom_don_hang_bp.route('/api/gom-don-hang/assign-type', methods=['POST'])
 def gdh_assign_type():
     """Gán 1 loại đơn cho MỌI mã có SL cuối > 0 của đợt (mặc định chỉ mã chưa có loại đơn)."""

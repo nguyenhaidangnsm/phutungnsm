@@ -2715,8 +2715,9 @@
                     <option value="">Mọi loại đơn</option><option value="-">Chưa chọn loại đơn</option>
                     <option value="Định kỳ">Định kỳ</option><option value="Khẩn">Khẩn</option><option value="Đơn 26">Đơn 26</option>
                 </select>
-                <select class="form-select form-select-sm" style="width:auto;" id="gdhScope" onchange="gdhLoad(1)" title="Hàng đã xuất: mã có số xuất/bán trong kỳ (kèm mã bạn đã chỉnh, chọn loại đơn hoặc ghi chú). Cần đặt: chỉ các mã hệ thống đề xuất đặt hoặc có SL cuối > 0. Cả danh mục: mọi mã trong file import."><option value="sold" selected>Hàng đã xuất</option><option value="order">Cần đặt (đề xuất / SL cuối)</option><option value="all">Cả danh mục</option></select>
+                <select class="form-select form-select-sm" style="width:auto;" id="gdhScope" onchange="gdhLoad(1)" title="Hàng đã xuất: mã có số xuất/bán trong kỳ (kèm mã bạn đã chỉnh, chọn loại đơn hoặc ghi chú). Cần đặt: chỉ các mã hệ thống đề xuất đặt hoặc có SL cuối > 0. Cả danh mục: mọi mã trong file import và các mã bạn đã thêm bằng nút Thêm mã."><option value="sold" selected>Hàng đã xuất</option><option value="order">Cần đặt (đề xuất / SL cuối)</option><option value="all">Cả danh mục</option></select>
                 <input type="search" class="form-control form-control-sm" style="width:240px;" id="gdhQ" placeholder="Tìm mã / tên hàng / ghi chú..." oninput="clearTimeout(window._gdhT);window._gdhT=setTimeout(()=>gdhLoad(1),350)">
+                <button type="button" class="btn btn-outline-primary btn-sm gdh-edit-only" onclick="gdhAddToggle()" title="Đặt mã KHÔNG có trong file Tổng hợp tồn kho của kỳ này (tìm trong toàn danh mục hệ thống)"><i class="bi bi-plus-circle me-1"></i>Thêm mã</button>
                 <span class="ms-auto"></span>
                 <span class="small fw-semibold gdh-edit-only" title="Quy tắc: mỗi đơn hàng chỉ được gôm 1 loại đơn">Loại đơn của đơn này:</span>
                 <select class="form-select form-select-sm gdh-edit-only" style="width:auto;" id="gdhBulkType" data-t="Định kỳ" onchange="this.dataset.t=this.value">
@@ -2728,6 +2729,15 @@
                 <span class="small fw-semibold text-body-secondary ms-2" id="gdhCount"></span>
             </div>
 
+            <div id="gdhAddPanel" class="card card-body p-2 mb-2 d-none gdh-edit-only" style="max-width:760px;">
+                <div class="d-flex gap-2 align-items-center mb-1">
+                    <input type="search" class="form-control form-control-sm" id="gdhAddQ" placeholder="Gõ mã hoặc tên hàng (từ 2 ký tự) để tìm trong toàn danh mục..." oninput="gdhAddSearch()" onkeydown="if(event.key==='Enter'){event.preventDefault();gdhAddTyped();}">
+                    <button type="button" class="btn btn-primary btn-sm text-nowrap" onclick="gdhAddTyped()" title="Thêm đúng mã đang gõ (kể cả mã chưa có trong danh mục, sẽ hỏi xác nhận)">Thêm mã đã gõ</button>
+                    <button type="button" class="btn-close" onclick="gdhAddToggle(false)" aria-label="Đóng"></button>
+                </div>
+                <div class="gdh-sub mb-1">Mã thêm vào có nhập/xuất/tồn = 0; sau khi thêm hãy nhập số ở cột "+/− thêm" và chọn loại đơn.</div>
+                <div id="gdhAddRes" class="small" style="max-height:240px;overflow:auto;"></div>
+            </div>
             <div class="gdh-scroll" id="gdhScroll">
                 <table class="table table-sm align-middle gdh-table">
                     <thead>
@@ -6324,6 +6334,59 @@
         finally { tb.style.opacity = ''; }
     }
     const _gdhOptT = v => '<option value=""></option>' + _gdhTypes.map(t => `<option value="${_gdhEsc(t)}" ${t === v ? 'selected' : ''}>${_gdhEsc(t)}</option>`).join('');
+    // ---------- Thêm mã ngoài file (mã không có trong file Tổng hợp tồn kho của kỳ) ----------
+    function gdhAddToggle(force) {
+        const el = document.getElementById('gdhAddPanel');
+        const show = force === undefined ? el.classList.contains('d-none') : !!force;
+        el.classList.toggle('d-none', !show);
+        if (show) { document.getElementById('gdhAddQ').focus(); }
+    }
+    let _gdhAddT = null;
+    function gdhAddSearch() {
+        clearTimeout(_gdhAddT);
+        const box = document.getElementById('gdhAddRes'), q = document.getElementById('gdhAddQ').value.trim();
+        if (q.length < 2) { box.innerHTML = ''; return; }
+        _gdhAddT = setTimeout(async () => {
+            if (!_gdhBatchId) { box.innerHTML = '<div class="text-muted">Chọn hoặc import một đợt trước.</div>'; return; }
+            box.innerHTML = '<div class="text-muted">Đang tìm...</div>';
+            try {
+                const j = await _gdhJson('/api/gom-don-hang/catalog-search?' + new URLSearchParams({batch_id: _gdhBatchId, q}));
+                box.innerHTML = j.data.length ? j.data.map(v => `<div class="d-flex align-items-center gap-2 border-bottom py-1">
+                    <span class="fw-semibold">${_gdhEsc(v.code)}</span><span class="text-muted text-truncate flex-grow-1">${_gdhEsc(v.name || '')}</span>
+                    ${v.in_batch ? `<button class="btn btn-outline-secondary btn-sm py-0" data-code="${_gdhEsc(v.code)}" onclick="gdhAddShow(this.dataset.code)">Đã có - xem</button>`
+                                 : `<button class="btn btn-primary btn-sm py-0" data-code="${_gdhEsc(v.code)}" onclick="gdhAddCodes([this.dataset.code])">Thêm</button>`}</div>`).join('')
+                    : '<div class="text-muted">Không thấy trong danh mục. Có thể bấm "Thêm mã đã gõ" để thêm mã mới (sẽ hỏi xác nhận).</div>';
+            } catch (e) { box.innerHTML = `<div class="text-danger">${_gdhEsc(e.message)}</div>`; }
+        }, 300);
+    }
+    function gdhAddShow(code) {             // chuyển bảng sang "Cả danh mục" và lọc đúng mã đó để nhập số lượng
+        document.getElementById('gdhScope').value = 'all';
+        ['gdhGroup', 'gdhTypeFilter'].forEach(id => { document.getElementById(id).value = ''; });
+        document.getElementById('gdhQ').value = code;
+        gdhLoad(1);
+    }
+    async function gdhAddTyped() {
+        const raw = document.getElementById('gdhAddQ').value.trim();
+        if (!raw) return;
+        await gdhAddCodes(raw.split(/[\s,;]+/).filter(Boolean));
+    }
+    async function gdhAddCodes(codes, confirmNew) {
+        if (!_gdhBatchId) { alert('Chọn hoặc import một đợt trước.'); return; }
+        if (_gdhDirty && !(await gdhSave(true))) return;
+        try {
+            const j = await _gdhJson('/api/gom-don-hang/add-codes', {method: 'POST', headers: {'Content-Type': 'application/json'},
+                                     body: JSON.stringify({batch_id: _gdhBatchId, codes, confirm_new: !!confirmNew})});
+            const show = (j.added[0] || j.existing[0] || codes[0]);
+            gdhAddToggle(false); document.getElementById('gdhAddQ').value = ''; document.getElementById('gdhAddRes').innerHTML = '';
+            gdhAddShow(show);
+        } catch (e) {
+            if (e.data && e.data.need_confirm) {
+                if (confirm(e.message + '\n\nBạn chắc chắn mã đúng và muốn thêm?')) return gdhAddCodes(codes, true);
+                return;
+            }
+            alert(e.message);
+        }
+    }
     async function gdhWeeksChanged() {     // đổi SỐ TUẦN DỰ KIẾN: chỉ lưu + tính lại đề xuất ngay trên trình duyệt, KHÔNG tải lại bảng
         const el = document.getElementById('gdhWeeks');
         const fw = parseInt(el.value, 10), old = _gdhBatchMeta ? _gdhBatchMeta.forecast_weeks : 3;
