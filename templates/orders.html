@@ -825,7 +825,7 @@ $('edModal').addEventListener('keydown', async e => {
       if (AC.timer || AC.pending || AC.list.length) {
         e.preventDefault(); await acSettle(el);
         const p = AC.idx >= 0 ? AC.list[AC.idx] : AC.list.find(x => norm(x.code) === norm(el.value)); acClose();
-        if (p) { pickPart(+el.dataset.i, p); const q = $('edBody').querySelector(`[data-f="quantity"][data-i="${el.dataset.i}"]`); q.focus(); q.select(); } else focusNext(el, 1);
+        if (p) { pickPart(+el.dataset.i, p); const q = $('edBody').querySelector(`[data-f="quantity"][data-i="${el.dataset.i}"]`); q.focus(); q.select(); } else if (norm(el.value).length >= 2) { pickPart(+el.dataset.i, { code: el.value.trim() }); const q = $('edBody').querySelector(`[data-f="quantity"][data-i="${el.dataset.i}"]`); q.focus(); q.select(); } else focusNext(el, 1);
         return;
       }
     }
@@ -846,17 +846,22 @@ const AC = { el: null, list: [], idx: -1, seq: 0, timer: null, pending: null };
 function acEl() {
   if (!AC.el) {
     AC.el = document.createElement('div'); AC.el.className = 'ac'; document.body.appendChild(AC.el);
-    AC.el.addEventListener('mousedown', e => { e.preventDefault(); const r = e.target.closest('[data-i]'), a = document.activeElement;
+    AC.el.addEventListener('mousedown', e => { e.preventDefault(); const nw = e.target.closest('[data-new]'), a0 = document.activeElement;
+      if (nw && a0 && a0.dataset.f === 'part_code') { pickPart(+a0.dataset.i, { code: a0.value.trim() }); acClose(); const q = $('edBody').querySelector(`[data-f="quantity"][data-i="${a0.dataset.i}"]`); q.focus(); q.select(); return; }
+      const r = e.target.closest('[data-i]'), a = document.activeElement;
       if (r && a && a.dataset.f === 'part_code') { pickPart(+a.dataset.i, AC.list[+r.dataset.i]); acClose(); const q = $('edBody').querySelector(`[data-f="quantity"][data-i="${a.dataset.i}"]`); q.focus(); q.select(); } });
   }
   return AC.el;
 }
 function acClose() { clearTimeout(AC.timer); AC.timer = null; AC.pending = null; AC.list = []; AC.idx = -1; if (AC.el) AC.el.style.display = 'none'; }
 function acShow(el) {
-  const box = acEl(); if (!AC.list.length) { box.style.display = 'none'; return; }
+  const box = acEl(), typed = el.value.trim(), exact = AC.list.some(p => norm(p.code) === norm(typed));
+  const showNew = norm(typed).length >= 2 && !exact;     // mã đang gõ chưa có trong danh mục: vẫn dùng được (tự nhập tên/giá)
+  if (!AC.list.length && !showNew) { box.style.display = 'none'; return; }
   const r = el.getBoundingClientRect();
   box.style.cssText = `display:block;left:${r.left}px;top:${r.bottom + 4}px;min-width:${Math.max(r.width, 460)}px`;
-  box.innerHTML = AC.list.map((p, i) => `<div class="ac-i ${i === AC.idx ? 'on' : ''}" data-i="${i}"><b>${esc(p.code)}</b><span>${esc(p.name)}</span><em>${p.price != null ? fmtMoney(p.price) : ''}</em></div>`).join('');
+  box.innerHTML = AC.list.map((p, i) => `<div class="ac-i ${i === AC.idx ? 'on' : ''}" data-i="${i}"><b>${esc(p.code)}</b><span>${esc(p.name)}</span><em>${p.price != null ? fmtMoney(p.price) : ''}</em></div>`).join('')
+    + (showNew ? `<div class="ac-i" data-new="1"><b>+ Dùng mã "${esc(typed)}"</b><span>${AC.list.length ? 'Không có mã trùng khớp' : 'Chưa có trong danh mục'} — Enter/Tab hoặc bấm để thêm mã mới, tự nhập tên / giá</span></div>` : '');
   const on = box.querySelector('.on'); if (on) on.scrollIntoView({ block: 'nearest' });
 }
 function acFetch(el) {

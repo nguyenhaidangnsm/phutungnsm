@@ -963,6 +963,18 @@ def _catalog_lookup(cur, norm_codes):
 
     for e in out.values():
         e['name'] = e['_prop'] or e['_new'] or e['_inv'] or None
+    miss_name = [n for n, e in out.items() if not e['name']]
+    if miss_name:        # mã chưa có tên ở các nguồn trên: lấy tên đã từng xuất hiện trong file tồn kho các đợt gôm
+        try:
+            cur.execute(f'''SELECT {_n_sql('part_code')} AS n, MAX(part_name) AS name FROM gdh_lines
+                           WHERE {_n_sql('part_code')} = ANY(%s) AND part_name IS NOT NULL GROUP BY 1''', (miss_name,))
+            for r in cur.fetchall():
+                if r['n'] in out and r['name']:
+                    out[r['n']]['_inv'] = out[r['n']]['_inv'] or r['name']
+        except Exception:
+            cur.connection.rollback()
+    for e in out.values():
+        e['name'] = e['_prop'] or e['_new'] or e['_inv'] or None
         if e['_p_prop'] is not None and e['_p_prop'] > 0:
             e['price'] = e['_p_prop']
         elif e['_p_cat'] is not None:
@@ -994,27 +1006,41 @@ def suggest_parts():
     norm = _norm_code(q)
     try:
         cur = get_main_db().cursor()
-        # Ứng viên = tồn kho + danh mục mã mới + mọi mã đã từng đề xuất tăng giá
-        cur.execute(f'''
-            SELECT part_code FROM (
-                SELECT part_code, part_name FROM inventory_items
-                UNION SELECT part_code, part_name FROM price_adjustment_new_codes
-                UNION SELECT part_code, part_name FROM price_adjustment_proposals
-            ) u
-            WHERE {_n_sql('part_code')} LIKE %s OR part_name ILIKE %s
-            GROUP BY part_code
-            ORDER BY ({_n_sql('part_code')} = %s) DESC, (part_code ILIKE %s) DESC, part_code
-            LIMIT 8
-        ''', (f'%{norm}%' if norm else '%', f'%{q}%', norm, f'{norm}%'))
-        codes = [r['part_code'] for r in cur.fetchall()]
+        # Ứng viên = MỌI mã hệ thống đã biết, KHÔNG chỉ tồn kho: tồn kho + danh mục mã mới + mã từng đề xuất tăng giá
+        # + bảng giá bán + bảng giá nhập/dòng xe + quy cách mã cha/con + khoá đặt hàng + các đợt gôm cũ.
+        # Mỗi nguồn truy vấn RIÊNG và bọc try: bảng nào chưa có / lỗi thì bỏ qua, không làm mất gợi ý của nguồn khác.
+        pat, name_pat = (f'%{norm}%' if norm else '%'), f'%{q}%'
+        sources = [
+            ('SELECT part_code FROM inventory_items WHERE {n} LIKE %s OR part_name ILIKE %s LIMIT 60', 2),
+            ('SELECT part_code FROM price_adjustment_new_codes WHERE {n} LIKE %s OR part_name ILIKE %s LIMIT 60', 2),
+            ('SELECT part_code FROM price_adjustment_proposals WHERE {n} LIKE %s OR part_name ILIKE %s LIMIT 60', 2),
+            ('SELECT part_code FROM part_prices WHERE {n} LIKE %s LIMIT 60', 1),
+            ('SELECT part_code FROM part_vehicle_models WHERE {n} LIKE %s LIMIT 60', 1),
+            ('SELECT child_code AS part_code FROM gdh_bundles WHERE {nc} LIKE %s LIMIT 60', 1),
+            ('SELECT parent_code AS part_code FROM gdh_bundles WHERE {np} LIKE %s LIMIT 60', 1),
+            ('SELECT part_code FROM order_lock_items WHERE {n} LIKE %s LIMIT 60', 1),
+            ('SELECT part_code FROM gdh_lines WHERE {n} LIKE %s OR part_name ILIKE %s GROUP BY part_code LIMIT 60', 2),
+        ]
+        found = {}
+        for sql_t, nargs in sources:
+            try:
+                cur.execute(sql_t.format(n=_n_sql('part_code'), nc=_n_sql('child_code'), np=_n_sql('parent_code')),
+                            (pat, name_pat)[:nargs])
+                for r in cur.fetchall():
+                    c = (r['part_code'] or '').strip()
+                    if c:
+                        found.setdefault(_norm_code(c), c)
+            except Exception:
+                get_main_db().rollback()
+        codes = sorted(found.values(), key=lambda c: (0 if _norm_code(c) == norm else 1,
+                                                       0 if _norm_code(c).startswith(norm) else 1, c))[:8]
         info = _catalog_lookup(cur, list(dict.fromkeys(_norm_code(c) for c in codes)))
         cur.close()
         data = []
         for c in codes:
-            e = info.get(_norm_code(c))
-            if e and e['code'] not in [d['code'] for d in data]:
-                data.append({'code': e['code'], 'name': e['name'], 'price': e['price'],
-                             'adjusted': e['adjusted']})
+            e = info.get(_norm_code(c)) or {'code': c, 'name': None, 'price': None, 'adjusted': False}   # mã chỉ có ở bảng phụ (chưa có tên/giá)
+            if e['code'] not in [d['code'] for d in data]:
+                data.append({'code': e['code'], 'name': e['name'], 'price': e['price'], 'adjusted': e['adjusted']})
         return jsonify({'success': True, 'data': data})
     except Exception as e:
         try:
