@@ -1,0 +1,1381 @@
+:root{--c-primary:#0d6efd;--c-0f172a:#0f172a;--c-success:#198754;--c-334155:#334155;--c-475569:#475569;--c-64748b:#64748b;--c-94a3b8:#94a3b8;--c-cbd5e1:#cbd5e1;--c-danger:#dc3545;--c-e0e7ff:#e0e7ff;--c-e2e8f0:#e2e8f0;--c-eef2f7:#eef2f7;--c-eff6ff:#eff6ff;--c-f1f5f9:#f1f5f9;--c-f59e0b:#f59e0b;--c-f8fafc:#f8fafc;--c-white:#ffffff;}
+    :root { 
+        --bs-body-bg: #f4f6f9; 
+        /* FONT TOÀN TRANG: nội dung dùng 1 font duy nhất (--ns-font-main, giống màn Gôm Đơn Hàng / Duyệt Đơn).
+           Chỉ menu ngang (banner trên cùng) và menu dọc (sidebar) giữ SVN-MonaSans (--ns-font-menu). */
+        --ns-font-main: 'Segoe UI', Roboto, 'Helvetica Neue', Arial, 'Noto Sans', sans-serif;
+        --ns-font-menu: 'SVN-MonaSans', sans-serif;
+        --bs-body-font-family: var(--ns-font-main);
+        --ns-blue: var(--c-primary);
+        --ns-dark: #1e293b;
+    }
+    body { background-color: var(--bs-body-bg); color: var(--ns-dark); font-family: var(--ns-font-main); }
+    /* Chỉ menu ngang + menu dọc dùng SVN-MonaSans; nút/ô nhập/dropdown bên trong kế thừa font này (Bootstrap reboot: font-family: inherit). */
+    .ns-topbar-corner, .brand-banner, .ns-sidebar, .mega-nav-btn, .mega-dropdown {
+        --bs-body-font-family: var(--ns-font-menu);
+        font-family: var(--ns-font-menu);
+    }
+    /* Menu chọn Dòng xe (Bảng Giá Bộ Áo Xe Honda) - dạng thẻ lớn, nổi bật,
+       dễ bấm hơn kiểu nút pill nhỏ trước đây. Responsive tự chia cột theo
+       độ rộng màn hình. */
+    .bodykit-family-menu {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(128px, 1fr));
+        gap: 10px;
+    }
+    .bodykit-family-btn {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 4px;
+        padding: 16px 8px;
+        border-radius: 16px;
+        border: 2px solid var(--c-e2e8f0);
+        background: #fff;
+        cursor: pointer;
+        transition: transform .15s ease, box-shadow .15s ease, border-color .15s ease, background .15s ease;
+    }
+    .bodykit-family-btn:hover {
+        border-color: var(--ns-blue);
+        transform: translateY(-2px);
+        box-shadow: 0 8px 18px rgba(13, 110, 253, .14);
+    }
+    .bodykit-family-btn .bk-icon { font-size: 1.5rem; line-height: 1; }
+    .bodykit-family-btn .bk-name { font-weight: 700; font-size: .92rem; color: var(--ns-dark); text-align: center; }
+    .bodykit-family-btn .bk-count {
+        font-size: .72rem; font-weight: 600; color: var(--c-64748b);
+        background: var(--c-f1f5f9); border-radius: 999px; padding: 1px 10px;
+    }
+    .bodykit-family-btn.active {
+        border-color: transparent;
+        background: linear-gradient(135deg, var(--c-primary), #0b5ed7);
+        box-shadow: 0 10px 22px rgba(13, 110, 253, .32);
+        transform: translateY(-2px);
+    }
+    .bodykit-family-btn.active .bk-name { color: #fff; }
+    .bodykit-family-btn.active .bk-count { background: rgba(255,255,255,.22); color: #fff; }
+    /* Menu cấp 2 (đời/dung tích) - hiện dưới menu Dòng xe SAU KHI đã chọn 1
+       dòng, dạng pill nhỏ gọn vì số lượng đời/dung tích trong 1 dòng thường
+       không nhiều, không cần thẻ to như cấp 1. */
+    .bodykit-submodel-menu { display: flex; flex-wrap: wrap; gap: 8px; }
+    .bodykit-submodel-btn {
+        display: inline-flex; align-items: center; gap: 6px;
+        padding: 6px 14px; border-radius: 999px; border: 1.5px solid var(--c-e2e8f0);
+        background: #fff; color: var(--ns-dark); font-weight: 600; font-size: .84rem;
+        cursor: pointer; transition: border-color .15s ease, background .15s ease, color .15s ease;
+    }
+    .bodykit-submodel-btn:hover { border-color: var(--ns-blue); background: var(--c-eff6ff); }
+    .bodykit-submodel-btn .bk-count {
+        font-size: .7rem; font-weight: 700; color: var(--c-64748b);
+        background: var(--c-f1f5f9); border-radius: 999px; padding: 0 8px;
+    }
+    .bodykit-submodel-btn.active { border-color: var(--ns-blue); background: var(--ns-blue); color: #fff; }
+    .bodykit-submodel-btn.active .bk-count { background: rgba(255,255,255,.25); color: #fff; }
+    .loc-col {
+    position: relative;
+    padding-right: 28px !important;
+}
+.loc-col:hover .edit-icon,
+.price-col:hover .edit-icon {
+    display: inline-block !important;
+}
+.price-col {
+    position: relative;
+    padding-right: 28px !important;
+}
+/* Ô sửa giá bán inline (editPriceRow): cột Giá Bán hẹp nên ô nhập bị co về ~0px,
+   chỉ còn thấy mũi tên tăng/giảm mà không thấy số. Chỉ áp dụng cho dòng đang sửa. */
+.price-col:has(.price-edit-input) {
+    padding-right: 4px !important;
+    overflow: visible;
+}
+.price-edit-wrap { white-space: nowrap; }
+.price-edit-wrap .price-edit-input {
+    flex: 0 0 auto;
+    width: 88px;
+    min-width: 88px;
+    text-align: right;
+    font-weight: 600;
+    -moz-appearance: textfield;
+    appearance: textfield;
+}
+.price-edit-wrap .price-edit-input::-webkit-outer-spin-button,
+.price-edit-wrap .price-edit-input::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+}
+.price-edit-wrap .btn { flex: 0 0 auto; }
+    /* Brand Header Banner - giờ là THANH TRÊN CỐ ĐỊNH (fixed), nằm ngang
+       hàng với ô logo góc vuông (.ns-topbar-corner) bên trái - cùng nhau
+       tạo thành 1 khối "vuông góc" với sidebar dọc, giống layout kiểu CRM
+       tham khảo: góc trên-trái là logo/tên hệ thống, dưới góc đó là menu
+       dọc, bên phải góc là thanh tiêu đề/thao tác. Logo Nam Sương giờ chỉ
+       xuất hiện DUY NHẤT 1 LẦN trong ô góc, không lặp lại trong banner
+       này nữa. Chiều cao thực tế của banner được JS đo và gán vào biến
+       --ns-topbar-h (xem syncTopbarHeight()), dùng để: (1) định chiều cao
+       ô góc logo cho khớp, (2) đẩy sidebar xuống bắt đầu dưới banner,
+       (3) đẩy nội dung trang xuống dưới banner. */
+    /* ===== KHỐI NỀN CHUNG (ns-header-shell) =====
+       .ns-topbar-corner (ô logo) và .brand-banner (thanh tiêu đề) trước đây
+       mỗi cái tự vẽ viền + box-shadow + bo góc riêng -> dù đã canh đúng
+       đường viền xanh, phần BÓNG ĐỔ (box-shadow) của banner vẫn chỉ bao
+       quanh RIÊNG banner nên tạo ra 1 đường mờ dọc ngay tại điểm nối với ô
+       logo, nhìn như 2 khối tách rời chứ không phải "1 khối cứng". Giải
+       pháp: tạo 1 lớp nền DUY NHẤT nằm NGAY DƯỚI cả 2 (cùng toạ độ, cùng
+       chiều cao = toàn bộ vùng header), tự vẽ viền xanh dưới cùng + bóng đổ
+       + bo góc 1 LẦN DUY NHẤT cho toàn khối. .ns-topbar-corner và
+       .brand-banner phía trên chỉ còn nền trắng để che kín, không tự vẽ
+       viền/bóng riêng nữa -> nhìn liền mạch như 1 khối cứng duy nhất. */
+    .ns-header-shell {
+        position: fixed; top: 0; left: 0; right: 0;
+        height: var(--ns-topbar-h, 76px);
+        background: var(--c-white);
+        border-radius: 0 0 16px 0;
+        border: 1px solid rgba(13,110,253,0.08);
+        border-top: none;
+        border-bottom: 3px solid var(--ns-blue);
+        box-shadow: 0 10px 30px rgba(13,110,253,0.05);
+        z-index: 1030;
+    }
+    .brand-banner {
+        position: fixed; top: 0; left: var(--ns-sb-collapsed); right: 0;
+        z-index: 1035;
+        background: transparent;
+        color: var(--ns-dark);
+        padding: 1.1rem 2rem 1.1rem 0.9rem; /* giảm đệm trái để chữ nằm gần ô logo hơn */
+        margin-bottom: 0;
+    }
+    .header-logo {
+        height: 38px;
+        object-fit: contain;
+        background: var(--c-f8fafc);
+        padding: 4px 8px;
+        border-radius: 8px;
+        border: 1px solid var(--c-e2e8f0);
+    }
+    /* Ô logo góc vuông cố định - đứng yên tại giao điểm giữa banner (bên
+       phải) và sidebar (bên dưới), luôn giữ đúng bề rộng bằng sidebar LÚC
+       THU GỌN (--ns-sb-collapsed) và chiều cao bằng banner (--ns-topbar-h)
+       dù sidebar có đang mở rộng hay không - PHẦN NỀN/VIỀN của ô này (và
+       do đó đường viền xanh) vẫn phải bám đúng bề rộng sidebar để thẳng
+       hàng. Viền/bóng đổ do .ns-header-shell phía dưới đảm nhiệm, ô này
+       chỉ còn nền trắng để che. */
+    .ns-topbar-corner {
+        position: fixed; top: 0; left: 0;
+        /* Chiều cao TRỪ ĐI đúng độ dày viền xanh (3px) của .ns-header-shell.
+           Trước đây cao bằng --ns-topbar-h giống hệt shell, nên nền trắng
+           (opaque) của ô này phủ luôn LÊN TRÊN đúng 3px viền xanh của shell
+           ở khu vực logo -> đường xanh chỉ hiện ra từ chỗ banner trở đi
+           (vì banner nền trong suốt), nhìn như bị "cụt" ở đoạn dưới logo.
+           Trừ đi 3px để chừa đúng phần viền xanh lộ ra, liền mạch toàn bộ
+           chiều ngang. */
+        width: var(--ns-sb-collapsed); height: calc(var(--ns-topbar-h, 76px) - 3px);
+        display: flex; align-items: center; justify-content: flex-start;
+        padding-left: 8px;
+        background: var(--c-white);
+        z-index: 1050;
+    }
+    /* QUAN TRỌNG: kích thước LOGO không còn bị ép vừa khít bề rộng của ô
+       (vốn phải bằng đúng bề rộng sidebar --ns-sb-collapsed để menu dọc/
+       đường viền xanh thẳng hàng - "độc lập" khỏi bề rộng menu dọc theo
+       yêu cầu) - logo được gán 1 bề rộng CỐ ĐỊNH riêng, lớn hơn hẳn bề
+       rộng ô, và được phép TRÀN ra khỏi ô về phía bên phải (flex-shrink:0
+       + overflow mặc định là visible) để tiến gần sát chữ tiêu đề hơn mà
+       không cần đổi bề rộng sidebar. */
+    .ns-topbar-corner-logo {
+        width: 70px;
+        max-width: none;
+        height: auto;
+        max-height: 90%;
+        flex-shrink: 0;
+        object-fit: contain;
+    }
+
+
+    /* Đồng bộ kiểu thẻ card giống trang đăng nhập (có viền xanh trên cùng) */
+    .card-custom { 
+        border: none; 
+        border-radius: 16px; 
+        box-shadow: 0 10px 30px rgba(13,110,253,0.05); 
+        background: var(--c-white); 
+        border-top: 4px solid var(--ns-blue);
+    }
+
+    .stat-card.stat-total { border-top-color: #6c757d; }
+    .stat-card.stat-debt { border-top-color: var(--c-danger); }
+    .stat-card.stat-shipping { border-top-color: #fd7e14; }
+    .stat-card.stat-received { border-top-color: var(--c-success); }
+    
+    .stat-icon { width: 44px; height: 44px; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 1.3rem; }
+    
+    .nav-pills .nav-link { border-radius: 8px; font-weight: 600; padding: 10px 16px; color: var(--c-64748b); background: var(--c-white); box-shadow: 0 2px 6px rgba(0,0,0,0.02); transition: all 0.2s; white-space: nowrap; }
+    .nav-pills .nav-link.active { background-color: var(--c-primary) !important; color: white !important; box-shadow: 0 4px 12px rgba(13, 110, 253, 0.3); }
+    .nav-pills .nav-link:hover:not(.active) { color: var(--c-primary); background: var(--c-eff6ff); }
+
+    /* ===== MENU CHÍNH KIỂU "MEGA NAV" - gộp các chức năng liên quan vào
+       chung 1 nhóm lớn (dropdown), thay vì 1 hàng dài các tab rời rạc như
+       trước. Bản thân việc chuyển tab (Bootstrap Tab/pill) vẫn dùng lại
+       NGUYÊN VẸN các <button id="...-tab"> cũ (chỉ ẩn đi bằng d-none) để
+       không phải sửa lại hàng trăm chỗ JS đang tham chiếu tới các id đó -
+       menu mới chỉ "bấm hộ" (megaNavClick) vào đúng nút cũ tương ứng. */
+    .mega-nav-btn {
+        border: none; border-radius: 10px; font-weight: 600; font-size: 0.92rem;
+        padding: 10px 18px; color: var(--c-475569); background: var(--c-white);
+        box-shadow: 0 2px 6px rgba(0,0,0,0.04); transition: all 0.2s;
+        white-space: nowrap; display: inline-flex; align-items: center; gap: 8px;
+    }
+    .mega-nav-btn:hover { color: var(--c-primary); background: var(--c-eff6ff); }
+    .mega-nav-btn.mega-active {
+        background-color: var(--c-primary) !important; color: #fff !important;
+        box-shadow: 0 4px 14px rgba(13, 110, 253, 0.32);
+    }
+    .mega-nav-btn .bi { font-size: 1.05rem; }
+    .mega-nav-btn.dropdown-toggle::after { transition: transform 0.2s; vertical-align: 1px; }
+    .mega-nav-btn.dropdown-toggle[aria-expanded="true"]::after { transform: rotate(180deg); }
+    .mega-dropdown { min-width: 270px; border: none; border-radius: 12px; padding: 8px; }
+    .mega-dropdown .dropdown-header { font-size: 0.68rem; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; color: var(--c-94a3b8); padding: 6px 10px 4px; }
+    .mega-dropdown .dropdown-item { border-radius: 8px; padding: 9px 10px; font-weight: 600; font-size: 0.88rem; color: var(--c-334155); display: flex; align-items: center; }
+    .mega-dropdown .dropdown-item:hover { background: var(--c-eff6ff); color: var(--c-primary); }
+    .mega-dropdown .dropdown-item.mega-active { background: var(--c-eff6ff); color: var(--c-primary); }
+    .mega-dropdown .dropdown-divider { margin: 6px 4px; }
+    @media (max-width: 767.98px) {
+        .mega-nav-btn { padding: 9px 13px; font-size: 0.85rem; }
+    }
+
+    .drop-zone { border: 2px dashed var(--c-cbd5e1); border-radius: 12px; padding: 1.5rem 1rem; text-align: center; background: var(--c-f8fafc); cursor: pointer; position: relative; transition: all 0.2s; }
+    .drop-zone:hover { border-color: var(--c-primary); background: var(--c-eff6ff); }
+    .drop-zone-compact { padding: 0.6rem 0.9rem; text-align: left; border-radius: 10px; }
+    
+    .badge-status { padding: 5px 10px; font-weight: 600; border-radius: 20px; font-size: 0.78rem; white-space: nowrap; }
+    .badge-debt { background-color: #ffebe9; color: #cf222e; border: 1px solid rgba(207,34,46,0.2); }
+    .badge-shipping { background-color: #fff8c5; color: #9a6700; border: 1px solid rgba(154,103,0,0.2); }
+    .badge-received { background-color: #dafbe1; color: #1a7f37; border: 1px solid rgba(26,127,55,0.2); }
+    .badge-order-type { padding: 4px 9px; font-weight: 600; border-radius: 14px; font-size: 0.74rem; white-space: nowrap; background-color: #eef2ff; color: #4338ca; border: 1px solid rgba(67,56,202,0.18); }
+    .badge-prepared { background-color: #dafbe1; color: #1a7f37; border: 1px solid rgba(26,127,55,0.2); }
+    .badge-not-prepared { background-color: #e8eaed; color: #495057; border: 1px solid rgba(73,80,87,0.2); }
+
+    /* ===== Card "Tổng Quan Trạng Thái" của báo cáo khu vực - mỗi trạng
+       thái là 1 "pill" nhỏ gọn, có chấm màu + nhãn + số đếm, thay cho
+       chuỗi số cách nhau bằng dấu "/" khó đọc trước đây. ===== */
+    .rr-status-grid { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 2px; }
+    .rr-status-pill {
+        display: inline-flex; align-items: center; gap: 6px;
+        padding: 4px 10px 4px 8px; border-radius: 999px; font-size: 0.76rem;
+        font-weight: 600; background: #fff; border: 1px solid rgba(0,0,0,0.08);
+        box-shadow: 0 1px 2px rgba(16,24,40,0.04);
+        white-space: nowrap;
+    }
+    .rr-status-pill .rr-count { font-weight: 800; }
+    .rr-status-pill.rr-muted { opacity: 0.45; }
+    .rr-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+    .rr-dot-pending { background: #f59f00; }
+    .rr-dot-not-prepared { background: #868e96; }
+    .rr-dot-prepared { background: #12b886; }
+    .rr-dot-not-received { background: #fa8231; }
+    .rr-dot-received { background: #2f9e44; }
+    .rr-dot-rejected { background: #e03131; }
+    .rr-dot-cancelled { background: #495057; }
+
+    /* Badge "Soạn Hàng" bấm được trực tiếp (bảng Nhận Được) - icon bút chỉ
+       hiện khi rê chuột vào, gợi ý đây là trạng thái có thể sửa. Kích
+       thước PHẢI giống hệt badge trạng thái thường (không đặt lại
+       font-size/font-weight riêng) để không bị to hơn "Đã Đồng Ý". */
+    button.badge-status.prepare-badge-toggle {
+        cursor: pointer;
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+        margin: 0;
+        outline: none;
+        font-family: inherit;
+    }
+    button.badge-status.prepare-badge-toggle:hover { filter: brightness(0.96); }
+    button.badge-status.prepare-badge-toggle .prepare-edit-icon {
+        opacity: 0;
+        transition: opacity .15s ease;
+        font-size: 0.68rem;
+    }
+    button.badge-status.prepare-badge-toggle:hover .prepare-edit-icon,
+    button.badge-status.prepare-badge-toggle:focus-visible .prepare-edit-icon {
+        opacity: 1;
+    }
+    
+    .table-responsive { max-height: 550px; overflow-y: auto; -webkit-overflow-scrolling: touch; }
+    .table thead th { 
+        position: sticky; 
+        top: 0; 
+        background-color: #e7f1ff; 
+        z-index: 10; 
+        font-size: 0.75rem; 
+        text-transform: uppercase; 
+        color: var(--c-primary); 
+        white-space: nowrap; 
+        font-weight: 800 !important; 
+        text-align: center !important; 
+    }
+    .part-code { font-weight: 700; color: #1e3a8a; background: #eef2ff; border: 1px solid var(--c-e0e7ff); padding: 3px 10px; border-radius: 6px; font-size: 0.9rem; white-space: nowrap; position: relative; }
+    /* Icon phân loại tần suất bán (TX/TB/CB) - góc trên-phải mã hàng. Bấm
+       vào badge dùng CHUNG cơ chế tooltip #inv-tooltip đã có sẵn (position:
+       fixed, tự đo vị trí bằng getBoundingClientRect - xem showInvTooltip())
+       thay vì tự vẽ tooltip lồng trong bảng bằng CSS :hover, vì tooltip lồng
+       trong bảng có scroll/sticky header rất dễ bị clip/che lên header.
+       Dùng click-to-toggle thay vì hover cũng để dùng tốt trên mobile. */
+    .freq-badge {
+        position: absolute; top: -7px; right: -7px; font-size: 8.5px; font-weight: 800;
+        line-height: 1; padding: 2px 4px; border-radius: 7px; color: #fff;
+        cursor: pointer; letter-spacing: .2px; box-shadow: 0 1px 3px rgba(0,0,0,.25);
+        z-index: 2;
+    }
+    .freq-badge.freq-tx { background: #22c55e; }
+    .freq-badge.freq-tb { background: var(--c-f59e0b); }
+    .freq-badge.freq-cb { background: #ef4444; }
+
+    /* Badge màu riêng cho từng cửa hàng (nhạt, không chói) - giúp nhận ra
+       ngay cửa hàng nào mà không cần đọc chữ, nhất quán ở mọi bảng. */
+    .store-badge { display: inline-block; padding: 3px 10px; border-radius: 6px; font-weight: 700; font-size: 0.78rem; white-space: nowrap; }
+    .store-badge-NS1 { background: #e6f1fb; color: #0c447c; }
+    .store-badge-NS2 { background: #e1f5ee; color: #085041; }
+    .store-badge-NS3 { background: #eeedfe; color: #3c3489; }
+    .store-badge-NS4 { background: #faeeda; color: #633806; }
+    .store-badge-NS5 { background: #fbeaf0; color: #72243e; }
+    .store-badge-NSM1 { background: #faece7; color: #712b13; }
+    /* Thu hẹp cột "Tên Hàng" của bảng Tồn Kho Hệ Thống để nhường chỗ cân
+       đối hơn cho các cột số lượng theo cửa hàng - tên hàng quá dài sẽ bị
+       cắt bớt và hiện "...", xem đầy đủ bằng tooltip (title) khi rê chuột. */
+    .inv-name-col { max-width: 180px; overflow: hidden; text-overflow: ellipsis; }
+    .store-badge-default { background: #f1efe8; color: #444441; }
+
+
+    /* Phóng to / Thu gọn cho Duyệt Đơn Hàng (giống Gôm Đơn Hàng) */
+    #order-check-pane.oc-top-collapsed > .card:not(#orderCheckResultCard), #order-check-pane.oc-top-collapsed #orderCheckDashboard { display:none; }
+    #order-check-pane.oc-top-collapsed .oc-scroll { max-height:calc(100vh - 190px); }
+    #order-check-pane.oc-max #orderCheckResultCard { position:fixed; top:0; left:0; right:0; bottom:0; z-index:1060; margin:0 !important; border-radius:0; display:flex; flex-direction:column; overflow:hidden; padding:.6rem .9rem !important; }
+    #order-check-pane.oc-max #orderCheckResultCard > * { flex-shrink:0; }
+    #order-check-pane.oc-max #orderCheckResultCard > .oc-scroll { flex:1 1 0; max-height:none; min-height:0; overscroll-behavior:contain; }
+    #order-check-pane.oc-max #orderCheckDashboard, #order-check-pane.oc-max #ocTopBtn { display:none !important; }
+    /* Đang duyệt đơn gôm: ẩn khối dán danh sách (mã đã nạp tự động) cho gọn; link "Dán danh sách khác" mở lại */
+    #order-check-pane .oc-paste-auto { display:none; }
+    #order-check-pane.oc-gdh-on .oc-paste-extra { display:none; }
+    #order-check-pane.oc-gdh-on .oc-paste-auto { display:block; }
+    #order-check-pane.oc-gdh-on.oc-paste-manual .oc-paste-extra { display:block; }
+    #order-check-pane.oc-gdh-on.oc-paste-manual .oc-paste-auto { display:none; }
+    /* Font chữ: dùng chung --ns-font-main ở body, không ghi đè riêng cho tab này nữa */
+    /* ===== Tô sáng hàng đang chọn kiểu Excel (bảng Gôm đơn + bảng Duyệt đơn) - class .xl-row do JS gắn (xem xlGridInit) ===== */
+    #gdh-body tr.xl-row > td, #order-check-body tr.xl-row > td { background: #dbeafe !important; background-image: none !important;
+        border-top: 1px solid #93c5fd !important; border-bottom: 1px solid #93c5fd !important; }
+    #gdh-body tr.xl-row > td:first-child, #order-check-body tr.xl-row > td:first-child { box-shadow: inset 4px 0 0 var(--c-primary); }
+    #gdh-body td.xl-cell, #order-check-body td.xl-cell { outline: 2px solid var(--c-primary); outline-offset: -2px; }
+    #order-check-body .order-check-approve-input, #order-check-body .order-check-note-input { scroll-margin-left: calc(var(--oc-col1-w, 150px) + 96px); scroll-margin-top: 48px; }
+    #gdh-body .gdh-in { scroll-margin-left: calc(var(--gdh-w1, 160px) + 16px); }
+    #order-check-body .order-check-approve-input::-webkit-outer-spin-button, #order-check-body .order-check-approve-input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+    #order-check-body .order-check-approve-input { -moz-appearance: textfield; appearance: textfield; }
+    /* ===== Duyệt Đơn Hàng: giao diện kiểu "Gôm Đơn Hàng" (scope .oc-v2) ===== */
+    .oc-scroll { border:1px solid var(--c-e2e8f0); border-radius:.6rem; background:#fff; max-height:72vh; overflow:auto; }
+    .oc-result-table.oc-v2 { font-size:.86rem; font-variant-numeric:tabular-nums; width:100%; min-width:1500px; margin:0; border-collapse:separate; border-spacing:0; --bs-table-bg:transparent; }
+    .oc-result-table.oc-v2 > thead > tr > th { position:sticky; top:0; z-index:10; background:var(--c-eef2f7); color:var(--c-334155); font-size:.72rem; font-weight:700; text-transform:uppercase; letter-spacing:.02em; padding:.55rem .6rem; border-bottom:2px solid var(--c-cbd5e1); white-space:nowrap; vertical-align:middle !important; }
+    .oc-result-table.oc-v2 > tbody > tr > td { padding:.45rem .6rem; border-bottom:1px solid var(--c-eef2f7) !important; vertical-align:middle !important; background:#fff; }
+    .oc-result-table.oc-v2 > tbody > tr:last-child > td { border-bottom:none !important; }
+    .oc-result-table.oc-v2 > tbody > tr:hover > td { background:var(--c-f8fafc); background-image:none; }
+    .oc-result-table.oc-v2 > thead > tr > th:nth-child(1), .oc-result-table.oc-v2 > thead > tr > th:nth-child(2) { z-index:15; background:var(--c-eef2f7); }
+    .oc-result-table.oc-v2 > tbody > tr > td:nth-child(2) { box-shadow:none; width:auto; min-width:70px; max-width:none; }
+    .oc-result-table.oc-v2 > thead > tr > th:nth-child(2) { width:auto; min-width:70px; max-width:none; box-shadow:none; }
+    .oc-result-table.oc-v2 > tbody > tr > td:nth-child(2) { border-right:1px solid var(--c-cbd5e1); }
+    .oc-result-table.oc-v2 > thead > tr > th:nth-child(2) { border-right:1px solid var(--c-cbd5e1); }
+    /* dòng cần đặt: nền xanh rất nhạt cả hàng; dòng bị khoá: vạch đỏ; không tìm thấy: vàng */
+    .oc-result-table.oc-v2 tr.oc-on > td { background:#f3faf5; }
+    .oc-result-table.oc-v2 tr.oc-on > td:nth-child(1) { box-shadow:inset 4px 0 0 var(--c-success); }
+    .oc-result-table.oc-v2 tr.oc-locked > td:nth-child(1) { box-shadow:inset 4px 0 0 var(--c-danger); }
+    .oc-result-table.oc-v2 tr.table-warning > td { background:#fff8e1; }
+    .oc-result-table.oc-v2 tr.table-warning > td:nth-child(1) { box-shadow:inset 4px 0 0 var(--c-f59e0b); }
+    .oc-result-table.oc-v2 tr.oc-on:hover > td { background:#e9f6ee; }
+    .oc-v2 .oc-code { font-weight:700; color:var(--c-0f172a); letter-spacing:.01em; font-size:.86rem; }
+    .oc-v2 .oc-name { min-width:230px; max-width:320px; white-space:normal; line-height:1.3; }
+    .oc-v2 .oc-sub { font-size:.76rem; color:var(--c-64748b); }
+    .oc-v2 .oc-zero { color:#b4bfcc; font-weight:400; }
+    .oc-v2 th.oc-th-stock, .oc-v2 td.oc-td-stock { background:#fffaeb !important; font-weight:700; text-align:right; }
+    .oc-v2 th.oc-th-stock { background:#fdf0c4 !important; }
+    .oc-v2 th.oc-th-bundle { background:var(--c-e0e7ff); color:#3730a3; }
+    .oc-v2 th.oc-th-debt { background:#fde8e8; }
+    .oc-v2 th.oc-th-final { background:var(--c-success) !important; color:#fff !important; }
+    .oc-v2 td.oc-td-final { background:#e6f4ea !important; }
+    .oc-v2 .oc-chips { display:flex; flex-wrap:wrap; gap:3px; min-width:150px; max-width:230px; white-space:normal; }
+    .oc-v2 .oc-chip { display:inline-flex; align-items:baseline; gap:4px; font-size:.74rem; line-height:1; padding:3px 7px; border-radius:999px; background:var(--c-eef2f7); color:var(--c-334155); white-space:nowrap; }
+    .oc-v2 .oc-chip b { color:var(--c-0f172a); }
+    .oc-v2 .oc-chip .oc-stock-freq-text { font-size:.62rem; }
+    .oc-v2 .oc-tag { display:inline-block; font-size:.68rem; font-weight:700; padding:1px 7px; border-radius:4px; background:var(--c-e0e7ff); color:#3730a3; }
+    .oc-v2 .oc-tag-red { background:#fee2e2; color:#b91c1c; }
+    .oc-v2 .oc-tag-green { background:#dcfce7; color:#166534; }
+    .oc-v2 .oc-sales { display:flex; align-items:center; gap:8px; min-width:120px; }
+    .oc-v2 .oc-sales-badge { min-width:34px; }
+    .oc-v2 .oc-bundle-box { min-width:230px; max-width:290px; white-space:normal; }
+    .oc-v2 .oc-bundle-item { border:1px solid var(--c-e0e7ff); background:#f5f7ff; border-radius:8px; padding:5px 8px; margin-top:4px; }
+    .oc-v2 .oc-bundle-item:first-child { margin-top:0; }
+    .oc-v2 .oc-ctx { white-space:normal; max-width:230px; }
+
+    /* Bảng "Kiểm Tra Đơn Hàng" (order-check): CĂN TẤT CẢ các ô lên ĐẦU dòng
+       (không dùng align-middle mặc định của Bootstrap nữa) - vì các cột có
+       độ cao nội dung rất khác nhau (VD "Tồn Hệ Thống" cao do nhiều chip,
+       "Khoá Đặt Hàng" ngắn) nên nếu căn giữa, thông tin ngắn sẽ trôi xuống
+       giữa dòng, không thẳng hàng với Mã Hàng/SL Đặt ở đầu dòng -> khó quét
+       nhanh theo chiều ngang khi duyệt. Thêm viền ngăn cách + đệm rõ ràng
+       giữa các dòng để mắt không bị lẫn dữ liệu của dòng trên/dưới.
+       DÙNG !important vì .align-middle của Bootstrap set trực tiếp trên
+       thẻ <td>/<th> (độ ưu tiên ngang selector thường), cần thắng nó. */
+    .oc-result-table > tbody > tr > td,
+    .oc-result-table > tbody > tr > th {
+        vertical-align: top !important;
+        padding-top: 12px;
+        padding-bottom: 12px;
+        border-bottom: 2px solid #dee2e6;
+    }
+    .oc-result-table > tbody > tr:last-child > td { border-bottom: none; }
+
+    /* Đóng băng (sticky) 2 cột đầu "Mã Hàng" + "SL Đặt" khi kéo ngang bảng
+       Kiểm Tra Đơn Hàng - luôn thấy được mã/số lượng đặt dù đang xem cột
+       nào ở phía bên phải, dễ đối chiếu hơn thay vì phải kéo qua lại liên
+       tục. Cột 1 (Mã Hàng) dán vào mép trái (left:0), cột 2 (SL Đặt) dán
+       ngay sau đó (left = đúng bề rộng cột 1 - phải khớp width đặt bên
+       dưới). Nền phải ĐẶC (không trong suốt) để che phần nội dung các cột
+       phía sau khi cuộn ngang qua dưới nó. z-index: ô thường > ô header
+       (vì header vừa dính top vừa dính left, phải nổi trên cả 2 trường
+       hợp) > sticky-header thường (vốn đã z-index:10 ở style bên trên). */
+    /* Đóng băng (sticky) 2 cột đầu "Mã Hàng" + "SL Đặt" khi kéo ngang bảng
+       Kiểm Tra Đơn Hàng - luôn thấy được mã/số lượng đặt dù đang xem cột
+       nào ở phía bên phải, dễ đối chiếu hơn thay vì phải kéo qua lại liên
+       tục.
+       Cột 1 (Mã Hàng) KHÔNG còn width cố định 150px + ellipsis nữa (từng
+       khiến các mã dài hơn 150px - phần lớn mã 12-13 ký tự - bị cắt bớt
+       thành "..." dù bảng có title/tooltip). Vì cả bảng đã có class
+       "text-nowrap" (không tự xuống dòng), bỏ max-width/overflow/ellipsis
+       để trình duyệt tự co giãn cột 1 theo đúng mã DÀI NHẤT đang hiển thị
+       trong toàn bộ dữ liệu (giống hành vi bình thường của <table>, chỉ
+       giữ lại min-width để cột không quá hẹp khi mã ngắn).
+       Vì width cột 1 giờ THAY ĐỔI tuỳ dữ liệu (không còn là hằng số
+       150px), cột 2 không thể "left: 150px" cố định như trước - sẽ đè lên
+       cột 1 khi cột 1 giãn rộng hơn, hoặc để hở khi cột 1 hẹp hơn. Thay
+       bằng biến CSS --oc-col1-w, được JS đo lại độ rộng THỰC TẾ của cột 1
+       sau mỗi lần render bảng (xem syncOcCol1Width() ở renderOrderCheckTable)
+       và gán trực tiếp lên phần tử <table>, luôn khớp đúng bất kể mã dài
+       ngắn thế nào. Nền phải ĐẶC (không trong suốt) để che phần nội dung
+       các cột phía sau khi cuộn ngang qua dưới nó. z-index: ô thường
+       > ô header (vì header vừa dính top vừa dính left, phải nổi trên cả
+       2 trường hợp) > sticky-header thường (vốn đã z-index:10 ở trên). */
+    .oc-result-table th:nth-child(1),
+    .oc-result-table td:nth-child(1) {
+        position: sticky;
+        left: 0;
+        z-index: 5;
+        background-color: #fff;
+        min-width: 110px;
+    }
+    .oc-result-table th:nth-child(2),
+    .oc-result-table td:nth-child(2) {
+        position: sticky;
+        left: var(--oc-col1-w, 150px);
+        z-index: 5;
+        background-color: #fff;
+        width: 80px;
+        min-width: 80px;
+        max-width: 80px;
+        box-shadow: 3px 0 6px -3px rgba(0,0,0,.25);
+    }
+    /* Ô header (dòng tiêu đề) của 2 cột này: dính CẢ top LẪN left cùng lúc
+       -> cần z-index cao hơn mọi ô sticky khác (kể cả header các cột còn
+       lại) để không bị đè khi 2 trục cuộn giao nhau, và giữ nền xanh nhạt
+       #e7f1ff giống các ô header khác thay vì trắng. */
+    .oc-result-table thead th:nth-child(1),
+    .oc-result-table thead th:nth-child(2) {
+        z-index: 15;
+        background-color: #e7f1ff;
+    }
+    /* Dòng "table-warning" (mã không tìm thấy trong tồn kho) - đổi luôn nền
+       của 2 ô sticky theo đúng màu cảnh báo, nếu không chúng vẫn hiện nền
+       trắng mặc định (đã set ở trên) trong khi phần còn lại của dòng đã
+       vàng, gây lệch màu ngay tại 2 cột luôn hiển thị này. */
+    .oc-result-table tbody tr.table-warning td:nth-child(1),
+    .oc-result-table tbody tr.table-warning td:nth-child(2) {
+        background-color: #fff3cd;
+    }
+    /* Đồng bộ hiệu ứng hover (table-hover) cho 2 cột dính - trước đây khi
+       rê chuột, phần còn lại của dòng đổi màu xám nhạt (table-hover mặc
+       định của Bootstrap) nhưng 2 cột dính "Mã Hàng"/"SL Đặt" vẫn giữ
+       nguyên nền đặc ở trên (bắt buộc phải đặc màu để che nội dung cuộn
+       phía dưới) -> dòng bị "gãy" màu ngay ranh giới cột dính, nhìn rất
+       khó dò/đối chiếu theo 1 dòng ngang qua các cột. Phủ thêm lớp
+       rgba(0,0,0,.075) - đúng tông hover mặc định của Bootstrap - CHỒNG
+       LÊN màu nền đặc sẵn có (trắng ở dòng thường, vàng ở dòng
+       "table-warning") để 2 cột dính đổi màu ĐỒNG BỘ với phần còn lại của
+       dòng khi hover, không còn lệch/gãy màu nữa. */
+    .oc-result-table tbody tr:hover > td:nth-child(1),
+    .oc-result-table tbody tr:hover > td:nth-child(2) {
+        background-image: linear-gradient(rgba(0,0,0,.075), rgba(0,0,0,.075));
+    }
+
+
+       nhạt theo tần suất bán (TX xanh / TB vàng / CB đỏ) để mắt nhận diện
+       ngay tình trạng bán của mã hàng thay vì phải đọc chữ nhỏ, badge tròn
+       đậm màu dễ thấy hơn hẳn chữ mã TX/TB/CB đơn thuần như trước. */
+    .oc-sales-cell { padding: 6px 8px; border-radius: 6px; min-width: 90px; }
+    .oc-sales-cell.oc-sales-tx { background: #f0fdf4; }
+    .oc-sales-cell.oc-sales-tb { background: #fffbeb; }
+    .oc-sales-cell.oc-sales-cb { background: #fef2f2; }
+    .oc-sales-badge {
+        display: inline-flex; align-items: center; justify-content: center;
+        min-width: 32px; padding: 3px 8px; border-radius: 6px; font-weight: 800;
+        font-size: 0.78rem; color: #fff; letter-spacing: .2px; flex-shrink: 0;
+    }
+    .oc-sales-badge-tx { background: #22c55e; }
+    .oc-sales-badge-tb { background: var(--c-f59e0b); }
+    .oc-sales-badge-cb { background: #ef4444; }
+    .oc-sales-badge-none { background: var(--c-94a3b8); }
+
+    /* Cột "Tồn Hệ Thống" của bảng order-check - trước đây mỗi cửa hàng là 1
+       khối chip to, tô nền màu riêng theo cửa hàng (.store-badge-*) xếp
+       lưới 2 cột - nhiều màu nền cạnh nhau (màu cửa hàng + màu nhãn TX/TB/
+       CB) gây rối mắt khi có nhiều cửa hàng cùng còn tồn. Đổi sang DANH
+       SÁCH DÒNG ĐƠN GIẢN, không tô nền, chỉ có SỐ và chữ TX/TB/CB tô màu
+       (không phải khối màu) - mắt chỉ cần quét thẳng xuống từng dòng.
+    */
+    .oc-stock-total { font-size: 1rem; }
+    .oc-stock-list { display: flex; flex-direction: column; gap: 3px; }
+    .oc-stock-row {
+        display: flex; align-items: baseline; gap: 6px; font-size: 0.82rem;
+        line-height: 1.3;
+    }
+    .oc-stock-row .oc-stock-store { font-weight: 700; color: var(--c-475569); min-width: 40px; }
+    .oc-stock-row .oc-stock-qty { font-weight: 700; min-width: 1.5em; text-align: right; }
+    .oc-stock-freq-text { font-weight: 800; font-size: 0.72rem; letter-spacing: .2px; cursor: help; }
+    .oc-stock-freq-text.tx { color: #16a34a; }
+    .oc-stock-freq-text.tb { color: #d97706; }
+    .oc-stock-freq-text.cb { color: #dc2626; }
+
+    /* Cột "Khách Đang Chờ" (bo_orders) - mỗi khách đang chờ mã hàng này 1
+       khối nhỏ, cách nhau bằng đường kẻ mảnh khi có NHIỀU khách cùng chờ 1
+       mã (VD 2 khách cùng đặt 1 phụ tùng hiếm). */
+    .oc-pending-item { font-size: 0.78rem; line-height: 1.35; }
+    .oc-pending-sep { margin: 6px 0; border: none; border-top: 1px dashed var(--c-cbd5e1); }
+
+    /* Khối "Kho HVN Bắc/Nam" trong cột "Khoá Đặt Hàng" - tách biệt rõ ràng
+       (viền trái + nhãn nhỏ "KHO HVN") với phần "Đề Xuất Luân Chuyển" ở cột
+       khác, vì đây là tồn kho của Honda Việt Nam, KHÔNG liên quan đến việc
+       chuyển hàng giữa các cửa hàng NS1-NS5/NSM1 - tránh gây hiểu nhầm 2 khái
+       niệm là một khi cả hai từng cùng tô đỏ cạnh nhau. */
+    .oc-hvn-block {
+        border-left: 3px solid var(--c-cbd5e1); padding-left: 7px; margin-top: 2px;
+    }
+    .oc-hvn-label {
+        display: block; font-size: 0.64rem; font-weight: 700; color: var(--c-94a3b8);
+        text-transform: uppercase; letter-spacing: 0.03em;
+    }
+
+    /* Mã Hàng / Tên Hàng / Số Lượng của 1 phiếu luân chuyển - MỖI THÀNH
+       PHẦN LÀ 1 CỘT <td> THẬT RIÊNG trong bảng (không gộp chung 1 ô như
+       trước), nên các dòng tự động thẳng hàng với nhau VÀ thẳng với tiêu
+       đề cột (do trình duyệt canh theo bảng thật, không cần tự dàn bằng
+       CSS grid độc lập từng ô - cách cũ mỗi ô tự tính bề rộng riêng nên
+       dễ bị lệch giữa các phiếu). Mỗi cột chỉ cần xếp các dòng theo chiều
+       dọc, số dòng bằng số mã hàng trong phiếu.
+       - Mã hàng: không giới hạn bề rộng, không bao giờ bị cắt "...".
+       - Tên hàng: cắt bớt + "..." khi quá dài, xem đầy đủ bằng tooltip
+         (title) khi rê chuột, để cột không bị giãn quá rộng. */
+    .transfer-items-list { display: flex; flex-direction: column; gap: 10px; }
+    .transfer-items-list .transfer-item-row { display: flex; align-items: center; min-height: 26px; }
+    .transfer-items-list .part-code {
+        font-weight: 700; color: #1e3a8a; font-size: 0.9rem; white-space: nowrap;
+    }
+    .transfer-items-list .transfer-item-name {
+        display: inline-block; max-width: 220px; overflow: hidden;
+        text-overflow: ellipsis; white-space: nowrap; color: var(--c-475569); font-size: 0.85rem;
+    }
+    .transfer-items-list .transfer-item-qty {
+        font-weight: 700; font-variant-numeric: tabular-nums;
+        color: var(--c-475569); display: flex; align-items: center; gap: 4px;
+    }
+    /* Cột Ghi Chú - thu hẹp lại (thay vì chiếm hết bề ngang còn lại) và
+       cho phép xuống dòng khi nội dung dài, thay vì kéo dài mãi 1 hàng
+       ngang như mặc định (bảng đang dùng .text-nowrap chung cho mọi ô).
+       Cột Trạng Thái/Thời Gian/Thao Tác đã được thu gọn (2 dòng, nút xếp
+       chồng) nên tăng thêm bề ngang dành cho Ghi Chú. */
+    th.transfer-note-col { width: 340px; }
+    td.transfer-note-cell { white-space: normal; word-break: break-word; max-width: 340px; }
+    /* Icon lịch sử số lượng (thay cho badge "Đã sửa" + số cũ gạch ngang) -
+       chỉ hiện số lượng đã đồng ý, số lượng xin ban đầu nằm trong tooltip
+       (title) khi rê chuột/chạm giữ vào icon, để không tốn thêm bề ngang. */
+    .qty-history-icon { cursor: help; font-size: 0.72rem; color: var(--c-94a3b8); }
+    .qty-history-icon:hover { color: var(--c-primary); }
+
+    /* Nút "Xem thêm N mã" khi phiếu có nhiều mã hàng - dòng cuối trong
+       .transfer-items-list, không chiếm thêm bề ngang, chỉ thêm 1 dòng
+       ngắn gọn để mở/thu gọn phần còn lại. */
+    .btn-transfer-toggle {
+        background: none; border: none; padding: 2px 0; margin: 0;
+        color: var(--ns-blue); font-weight: 700; font-size: 0.78rem;
+        cursor: pointer; display: inline-flex; align-items: center; gap: 4px;
+    }
+    .btn-transfer-toggle:hover { text-decoration: underline; }
+
+    /* Ẩn/hiện các dòng mã hàng vượt quá ngưỡng gọn (xem ITEMS_COLLAPSE_THRESHOLD).
+       Đặt display cụ thể cho từng loại dòng (thay vì "revert") để không phụ
+       thuộc vào thứ tự nạp CSS. */
+    .transfer-items-list .transfer-item-row.js-extra-hidden { display: none; }
+    .transfer-items-list .transfer-item-row.js-extra-hidden.js-expanded-visible { display: contents; }
+    .transfer-store-list .transfer-store-row.js-extra-hidden { display: none; }
+    .transfer-store-list .transfer-store-row.js-extra-hidden.js-expanded-visible { display: flex; }
+    .transfer-received-list .transfer-received-row.js-extra-hidden { display: none; }
+    .transfer-received-list .transfer-received-row.js-extra-hidden.js-expanded-visible { display: flex; }
+
+    /* Cột "Cửa Hàng Xin" khi phiếu có nhiều mã hàng: lặp lại đúng 1 badge
+       cho mỗi dòng mã hàng (xem storeBadgeColumn), dùng CÙNG row-gap 10px
+       và CÙNG chiều cao dòng (26px) với .transfer-items-list để mỗi badge
+       thẳng hàng ngang với đúng mã hàng tương ứng ở cột bên cạnh, thay vì
+       1 badge trôi giữa cả nhóm. */
+    .transfer-store-list { display: flex; flex-direction: column; gap: 10px; }
+    .transfer-store-list .transfer-store-row { display: flex; align-items: center; min-height: 26px; }
+    /* Cột "Đã Nhận" (tick từng mã đã nhận hàng): dùng CÙNG row-gap 10px và
+       CÙNG chiều cao dòng tối thiểu (26px) với .transfer-items-list, để mỗi
+       checkbox thẳng hàng ngang với đúng mã hàng tương ứng ở cột "Mã Hàng
+       (SL)" bên cạnh - dễ kiểm soát mã nào đã tick, mã nào chưa. */
+    .transfer-received-list { display: flex; flex-direction: column; gap: 10px; }
+    .transfer-received-list .transfer-received-row { display: flex; align-items: center; min-height: 26px; }
+    .transfer-received-list .transfer-received-row .form-check {
+        margin-bottom: 0; padding-left: 1.5em; display: flex; align-items: center;
+    }
+    .transfer-received-list .transfer-received-row .form-check-input { margin-top: 0; flex-shrink: 0; }
+
+    /* Đường phân cách RÕ RÀNG giữa từng phiếu luân chuyển - vì mỗi phiếu
+       giờ có thể chiếm nhiều dòng (nhiều mã hàng), viền mờ mặc định của
+       Bootstrap giữa các <tr> rất khó nhận ra đâu là ranh giới giữa 2
+       phiếu khác nhau. Dùng viền dưới đậm + màu rõ cho mỗi phiếu (mỗi
+       <tr>), bỏ viền ở dòng cuối cùng, và tăng khoảng đệm trên/dưới mỗi ô
+       để mắt dễ tách bạch từng phiếu một cách nhanh chóng. */
+    table.table-transfer > tbody > tr {
+        border-bottom: 2px solid var(--c-cbd5e1);
+    }
+    table.table-transfer > tbody > tr:last-child {
+        border-bottom: none;
+    }
+    table.table-transfer > tbody > tr > td {
+        padding-top: 14px;
+        padding-bottom: 14px;
+    }
+
+    /* Cả dòng phiếu (trừ ô có tick/nút/badge thao tác riêng) bấm được để mở
+       xem phiếu đó phóng to, độc lập trong modal - con trỏ tay gợi ý có thể
+       bấm, giữ nguyên hiệu ứng hover có sẵn của .table-hover. */
+    table.table-transfer > tbody > tr.transfer-row-clickable {
+        cursor: pointer;
+    }
+
+    /* Modal "Đồng Ý Phiếu Luân Chuyển" - mỗi mã hàng là 1 khối rõ ràng:
+       mã hàng (badge nhỏ) + tên hàng (cỡ chữ vừa, KHÔNG dùng font đậm mặc
+       định của toàn trang) + số lượng đã xin (chữ nhỏ, nhạt) nằm bên trái;
+       ô nhập số lượng đồng ý có nhãn riêng nằm bên phải - tách bạch bằng
+       khung viền + viền nhấn màu xanh bên trái (đồng bộ phong cách
+       .card-custom của toàn trang) và đổ bóng nhẹ để nổi bật rõ ràng hơn
+       so với nền xám phẳng trước đây; có đường kẻ dọc phân tách info/ô
+       nhập cho cân đối, dễ nhìn.*/
+    .transfer-approve-item {
+        display: flex; align-items: center; justify-content: space-between;
+        gap: 16px; padding: 14px 18px; margin-bottom: 12px;
+        background: var(--c-white); border: 1px solid var(--c-e2e8f0); border-left: 4px solid var(--ns-blue);
+        border-radius: 10px; box-shadow: 0 4px 14px rgba(13,110,253,0.07);
+        transition: box-shadow 0.15s ease, border-color 0.15s ease;
+    }
+    .transfer-approve-item:hover {
+        border-color: rgba(13,110,253,0.35);
+        box-shadow: 0 6px 18px rgba(13,110,253,0.12);
+    }
+    .transfer-approve-item-info {
+        flex: 1 1 auto; min-width: 0; padding-right: 18px;
+        border-right: 1px solid var(--c-eef2f7);
+    }
+    .transfer-approve-item-info .part-code { margin-bottom: 6px; display: inline-block; }
+    .transfer-approve-item-name {
+        font-size: 0.85rem; font-weight: 600; color: var(--c-334155);
+        line-height: 1.35; margin-bottom: 2px; word-break: break-word;
+    }
+    .transfer-approve-item-requested { font-size: 0.78rem; color: var(--c-64748b); }
+    .transfer-approve-item-requested b { color: var(--c-danger); font-weight: 800; }
+    .transfer-approve-item-input { flex: 0 0 auto; text-align: center; padding-left: 4px; }
+    .transfer-approve-item-input .transfer-approve-input-label {
+        display: block; font-size: 0.68rem; font-weight: 700; color: var(--c-94a3b8);
+        text-transform: uppercase; letter-spacing: 0.02em; margin-bottom: 4px;
+    }
+    .transfer-approve-item-input input.transfer-approve-qty-input {
+        width: 110px; text-align: center; font-weight: 700;
+    }
+    
+    #loading-overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(255,255,255,0.8); backdrop-filter: blur(4px); z-index: 9999; align-items: center; justify-content: center; flex-direction: column; }
+
+    /* Ô tồn kho có ghi chú luân chuyển (tô đỏ/xanh lá) - click/tap để xem
+       ghi chú. Dùng nền màu nhạt phủ cả ô thay vì gạch chân chấm chấm (khó
+       thấy) - dễ nhận ra ngay từ xa nhưng vẫn nhẹ nhàng, không chói mắt. */
+    .inv-hl { cursor: pointer; border-radius: 4px; position: relative; padding-top: 13px !important; }
+    /* Nhãn siêu nhỏ ở góc trên-phải ô: <Cửa hàng> <dấu><Số lượng> - cho biết
+       ngay đối tác là ai và bao nhiêu mà không cần bấm mở tooltip. */
+    .inv-hl-corner {
+        position: absolute; top: 1px; right: 2px; line-height: 1;
+        font-size: 0.52rem; font-weight: 700; letter-spacing: 0.2px;
+        white-space: nowrap; max-width: calc(100% - 4px); overflow: hidden;
+        text-overflow: ellipsis; pointer-events: none;
+    }
+    .inv-hl-out .inv-hl-corner { color: #b02a37; }
+    .inv-hl-in .inv-hl-corner { color: #146c43; }
+    .inv-hl-cross .inv-hl-corner { color: #b35309; }
+    /* !important bắt buộc: class .table trong Bootstrap tự set
+       background-color trên MỌI ô (td/th) với độ ưu tiên CSS cao hơn 1 class
+       thường (selector của nó có cả .table lẫn thẻ bên trong :not()), nên
+       nếu không có !important thì màu nền tô ở đây sẽ bị Bootstrap đè mất -
+       nhất là khi bảng có class "table-hover". */
+    .inv-hl-out { background-color: rgba(220, 53, 69, 0.14) !important; box-shadow: inset 3px 0 0 var(--c-danger) !important; }
+    .inv-hl-in { background-color: rgba(25, 135, 84, 0.14) !important; box-shadow: inset 3px 0 0 var(--c-success) !important; }
+    .inv-hl-cross { background-color: rgba(253, 126, 20, 0.16) !important; box-shadow: inset 3px 0 0 #fd7e14 !important; color: #b35309 !important; }
+    .inv-hl-cross::after { content: " \21c4"; font-weight: 700; }
+    .inv-hl-damaged { background-color: rgba(255, 193, 7, 0.28) !important; box-shadow: inset 3px 0 0 #ffc107 !important; color: #997404 !important; }
+
+    /* Bảng Vị Trí Hàng Hóa (Admin, dạng pivot) - mỗi ô hiện các vị trí đang
+       có xếp chồng dọc (Vị trí 1 trên cùng -> Vị trí 3 dưới cùng), thiếu vị
+       trí nào thì không chừa dòng trống cho vị trí đó. Kích thước ô CỐ ĐỊNH
+       (width + min-height đủ chỗ cho 3 dòng) để mọi ô luôn đều nhau, không
+       co giãn theo số lượng vị trí đang có hay độ dài text bên trong.*/
+    .loc-pivot-th { width: 92px; }
+    .loc-pivot-cell { text-align: center; position: relative; width: 92px; vertical-align: middle; }
+    .loc-pivot-row { display: inline-flex; align-items: center; gap: 2px; min-height: 54px; }
+    .loc-pivot-stack { display: flex; flex-direction: column; justify-content: center; align-items: flex-end; gap: 1px; font-size: 0.82rem; max-width: 74px; }
+    .loc-pivot-line { line-height: 1.25; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 74px; }
+    .loc-pivot-edit-btn {
+        opacity: 0.45; margin-left: 4px; text-decoration: none; vertical-align: middle;
+    }
+    .loc-pivot-edit-btn:hover, .loc-pivot-edit-btn:focus { opacity: 1; }
+    .loc-pivot-edit { min-width: 110px; }
+    .loc-pivot-edit .loc-edit-input { text-align: center; }
+
+    /* Bảng Vị Trí Hàng Hóa (Store, dạng phẳng) - 3 cột Vị Trí 1/2/3 cùng
+       kích thước cố định, badge dài quá thì cắt bớt (...) thay vì làm co
+       giãn cột/hàng, giữ bảng luôn đều nhau. */
+    .loc-flat-th { width: 110px; }
+    .loc-cell { width: 110px; }
+    .loc-cell .badge { max-width: 100px; overflow: hidden; text-overflow: ellipsis; display: inline-block; vertical-align: bottom; }
+    #inv-tooltip {
+        display: none; position: fixed; z-index: 10000; max-width: 260px;
+        background: #1f2937; color: #fff; padding: 8px 12px; border-radius: 8px;
+        font-size: 0.8rem; line-height: 1.5; white-space: pre-line;
+        box-shadow: 0 6px 20px rgba(0,0,0,0.25);
+    }
+
+    @media (max-width: 768px) {
+        .brand-banner { padding: 1rem; }
+        .brand-banner h4 { font-size: 1.1rem; }
+        .container-fluid { padding-left: 10px !important; padding-right: 10px !important; }
+        .nav-pills { flex-wrap: nowrap; overflow-x: auto; padding-bottom: 5px; }
+        .stat-card h3 { font-size: 1.35rem; }
+    }
+
+
+    .app-container { max-width: 1400px; }
+    @media (min-width: 1400px) {
+        .app-container { max-width: 95vw; }
+    }
+    @media (min-width: 1900px) {
+        /* Trước đây chặn cứng ở 1800px khiến màn hình rất rộng (2K/ultra-wide)
+           bị thừa 1 mảng trắng lớn bên phải (vì .app-container không auto-
+           center, chỉ lùi đúng bề rộng sidebar thu gọn bên trái). Đổi sang
+           % để nội dung/bảng tiếp tục giãn theo màn hình, tận dụng hết
+           chiều ngang còn lại thay vì bỏ trống. */
+        .app-container { max-width: 97vw; }
+    }
+
+    /* ---- FOOTER (Về chúng tôi / Thông tin liên hệ) ---- */
+    .site-footer {
+        background: var(--ns-dark);
+        color: rgba(255,255,255,0.75);
+        border-top: 4px solid var(--ns-blue);
+        margin-top: 2rem;
+        padding: 2rem 0 1rem;
+    }
+    .site-footer h6 {
+        color: #fff;
+        font-weight: 800;
+        letter-spacing: 0.03em;
+        font-size: 0.95rem;
+        margin-bottom: 1rem;
+    }
+    .site-footer p { margin-bottom: 0.6rem; font-size: 0.88rem; line-height: 1.5; }
+    .site-footer p.footer-strong { color: rgba(255,255,255,0.92); font-weight: 600; }
+    .site-footer a { color: rgba(255,255,255,0.75); text-decoration: none; }
+    .site-footer a:hover { color: #fff; }
+    .site-footer .footer-icon { color: var(--ns-blue); width: 1.1rem; display: inline-block; text-align: center; margin-right: 0.5rem; flex-shrink: 0; }
+    .site-footer .footer-contact-line { display: flex; align-items: flex-start; }
+    .site-footer hr { border-color: rgba(255,255,255,0.12); margin: 1.5rem 0 1rem; }
+    .site-footer .footer-copyright { font-size: 0.8rem; color: rgba(255,255,255,0.5); text-align: center; }
+
+    @media (max-width: 767px) {
+        .site-footer { padding: 1.5rem 0 1rem; margin-top: 1.5rem; }
+        .site-footer .col-md-6:first-child { margin-bottom: 1.5rem; }
+    }
+
+    /* ---- IN PHIẾU LUÂN CHUYỂN NỘI BỘ (khổ A4 ngang) ---- */
+    /* #print-area rỗng/ẩn khi xem bình thường trên web, chỉ build nội dung
+       và hiện ra đúng lúc bấm nút "In" (xem hàm printSelectedTransfers). */
+    #print-area { display: none; }
+    .print-page {
+        width: 100%;
+        font-family: var(--bs-body-font-family);
+        color: #000;
+        page-break-after: always;
+    }
+    .print-page:last-child { page-break-after: auto; }
+    .print-page .print-header { display: flex; align-items: center; margin-bottom: 6px; }
+    .print-page .print-header-logo { display: flex; align-items: center; margin-right: 14px; }
+    .print-page .print-header-logo img { max-height: 60px; object-fit: contain; }
+    .print-page .print-header-left { font-size: 0.85rem; line-height: 1.4; }
+    .print-page .print-header-left .print-company-name { font-weight: 800; text-transform: uppercase; font-size: 0.9rem; }
+    .print-page .print-title { text-align: center; margin-bottom: 4px; }
+    .print-page .print-title h3 { font-weight: 800; margin: 0; }
+    .print-page .print-title .print-subtitle { font-size: 0.9rem; color: #333; }
+    .print-meta-row { display: flex; justify-content: space-between; margin: 14px 0 10px; font-size: 0.95rem; }
+    .print-meta-row div { flex: 1; }
+    .print-meta-row b { font-weight: 700; }
+    .print-page table.print-items-table { width: 100%; border-collapse: collapse; margin-top: 6px; }
+    .print-page table.print-items-table th, .print-page table.print-items-table td {
+        border: 1px solid #444; padding: 6px 10px; font-size: 0.95rem; text-align: left;
+    }
+    .print-page table.print-items-table th { background: #eef2ff; font-weight: 700; text-align: center; }
+    .print-page table.print-items-table td.print-qty-cell { text-align: center; font-weight: 700; width: 100px; }
+    .print-page table.print-items-table td.print-stt-cell { text-align: center; width: 50px; }
+    .print-note { margin-top: 10px; font-size: 0.9rem; }
+    .print-signatures { display: flex; justify-content: space-around; margin-top: 40px; text-align: center; font-size: 0.92rem; }
+    .print-signatures .print-sign-label { font-weight: 700; margin-bottom: 4px; }
+    .print-signatures .print-sign-hint { font-size: 0.8rem; color: #555; margin-top: 2px; }
+
+    @media print {
+        @page { size: A4 landscape; margin: 12mm; }
+        body * { visibility: hidden; }
+        #print-area, #print-area * { visibility: visible; }
+        #print-area { display: block; position: absolute; top: 0; left: 0; width: 100%; }
+    }
+
+    /* Nút "Tra Cứu Nhanh" nổi góc dưới bên phải (chỉ dành cho user cửa
+       hàng) - luôn hiện đè lên mọi tab đang xem, bấm vào mở modal hiện lại
+       bảng Tồn Kho & Vị Trí để tra cứu ngay không cần chuyển tab. */
+    .quick-lookup-fab {
+        position: fixed;
+        right: 20px;
+        bottom: 20px;
+        width: 56px;
+        height: 56px;
+        border-radius: 16px;
+        background: var(--c-white);
+        border: 1px solid rgba(13, 110, 253, 0.15);
+        box-shadow: 0 6px 20px rgba(13, 110, 253, 0.25);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 1045;
+        cursor: grab;
+        touch-action: none;
+        user-select: none;
+        -webkit-user-select: none;
+        transition: transform 0.15s ease, box-shadow 0.15s ease;
+    }
+    .quick-lookup-fab:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 10px 26px rgba(13, 110, 253, 0.32);
+    }
+    .quick-lookup-fab:active { transform: translateY(0); }
+    /* Khi đang kéo (đã di quá 1 ngưỡng nhỏ) - đổi con trỏ, tắt transition
+       để nút bám sát theo chuột/ngón tay, không bị giật/trễ. */
+    .quick-lookup-fab.dragging {
+        cursor: grabbing;
+        transition: none;
+        box-shadow: 0 12px 30px rgba(13, 110, 253, 0.35);
+    }
+    .quick-lookup-fab i.bi-box-seam {
+        font-size: 1.6rem;
+        color: #5b6b8c;
+        pointer-events: none;
+    }
+    .quick-lookup-fab .quick-lookup-fab-badge {
+        position: absolute;
+        right: -4px;
+        bottom: -4px;
+        width: 22px;
+        height: 22px;
+        border-radius: 50%;
+        background: var(--c-primary);
+        color: #fff;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 0.7rem;
+        border: 2px solid #fff;
+        pointer-events: none;
+    }
+    @media (max-width: 767px) {
+        .quick-lookup-fab { right: 14px; bottom: 14px; width: 50px; height: 50px; border-radius: 14px; }
+        .quick-lookup-fab i.bi-box-seam { font-size: 1.4rem; }
+    }
+
+    /* Modal "Tra Cứu Nhanh" có thể kéo giãn to/nhỏ tuỳ ý (tay cầm resize ở
+       góc dưới-phải modal-content). Bỏ max-height 550px mặc định của
+       .table-responsive trong RIÊNG modal này để bảng giãn hết theo chiều
+       cao modal-content; cuộn dọc do modal-body đảm nhiệm (đã có sẵn nhờ
+       class modal-dialog-scrollable trên modal-dialog). */
+    #quick-lookup-modal .modal-dialog { transition: none; }
+    #quick-lookup-modal .table-responsive { max-height: none; overflow-y: visible; }
+    #quick-lookup-modal .modal-content { position: relative; }
+    #quick-lookup-modal-resize-handle {
+        position: absolute;
+        right: 0;
+        bottom: 0;
+        width: 24px;
+        height: 24px;
+        cursor: nwse-resize;
+        z-index: 5;
+        display: flex;
+        align-items: flex-end;
+        justify-content: flex-end;
+        padding: 3px;
+        color: var(--c-94a3b8);
+        touch-action: none;
+    }
+    #quick-lookup-modal-resize-handle i { font-size: 1rem; pointer-events: none; }
+    #quick-lookup-modal-resize-handle:hover { color: var(--c-primary); }
+
+    /* Modal "Chi Tiết Bộ Áo" có thể kéo giãn to/nhỏ tuỳ ý (tay cầm resize ở
+       góc dưới-phải modal-content) - dùng CÙNG cơ chế JS với modal "Tra Cứu
+       Nhanh" ở trên: modal-dialog-centered mặc định display:flex khiến CSS
+       resize thuần không ăn theo chiều ngang (flexbox tự co lại), nên set
+       width/maxWidth trực tiếp bằng JS khi kéo mới đáng tin cậy.  */
+    #bodyKitDetailModal .modal-dialog { transition: none; }
+    #bodyKitDetailModal .modal-content { position: relative; }
+    #bodyKitDetailModal .table-responsive { max-height: none; overflow-y: visible; }
+    #bodyKitDetailModal-resize-handle {
+        position: absolute;
+        right: 0;
+        bottom: 0;
+        width: 24px;
+        height: 24px;
+        cursor: nwse-resize;
+        z-index: 5;
+        display: flex;
+        align-items: flex-end;
+        justify-content: flex-end;
+        padding: 3px;
+        color: var(--c-94a3b8);
+        touch-action: none;
+    }
+    #bodyKitDetailModal-resize-handle i { font-size: 1rem; pointer-events: none; }
+    #bodyKitDetailModal-resize-handle:hover { color: var(--c-primary); }
+    /* Lightbox phóng to ảnh khi bấm vào - dùng chung cho ảnh minh hoạ chi
+       tiết bộ áo và ảnh thumbnail trong lưới. */
+    #imgLightboxOverlay {
+        display: none; position: fixed; inset: 0; z-index: 2000;
+        background: rgba(15, 23, 42, .85);
+        align-items: center; justify-content: center;
+        padding: 40px; cursor: zoom-out;
+    }
+    #imgLightboxOverlay.show { display: flex; }
+    #imgLightboxOverlay img {
+        max-width: 100%; max-height: 100%; border-radius: 8px;
+        box-shadow: 0 20px 60px rgba(0,0,0,.5);
+        cursor: default;
+    }
+    #imgLightboxOverlay .lightbox-close {
+        position: absolute; top: 18px; right: 24px;
+        color: #fff; font-size: 2rem; line-height: 1; cursor: pointer;
+        opacity: .85;
+    }
+    #imgLightboxOverlay .lightbox-close:hover { opacity: 1; }
+    .img-zoomable { cursor: zoom-in; }
+
+    .resizable-table { table-layout: fixed; width: auto !important; }
+    .resizable-table th, .resizable-table td { overflow: hidden; text-overflow: ellipsis; }
+    .resizable-table thead th { position: sticky; } /* giữ lại vị trí sticky (đã có ở .table thead th) làm điểm neo cho tay kéo */
+    .col-resize-handle {
+        position: absolute;
+        top: 0;
+        right: -3px;
+        width: 6px;
+        height: 100%;
+        cursor: col-resize;
+        z-index: 6;
+        touch-action: none;
+    }
+    .col-resize-handle:hover,
+    .col-resize-handle.col-resizing { background: rgba(13, 110, 253, 0.35); }
+
+    /* Icon chuông thông báo + danh sách trong dropdown */
+    .notif-item { transition: background-color 0.15s ease; }
+    .notif-item:hover { background-color: rgba(13, 110, 253, 0.06); }
+    .notif-item.notif-unread { background-color: rgba(13, 110, 253, 0.07); }
+    .notif-unread-dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: var(--c-primary);
+        flex-shrink: 0;
+        margin-top: 4px;
+    }
+
+    /* Nút thu gọn/phóng to (mũi tên tự xoay theo trạng thái Bootstrap collapse) */
+    .collapse-chevron { transition: transform 0.2s ease; }
+    [data-bs-toggle="collapse"][aria-expanded="true"] .collapse-chevron { transform: rotate(180deg); }
+
+    /* ===== SIDEBAR DỌC (thay cho "mega-nav" nằm ngang cũ) =====
+       Mặc định thu gọn, CHỈ hiện icon; tự MỞ RỘNG hiện đầy đủ nhãn + các
+       mục con khi RÊ CHUỘT vào (thuần CSS :hover, không cần JS trên máy
+       tính). Trên thiết bị không có hover thật (điện thoại/máy tính bảng),
+       JS thêm/bớt class .ns-sidebar-pinned khi CHẠM vào bên trong / chạm
+       ra ngoài thanh menu (xem hàm setupSidebarHoverExpand()).
+       Sidebar dùng position:fixed và "đè lên" nội dung khi mở rộng (có
+       box-shadow) thay vì đẩy dạt layout - nội dung trang (.app-container)
+       chỉ lùi sang phải đúng bằng bề rộng LÚC THU GỌN (biến
+       --ns-sb-collapsed) và giữ nguyên khi sidebar mở rộng, để tránh
+       giật/nhảy nội dung mỗi lần rê chuột vào/ra.
+       Vẫn giữ NGUYÊN cơ chế "bấm hộ" (megaNavClick) vào đúng nút tab GỐC
+       và cơ chế tô đậm mục đang chọn (syncMegaNavActiveState) - 2 hàm đó
+       không cần sửa gì cả, vì các class .dropdown / .dropdown-toggle /
+       .dropdown-item / .mega-active và thuộc tính data-target-tab vẫn
+       được giữ y hệt như mega-nav kiểu cũ, chỉ đổi CSS hiển thị. */
+    :root {
+        --ns-sb-collapsed: 64px; /* Bề rộng menu dọc lúc thu gọn - KHÔNG còn phụ
+                                     thuộc vào việc logo to hay nhỏ nữa (logo giờ
+                                     tự tràn ra ngoài ô khi cần to hơn, xem
+                                     .ns-topbar-corner-logo), nên để nguyên bề
+                                     rộng gốc, độc lập với logo. */
+        --ns-sb-expanded: 252px;
+        --ns-topbar-h: 150px; /* Giá trị mặc định - CỐ Ý đặt cao rộng rãi
+                                (đủ cho cả trường hợp banner xuống 2 dòng
+                                trên điện thoại) thay vì đặt sát đúng 1 dòng,
+                                để phòng khi JS (syncTopbarHeight()) vì lý do
+                                gì đó chưa kịp/không chạy được, nội dung bên
+                                dưới (banner Ngày Xe Đi, banner cảnh báo
+                                mượn quyền admin...) vẫn KHÔNG BAO GIỜ bị
+                                thanh header cố định đè lên che mất - tối đa
+                                chỉ dư ra 1 khoảng trắng nhỏ dưới header
+                                trong chốc lát trước khi JS đo lại đúng
+                                chiều cao thật và thu gọn lại. */
+    }
+    .app-container { margin-left: var(--ns-sb-collapsed); width: calc(100% - var(--ns-sb-collapsed)); padding-top: var(--ns-topbar-h); }
+
+    .ns-sidebar {
+        position: fixed; top: var(--ns-topbar-h); left: 0; bottom: 0;
+        width: var(--ns-sb-collapsed);
+        background: var(--c-white);
+        border-right: 1px solid #e9edf2;
+        box-shadow: 2px 0 10px rgba(15,23,42,0.04);
+        z-index: 1040;
+        overflow-y: auto; overflow-x: hidden;
+        padding: 12px 0 16px;
+        transition: width 0.2s ease, box-shadow 0.2s ease;
+    }
+    .ns-sidebar:hover,
+    .ns-sidebar.ns-sidebar-pinned {
+        width: var(--ns-sb-expanded);
+        box-shadow: 6px 0 28px rgba(15,23,42,0.14);
+    }
+
+    .ns-sidebar-group { margin-bottom: 0; }
+    .ns-sidebar-group-title, .ns-sidebar-item {
+        display: flex; align-items: center; gap: 12px;
+        width: calc(100% - 16px); margin: 2px 8px;
+        border: none; background: transparent; text-align: left;
+        padding: 11px 0 11px 13px; border-radius: 10px;
+        color: var(--c-475569); font-weight: 600; font-size: 0.85rem;
+        white-space: nowrap; cursor: pointer;
+        transition: background .15s ease, color .15s ease;
+    }
+    /* Tiêu đề nhóm giờ chỉ còn là 1 vạch ngăn cách mảnh + chữ (chữ chỉ hiện
+       khi mở rộng) - KHÔNG còn gom icon các mục con vào chung 1 icon nhóm
+       nữa: mọi icon con luôn hiển thị đầy đủ, kể cả lúc thu gọn ("xổ ra"
+       hết icon thay vì ẩn trong submenu). */
+    .ns-sidebar-group-title {
+        height: 26px; padding: 10px 0 4px 13px; margin: 6px 8px 0;
+        border-top: 1px solid var(--c-eef2f7);
+        font-size: 0.66rem; font-weight: 700; text-transform: uppercase;
+        letter-spacing: .04em; color: var(--c-94a3b8); cursor: default;
+    }
+    .ns-sidebar-group:first-of-type .ns-sidebar-group-title { border-top: none; margin-top: 0; }
+    .ns-sidebar-item:hover { background: var(--c-eff6ff); color: var(--c-primary); }
+    .ns-sidebar-item.mega-active,
+    .ns-sidebar-group-title.mega-active { background: var(--c-eff6ff); color: var(--c-primary); }
+
+    .ns-sidebar-icon { position: relative; flex: 0 0 22px; width: 22px; text-align: center; font-size: 1.08rem; }
+    .ns-sidebar-icon .bi { vertical-align: -2px; }
+    .ns-sidebar-badge-dot {
+        position: absolute; top: -7px; right: -10px;
+        min-width: 16px; height: 16px; padding: 0 3px;
+        font-size: 0.6rem; line-height: 16px; text-align: center;
+    }
+    .ns-label {
+        opacity: 0; max-width: 0; overflow: hidden;
+        transition: opacity .15s ease, max-width .2s ease;
+    }
+    .ns-sidebar:hover .ns-label,
+    .ns-sidebar.ns-sidebar-pinned .ns-label { opacity: 1; max-width: 190px; }
+
+    @media (max-width: 767.98px) {
+        :root { --ns-sb-collapsed: 54px; --ns-sb-expanded: 224px; }
+        .ns-sidebar-group-title, .ns-sidebar-item { font-size: 0.8rem; }
+    }
+    /* ================================================================
+       DESIGN REFRESH - lớp giao diện đồng bộ (đặt CUỐI khối CSS để ghi
+       đè nhẹ, KHÔNG đổi id/class/cấu trúc mà JS đang dùng).
+       Mục tiêu: (1) 1 bộ "token" màu/bo góc/đổ bóng dùng chung cho mọi
+       trang; (2) dễ đọc hơn (tương phản chữ, tiêu đề bảng gọn hơn);
+       (3) thao tác rõ ràng (trạng thái focus/hover/đang chọn nhất quán,
+       vùng bấm đủ lớn trên cảm ứng); (4) menu dọc rõ mục đang chọn.
+       Không đụng tới màu nền ô/hàng bảng (để không phá các cột dính và
+       hiệu ứng hover đã căn chỉnh ở bảng Duyệt Đơn Hàng).
+       ================================================================ */
+    :root {
+        --ns-border: var(--c-e2e8f0);
+        --ns-border-soft: var(--c-eef2f7);
+        --ns-muted: var(--c-64748b);
+        --ns-radius: 14px;
+        --ns-radius-sm: 8px;
+        --ns-shadow-sm: 0 1px 2px rgba(15,23,42,.05), 0 2px 8px rgba(15,23,42,.05);
+        --ns-shadow-md: 0 6px 20px rgba(15,23,42,.09);
+        --ns-focus-ring: 0 0 0 .2rem rgba(13,110,253,.18);
+    }
+    body { -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility; }
+
+    /* --- Thẻ nội dung: nhẹ hơn, bo đều, giữ vạch màu nhận diện phía trên --- */
+    .card-custom {
+        border-radius: var(--ns-radius);
+        border-top-width: 3px;
+        box-shadow: var(--ns-shadow-sm);
+    }
+    .card { border-color: var(--ns-border); }
+
+    /* --- Ô nhập liệu & nút: cùng 1 ngôn ngữ (bo góc, viền, vòng focus) --- */
+    .form-control, .form-select {
+        border-color: var(--c-cbd5e1);
+        border-radius: var(--ns-radius-sm);
+        transition: border-color .15s ease, box-shadow .15s ease, background-color .15s ease;
+    }
+    .form-control::placeholder { color: var(--c-94a3b8); }
+    .form-control:hover:not(:focus):not(:disabled),
+    .form-select:hover:not(:focus):not(:disabled) { border-color: var(--c-94a3b8); }
+    .form-control:focus, .form-select:focus {
+        border-color: #86b7fe;
+        box-shadow: var(--ns-focus-ring);
+    }
+    .form-control:disabled, .form-select:disabled { background-color: var(--c-f1f5f9); }
+    .btn {
+        border-radius: var(--ns-radius-sm);
+        font-weight: 600;
+        transition: background-color .15s ease, border-color .15s ease, box-shadow .15s ease, color .15s ease;
+    }
+    .btn:focus-visible { box-shadow: var(--ns-focus-ring); outline: none; }
+    .btn:active:not(:disabled) { transform: translateY(1px); }
+    .badge { font-weight: 600; }
+
+    /* --- Bàn phím: viền focus rõ ràng cho mọi phần tử bấm được --- */
+    a:focus-visible, button:focus-visible, [tabindex]:focus-visible, summary:focus-visible {
+        outline: 2px solid var(--c-primary);
+        outline-offset: 2px;
+    }
+    .form-control:focus-visible, .form-select:focus-visible, .btn:focus-visible { outline: none; }
+
+    /* --- Bảng: tiêu đề gọn, dễ đọc; đường kẻ dòng mảnh --- */
+    .table { --bs-table-border-color: var(--ns-border-soft); }
+    .table thead th {
+        font-weight: 700 !important;
+        letter-spacing: .03em;
+        line-height: 1.25;
+        box-shadow: inset 0 -2px 0 #cfe0ff;
+    }
+    .table-responsive {
+        border-radius: 10px;
+        scrollbar-width: thin;
+        scrollbar-color: var(--c-cbd5e1) transparent;
+    }
+    .table-responsive::-webkit-scrollbar { width: 10px; height: 10px; }
+    .table-responsive::-webkit-scrollbar-track { background: transparent; }
+    .table-responsive::-webkit-scrollbar-thumb {
+        background: var(--c-cbd5e1); border-radius: 10px; border: 2px solid #fff;
+    }
+    .table-responsive::-webkit-scrollbar-thumb:hover { background: var(--c-94a3b8); }
+
+    /* --- Menu dọc: rõ mục đang chọn + chữ nhóm dễ đọc hơn --- */
+    .ns-sidebar-item { position: relative; }
+    .ns-sidebar-item:focus-visible { outline-offset: -2px; }
+    .ns-sidebar-item.mega-active {
+        background: #e8f1ff;
+        color: #0b5ed7;
+    }
+    .ns-sidebar-item.mega-active::before {
+        content: "";
+        position: absolute;
+        left: -8px; top: 8px; bottom: 8px;
+        width: 4px;
+        border-radius: 0 4px 4px 0;
+        background: var(--ns-blue);
+    }
+    .ns-sidebar-item.mega-active .ns-sidebar-icon { color: var(--ns-blue); }
+    .ns-sidebar-group-title { color: var(--ns-muted); font-size: .68rem; }
+    .ns-sidebar { scrollbar-width: thin; scrollbar-color: var(--c-cbd5e1) transparent; }
+
+    /* --- Tab con dạng pill (trong từng trang) --- */
+    .nav-pills .nav-link { border: 1px solid var(--ns-border); box-shadow: none; }
+    .nav-pills .nav-link.active { border-color: transparent; }
+
+    /* --- Cửa sổ (modal) --- */
+    .modal-content {
+        border: none;
+        border-radius: 16px;
+        box-shadow: 0 24px 60px rgba(15,23,42,.2);
+    }
+    .modal-header { border-bottom-color: var(--ns-border-soft); }
+    .modal-footer { border-top-color: var(--ns-border-soft); }
+    .dropdown-menu { border-color: var(--ns-border); box-shadow: var(--ns-shadow-md); border-radius: 12px; }
+
+    /* --- Màn hình cảm ứng: vùng bấm đủ lớn (không đụng ô trong bảng để
+           không làm cao dòng) --- */
+    @media (pointer: coarse) {
+        .btn:not(.btn-sm):not(.btn-close) { min-height: 44px; }
+        .btn-sm { min-height: 38px; }
+        .form-control-sm, .form-select-sm { min-height: 38px; }
+        .ns-sidebar-item { min-height: 44px; }
+        td .btn-sm, th .btn-sm, td .form-control-sm, td .form-select-sm { min-height: 0; }
+    }
+
+    /* --- Người dùng tắt hiệu ứng chuyển động trong hệ điều hành --- */
+    @media (prefers-reduced-motion: reduce) {
+        *, *::before, *::after {
+            animation-duration: .01ms !important;
+            animation-iteration-count: 1 !important;
+            transition-duration: .01ms !important;
+            scroll-behavior: auto !important;
+        }
+    }
+        #gdh-pane .gdh-head { display:flex; flex-wrap:wrap; justify-content:space-between; align-items:center; gap:.5rem; margin-bottom:.75rem; }
+        #gdh-pane .gdh-bar { display:flex; flex-wrap:wrap; align-items:center; gap:.5rem; padding:.6rem .75rem; background:var(--c-f8fafc); border:1px solid var(--c-e2e8f0); border-radius:.6rem; margin-bottom:.6rem; }
+        #gdh-pane .gdh-bar .gdh-sep { width:1px; align-self:stretch; background:var(--c-cbd5e1); margin:0 .25rem; }
+        #gdh-pane .gdh-settings { display:flex; flex-wrap:wrap; align-items:center; gap:.5rem .6rem; margin-bottom:.4rem; }
+        #gdh-pane .gdh-settings label { margin:0; color:var(--c-64748b); font-size:.85rem; }
+        #gdh-pane .gdh-stat { border:1px solid var(--c-e2e8f0); border-radius:.6rem; padding:.5rem .75rem; height:100%; background:#fff; }
+        #gdh-pane .gdh-stat-t { font-size:.72rem; font-weight:700; color:var(--c-64748b); text-transform:uppercase; letter-spacing:.03em; }
+        #gdh-pane .gdh-stat-v { font-size:1.2rem; font-weight:700; line-height:1.3; color:var(--c-0f172a); }
+        #gdh-pane .gdh-stat-v small { font-size:.78rem; font-weight:500; color:var(--c-64748b); }
+        #gdh-pane .gdh-stat-s { font-size:.78rem; color:var(--c-64748b); }
+        #gdh-pane .gdh-filters { display:flex; flex-wrap:wrap; align-items:center; gap:.5rem; margin:.6rem 0; }
+        #gdh-pane .gdh-scroll { height:max(420px, calc(100vh - 470px)); overflow:auto; border:1px solid var(--c-e2e8f0); border-radius:.6rem; background:#fff; }
+        #gdh-pane.gdh-top-collapsed .gdh-scroll { height:max(420px, calc(100vh - 260px)); }
+        #gdh-pane.gdh-top-collapsed .gdh-top { display:none; }
+        /* bảng: layout tự co theo nội dung (không còn ép cứng làm cột Tên hàng bị bóp) */
+        #gdh-pane table.gdh-table { font-size:.86rem; font-variant-numeric:tabular-nums; width:100%; min-width:1300px; margin:0; border-collapse:separate; border-spacing:0; }
+        #gdh-pane .gdh-table th { text-align:left; position:sticky; top:0; z-index:3; background:var(--c-eef2f7); color:var(--c-334155); font-size:.72rem; font-weight:700; text-transform:uppercase; letter-spacing:.02em; padding:.5rem .55rem; border-bottom:2px solid var(--c-cbd5e1); white-space:nowrap; }
+        #gdh-pane .gdh-table td { padding:.35rem .55rem; border-bottom:1px solid var(--c-eef2f7); vertical-align:middle; background:#fff; }
+        #gdh-pane .gdh-table tbody tr:hover td { background:var(--c-f8fafc); }
+        #gdh-pane .gdh-table .gdh-sticky { position:sticky; left:0; z-index:2; white-space:nowrap; }
+        #gdh-pane .gdh-table th.gdh-sticky { z-index:4; background:var(--c-eef2f7); }
+        #gdh-pane .gdh-table tr.gdh-on td.gdh-sticky { box-shadow:inset 4px 0 0 var(--c-success); }
+        #gdh-pane .gdh-code { font-weight:700; color:var(--c-0f172a); letter-spacing:.01em; font-size:.84rem; }
+        #gdh-pane .gdh-name { min-width:230px; max-width:340px; white-space:normal; line-height:1.3; }
+        #gdh-pane .gdh-sub { font-size:.76rem; color:var(--c-64748b); }
+        #gdh-pane .gdh-num { text-align:right; white-space:nowrap; }
+        #gdh-pane th.gdh-num { text-align:right; }
+        #gdh-pane .gdh-cell-sug { background:#e8f4fd !important; font-weight:600; }
+        #gdh-pane .gdh-cell-fin { background:#e6f4ea !important; font-weight:700; }
+        #gdh-pane .gdh-diff { color:#b45309; font-weight:700; border-bottom:1px dotted #b45309; cursor:help; }
+        #gdh-pane .gdh-zero { color:#b4bfcc; font-weight:400; }                      /* số 0 mờ đi để số thật nổi lên */
+        #gdh-pane .gdh-table tr.gdh-on td { background:#f3faf5; }                     /* dòng cần đặt: nền xanh rất nhạt cả hàng */
+        #gdh-pane .gdh-in { height:30px; padding:2px 8px; font-size:.86rem; scroll-margin-top:48px; }
+        #gdh-pane .gdh-in-adj { text-align:right; width:72px; margin-left:auto; }
+        #gdh-pane .gdh-in-type { width:112px; }
+        #gdh-pane .gdh-in-note { width:100%; min-width:170px; }
+        #gdh-pane .gdh-in:focus { border-color:var(--c-primary); box-shadow:0 0 0 .18rem rgba(13,110,253,.18); }
+        #gdh-pane .gdh-in::placeholder { color:#b6c0cc; }
+        #gdh-pane .gdh-st { min-width:46px; background:#e8eef7 !important; line-height:1.15; }
+        #gdh-pane .gdh-st0 { border-left:1px solid var(--c-cbd5e1); }
+        #gdh-pane td.gdh-hs { background:#fffaeb !important; font-weight:700; }
+        #gdh-pane th.gdh-hs { background:#fdf0c4 !important; }
+        /* ===== Phóng to khu vực soạn đơn (nút ở đầu trang, bấm Esc để thu nhỏ) ===== */
+        /* Duyệt đơn: khoá bảng khi đơn không còn sửa được + thanh trạng thái */
+        #gdh-pane.gdh-ro .gdh-edit-only { display:none !important; }
+        #gdh-pane .gdh-statusbar { --sc:var(--c-94a3b8); display:flex; flex-wrap:wrap; align-items:center; gap:.5rem .75rem; padding:.55rem .75rem; border:1px solid var(--c-e2e8f0); border-left:4px solid var(--sc); border-radius:.6rem; margin-bottom:.6rem; background:#fff; }
+        #gdh-pane .gdh-statusbar[data-st="pending"]   { --sc:var(--c-f59e0b); background:#fffaeb; }
+        #gdh-pane .gdh-statusbar[data-st="reviewing"] { --sc:#0ea5e9; background:#f0f9ff; }
+        #gdh-pane .gdh-statusbar[data-st="approved"]  { --sc:#16a34a; background:#f0fdf4; }
+        #gdh-pane .gdh-statusbar[data-st="viewed"]    { --sc:#2563eb; background:var(--c-eff6ff); }
+        #gdh-pane .gdh-statusbar[data-st="ordered"]   { --sc:var(--c-0f172a); background:var(--c-f8fafc); }
+        #gdh-pane .gdh-statusbar[data-st="rejected"]  { --sc:#dc2626; background:#fef2f2; }
+        #gdh-pane.gdh-ro .gdh-in:disabled { background:var(--c-f1f5f9); color:var(--c-334155); opacity:1; cursor:not-allowed; }
+        #gdh-pane.gdh-max #gdhGomView > .card { position:fixed; top:0; left:0; right:0; bottom:0; z-index:1060; margin:0 !important; border-radius:0; display:flex; flex-direction:column; overflow:hidden; padding:.6rem .9rem !important; }
+        #gdh-pane.gdh-max #gdhGomView > .card > * { flex-shrink:0; }
+        #gdh-pane.gdh-max #gdhGomView > .card > .gdh-scroll { flex:1 1 0; height:auto !important; min-height:0; overscroll-behavior:contain; }
+        #gdh-pane.gdh-max .gdh-bar, #gdh-pane.gdh-max .gdh-top > :not(.gdh-settings), #gdh-pane.gdh-max #gdhTopBtn { display:none !important; }
+        #gdh-pane.gdh-max .gdh-top { display:block !important; }
+        #gdh-pane .gdh-chips { display:flex; flex-wrap:wrap; gap:3px; min-width:150px; max-width:210px; }
+        #gdh-pane .gdh-chip { display:inline-block; font-size:.72rem; line-height:1; padding:3px 6px; border-radius:999px; background:var(--c-eef2f7); color:var(--c-334155); white-space:nowrap; }
+        #gdh-pane .gdh-chip b { color:var(--c-0f172a); }
+        #gdh-pane .gdh-ord { min-width:150px; line-height:1.25; }
+        #gdh-pane .gdh-ord .gdh-pc { font-weight:700; color:var(--c-primary); }
+        #gdh-pane .gdh-tag { display:inline-block; font-size:.68rem; font-weight:600; padding:1px 6px; border-radius:4px; background:var(--c-e0e7ff); color:#3730a3; }
+
+        /* ===== Đóng băng cột: Mã hàng | Tên hàng | Tần suất bán | Tồn - luôn thấy khi kéo ngang ===== */
+        #gdh-pane { --gdh-w1:140px; --gdh-w2:230px; --gdh-w3:135px; }
+        #gdh-pane .gdh-table th.gdh-sticky, #gdh-pane .gdh-table td.gdh-sticky { width:var(--gdh-w1); min-width:var(--gdh-w1); max-width:var(--gdh-w1); }
+        #gdh-pane .gdh-table .gdh-fz2 { position:sticky; left:var(--gdh-w1); width:var(--gdh-w2); min-width:var(--gdh-w2); max-width:var(--gdh-w2); z-index:2; }
+        #gdh-pane .gdh-table .gdh-fz3 { position:sticky; left:calc(var(--gdh-w1) + var(--gdh-w2)); width:var(--gdh-w3); min-width:var(--gdh-w3); max-width:var(--gdh-w3); z-index:2; }
+        #gdh-pane .gdh-table .gdh-hs  { position:sticky; left:calc(var(--gdh-w1) + var(--gdh-w2) + var(--gdh-w3)); min-width:64px; z-index:2; box-shadow:4px 0 6px -2px rgba(15,23,42,.18); }
+        #gdh-pane .gdh-table th.gdh-fz2, #gdh-pane .gdh-table th.gdh-fz3, #gdh-pane .gdh-table th.gdh-hs { z-index:4; }
+        #gdh-pane .gdh-table th.gdh-fz2, #gdh-pane .gdh-table th.gdh-fz3 { background:var(--c-eef2f7); }
+        @media (max-width: 991.98px) {   /* màn hình nhỏ: chỉ đóng băng Mã hàng để không chiếm hết chiều ngang */
+            #gdh-pane .gdh-table td.gdh-fz2, #gdh-pane .gdh-table td.gdh-fz3, #gdh-pane .gdh-table td.gdh-hs { position:static; box-shadow:none; }
+            #gdh-pane .gdh-table th.gdh-fz2, #gdh-pane .gdh-table th.gdh-fz3, #gdh-pane .gdh-table th.gdh-hs { left:auto; z-index:3; box-shadow:none; }
+        }
+
+        /* ===== Highlight khu vực Gôm đơn hàng: thẻ tổng + bộ lọc + tiêu đề cột ===== */
+        #gdh-pane { --gdh-c-total:#0f766e; --gdh-c-periodic:#2563eb; --gdh-c-urgent:#dc2626; --gdh-c-d26:#7c3aed; --gdh-c-other:var(--c-64748b); }
+        /* Thẻ tổng: viền trái + chấm màu theo loại đơn; thẻ 0 mã thì mờ đi */
+        #gdh-pane .gdh-stat { --c:var(--gdh-c-other); position:relative; border-left:4px solid var(--c); background:linear-gradient(90deg, color-mix(in srgb, var(--c) 7%, #fff), #fff 55%); transition:opacity .15s, box-shadow .15s; }
+        #gdh-pane .gdh-stat:hover { box-shadow:0 2px 8px rgba(15,23,42,.08); }
+        #gdh-pane .gdh-stat.gdh-s-total    { --c:var(--gdh-c-total); }
+        #gdh-pane .gdh-stat.gdh-s-periodic { --c:var(--gdh-c-periodic); }
+        #gdh-pane .gdh-stat.gdh-s-urgent   { --c:var(--gdh-c-urgent); }
+        #gdh-pane .gdh-stat.gdh-s-d26      { --c:var(--gdh-c-d26); }
+        #gdh-pane .gdh-stat .gdh-stat-t { color:var(--c); display:flex; align-items:center; gap:.4rem; }
+        #gdh-pane .gdh-stat .gdh-stat-t::before { content:""; width:8px; height:8px; border-radius:50%; background:var(--c); flex-shrink:0; }
+        #gdh-pane .gdh-stat .gdh-stat-v { color:var(--c); }
+        #gdh-pane .gdh-stat.gdh-s-zero { opacity:.55; border-left-color:var(--c-cbd5e1); background:#fff; }
+        #gdh-pane .gdh-stat.gdh-s-zero .gdh-stat-t, #gdh-pane .gdh-stat.gdh-s-zero .gdh-stat-v { color:var(--c-64748b); }
+        #gdh-pane .gdh-stat.gdh-s-zero .gdh-stat-t::before { background:var(--c-cbd5e1); }
+        /* Bộ lọc: ô đang lọc (khác mặc định) được tô xanh để biết bảng đang bị lọc */
+        #gdh-pane .gdh-filters .gdh-f-on { border-color:#2563eb; background-color:var(--c-eff6ff); color:#1d4ed8; font-weight:600; box-shadow:0 0 0 .15rem rgba(37,99,235,.12); }
+        #gdh-pane .gdh-filters input.gdh-f-on { background-image:none; }
+        /* Gán nhanh: ô chọn loại + nút Gán đổi màu theo loại đơn đang chọn */
+        #gdh-pane #gdhBulkType { --c:var(--gdh-c-periodic); border-color:var(--c); color:var(--c); font-weight:600; background-color:color-mix(in srgb, var(--c) 8%, #fff); }
+        #gdh-pane #gdhBulkType[data-t="Khẩn"]   { --c:var(--gdh-c-urgent); }
+        #gdh-pane #gdhBulkType[data-t="Đơn 26"] { --c:var(--gdh-c-d26); }
+        #gdh-pane #gdhAssignBtn { border-color:var(--c-94a3b8); color:var(--c-334155); font-weight:600; }
+        #gdh-pane #gdhAssignBtn:hover { background:#0f766e; border-color:#0f766e; color:#fff; }
+        #gdh-pane #gdhAssignBtn:disabled { background:var(--c-f1f5f9); border-color:var(--c-94a3b8); color:var(--c-334155); opacity:.85; cursor:progress; }
+        #gdh-pane label.gdh-busy { pointer-events:none; opacity:.8; cursor:progress; background:var(--c-eff6ff); }
+        #gdh-pane #gdhCount { background:var(--c-e2e8f0); color:var(--c-0f172a); border-radius:999px; padding:.2rem .65rem; }
+        /* Tiêu đề bảng: chia nhóm màu - Tồn (vàng/xanh xám có sẵn) | Xuất-Nợ-VC | Quyết định đặt */
+        #gdh-pane .gdh-table th.gdh-h-out  { background:#dff3ef; color:#0f5c53; border-bottom-color:#14b8a6; }
+        #gdh-pane .gdh-table th.gdh-h-debt { background:#fde8e8; color:#991b1b; border-bottom-color:#ef4444; }
+        #gdh-pane .gdh-table th.gdh-h-ship { background:#e0ecff; color:#1e40af; border-bottom-color:#3b82f6; }
+        #gdh-pane .gdh-table th.gdh-h-dec  { background:#dcf3e3; color:#14532d; border-bottom-color:#22c55e; }
+        #gdh-pane .gdh-table th.gdh-h-fin  { background:var(--c-success); color:#fff; border-bottom-color:#146c43; }
+        #gdh-pane .gdh-table th.gdh-h-ord  { background:#ede9fe; color:#4c1d95; border-bottom-color:#8b5cf6; }
+        #gdh-pane .gdh-table th.gdh-hs     { border-bottom-color:var(--c-f59e0b); color:#7c4a03; }
+                .oc-gcard{border:1px solid #dbe3ef;border-radius:.65rem;padding:.65rem .85rem;display:flex;gap:.8rem;align-items:center;justify-content:space-between;flex-wrap:wrap;background:#fff}
+                .oc-gcard.urgent{border-left:4px solid var(--c-danger)}
+                .oc-gcard.mine{border-color:var(--c-primary);background:#f3f8ff}
+                .oc-g-store{font-weight:800;font-size:1.05rem;margin-right:.35rem}
+                .oc-g-main{min-width:0;flex:1 1 320px}
+                .oc-g-meta{font-size:.86rem;color:var(--c-475569)}
+                .oc-gbar{position:sticky;top:0;z-index:6;background:#fff;border:1px solid #bfdbfe;border-radius:.65rem;padding:.55rem .75rem;margin-bottom:.6rem;box-shadow:0 2px 8px rgba(13,110,253,.08)}
+                .oc-chip{border:1px solid var(--c-cbd5e1);background:var(--c-f8fafc);border-radius:999px;padding:.12rem .7rem;font-size:.82rem;color:var(--c-334155)}
+                .oc-chip.on{background:var(--c-primary);border-color:var(--c-primary);color:#fff}
+/* Skeleton loading */
+.ns-skel{height:14px;border-radius:6px;background:linear-gradient(90deg,#e9ecef 25%,#f4f6f9 50%,#e9ecef 75%);background-size:200% 100%;animation:ns-skel 1.2s ease-in-out infinite}
+.ns-skel-row td{padding:.7rem .75rem!important}
+@keyframes ns-skel{0%{background-position:200% 0}100%{background-position:-200% 0}}
+@media (prefers-reduced-motion:reduce){.ns-skel{animation:none}}
