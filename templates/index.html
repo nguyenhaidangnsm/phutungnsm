@@ -6007,7 +6007,7 @@
         if (on) {
             if (lbl.dataset.busy === '1') return;
             lbl.dataset.busy = '1';
-            if (ico) { lbl.dataset.ico = ico.className; ico.className = 'spinner-border spinner-border-sm me-1'; }
+            if (ico) { lbl.dataset.ico = ico.className; ico.className = 'spinner-border spinner-border-sm me-1 gdh-imp-ico'; }   // GIỮ class gdh-imp-ico, nếu mất thì lúc tắt không tìm lại được icon -> vòng xoay kẹt mãi
             if (txt) { lbl.dataset.txt = txt.textContent; txt.textContent = text; }
             if (inp) inp.disabled = true;
             lbl.classList.add('gdh-busy');
@@ -6101,6 +6101,7 @@
         try {
             const j = await _gdhJson('/api/gom-don-hang/import', {method: 'POST', body: fd, signal: impCtl.signal});
             _gdhBusyLabel(impLbl, false);          // server đã import xong: tắt vòng xoay ngay (bước tải lại bảng bên dưới có hiệu ứng làm mờ riêng)
+            await new Promise(r => requestAnimationFrame(() => setTimeout(r, 0)));      // cho trình duyệt vẽ lại nút TRƯỚC khi alert() chặn giao diện
             let msg = `Đã import ${j.total_parts} mã, kỳ ${_gdhDate(j.period_from)} - ${_gdhDate(j.period_to)}.\n(${j.period_note})`;
             if (j.template === '1') msg += '\n\nLưu ý: file mẫu có giá trị chỉ có cột "Xuất kho" (gồm cả xuất chuyển kho...), thường lớn hơn số bán thật. Import thêm file mẫu "SL bán hàng" cho cùng kỳ để có số bán chính xác.';
             alert(msg);
