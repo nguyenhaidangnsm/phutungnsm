@@ -6130,7 +6130,7 @@ async function saveLocationRow(btn, partCode) {
             <tr id="price-adj-bulk-row-${i}">
                 <td class="text-muted">${i + 1}</td>
                 <td class="fw-semibold">${escapeHtmlAttr(c)}</td>
-                <td colspan="5" class="text-muted"><span class="spinner-border spinner-border-sm me-2"></span>Đang kiểm tra...</td>
+                <td colspan="6" class="text-muted"><span class="spinner-border spinner-border-sm me-2"></span>Đang kiểm tra...</td>
             </tr>
         `).join('');
         progressEl.style.display = 'block';
@@ -6198,6 +6198,18 @@ async function saveLocationRow(btn, partCode) {
         return null;
     }
 
+    // "Dự bán tăng X%": CHỈ các mã "Chưa tăng giá" mới được cộng thêm X%, làm
+    // tròn đến hàng nghìn TỪNG MÃ (cùng công thức/cơ chế làm tròn với giá bán
+    // ở form đề xuất: Math.round((giá * tỷ lệ + giá) / 1000) * 1000). Mã đã
+    // "Đã tăng giá" GIỮ NGUYÊN giá hiện tại (đã là giá sau tăng rồi, không
+    // tăng thêm lần nữa). Mã không có giá trả về null. Đổi X ở hằng số dưới.
+    const PRICE_ADJ_BULK_PROJECT_PCT = 5;
+    function priceAdjBulkProjectedPrice(item, price) {
+        if (price == null) return null;
+        if (item && item.already_adjusted) return price;
+        return Math.round(((price * (PRICE_ADJ_BULK_PROJECT_PCT / 100)) + price) / 1000) * 1000;
+    }
+
     function priceAdjBulkStatusBadge(item) {
         if (item.error) return `<span class="badge bg-danger">${escapeHtmlAttr(item.error)}</span>`;
         if (!item.in_catalog && !item.already_adjusted) return `<span class="badge bg-dark-subtle text-dark-emphasis">Không có trong hệ thống</span>`;
@@ -6216,6 +6228,7 @@ async function saveLocationRow(btn, partCode) {
             <td>${escapeHtmlAttr(item.part_name || '-')}</td>
             <td>${priceAdjBulkStatusBadge(item)}</td>
             <td class="text-end">${price != null ? fmtPriceAdjMoney(price) : '-'}</td>
+            <td class="text-end fw-semibold text-info-emphasis">${price != null ? fmtPriceAdjMoney(priceAdjBulkProjectedPrice(item, price)) : '-'}</td>
             <td>${lp ? escapeHtmlAttr(lp.created_by || '-') : '-'}</td>
             <td>${lp ? escapeHtmlAttr(lp.created_at || '-') : '-'}</td>
         `;
@@ -6237,6 +6250,7 @@ async function saveLocationRow(btn, partCode) {
         // sách đã dán vào.
         const priced = priceAdjBulkResult.filter(r => priceAdjBulkEffectivePrice(r) != null);
         const totalMoney = priced.reduce((sum, r) => sum + priceAdjBulkEffectivePrice(r), 0);
+        const projectedMoney = priced.reduce((sum, r) => sum + priceAdjBulkProjectedPrice(r, priceAdjBulkEffectivePrice(r)), 0);
         summaryEl.style.display = 'flex';
         summaryEl.innerHTML = `
             <span class="badge bg-primary-subtle text-primary-emphasis fs-6 fw-normal">Tổng: ${total}</span>
@@ -6245,6 +6259,10 @@ async function saveLocationRow(btn, partCode) {
             <span class="badge bg-dark-subtle text-dark-emphasis fs-6 fw-normal">Không có trong hệ thống: ${notFound}</span>
             ${errored ? `<span class="badge bg-danger-subtle text-danger-emphasis fs-6 fw-normal">Lỗi: ${errored}</span>` : ''}
             <span class="badge bg-warning-subtle text-warning-emphasis fs-6 fw-normal">Tổng tiền (${priced.length} mã có giá): ${fmtPriceAdjMoney(totalMoney)}</span>
+            <span class="badge bg-info-subtle text-info-emphasis fw-normal d-inline-flex flex-column align-items-start" title="Tổng giá của ${priced.length} mã có giá khi các mã CHƯA tăng giá được tăng ${PRICE_ADJ_BULK_PROJECT_PCT}% (làm tròn đến nghìn từng mã); mã ĐÃ tăng giá giữ nguyên">
+                <span class="fs-6">${fmtPriceAdjMoney(projectedMoney)}</span>
+                <span class="small">Dự bán tăng ${PRICE_ADJ_BULK_PROJECT_PCT}%</span>
+            </span>
         `;
     }
 
@@ -6266,6 +6284,7 @@ async function saveLocationRow(btn, partCode) {
                 'Tên Hàng': item ? (item.part_name || '') : '',
                 'Trạng Thái': statusText,
                 'Giá Bán Hiện Tại': price != null ? price : '',
+                [`Giá Bán Dự Báo Tăng ${PRICE_ADJ_BULK_PROJECT_PCT}%`]: price != null ? priceAdjBulkProjectedPrice(item, price) : '',
                 'Người Đề Xuất': lp ? (lp.created_by || '') : '',
                 'Ngày Điều Chỉnh': lp ? (lp.created_at || '') : '',
             };

@@ -125,6 +125,20 @@ app = Flask(__name__)
 # (vd: thêm hậu tố phiên bản) để trình duyệt biết mà tải lại bản mới.
 app.config['SEND_FILE_MAX_AGE_DEFAULT'] = 31536000
 
+# Tự gắn "?v=<thời điểm sửa file>" vào địa chỉ mọi file trong /static (app.js,
+# app.css, font, logo...) khi render template bằng url_for('static', ...).
+# Nhờ vậy dù trình duyệt cache 1 năm ở trên, MỖI KHI file bị sửa/thay thì địa
+# chỉ đổi theo và trình duyệt tự tải bản mới - không cần Ctrl+F5 hay đổi tên file.
+@app.context_processor
+def override_url_for():
+    def dated_url_for(endpoint, **values):
+        if endpoint == 'static' and values.get('filename'):
+            path = os.path.join(app.static_folder, values['filename'])
+            if os.path.isfile(path):
+                values['v'] = int(os.path.getmtime(path))
+        return url_for(endpoint, **values)
+    return dict(url_for=dated_url_for)
+
 # ---------------------------------------------------------------------------
 # CACHE TRONG BỘ NHỚ cho /api/inventory - kết quả trả về GIỐNG HỆT NHAU cho
 # MỌI user (admin lẫn store đều xem toàn bộ hệ thống, không lọc theo quyền),

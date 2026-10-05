@@ -2,3 +2,5 @@
 __pycache__/
 *.pyc
 store_po_system.dbvenv/
+hms_state.json
+hms_downloads/
