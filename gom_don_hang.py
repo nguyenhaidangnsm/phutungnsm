@@ -895,9 +895,17 @@ def gdh_import():
                 part_name = COALESCE(EXCLUDED.part_name, gdh_lines.part_name),
                 unit = COALESCE(EXCLUDED.unit, gdh_lines.unit),
                 opening = EXCLUDED.opening, purchase = EXCLUDED.purchase, closing = EXCLUDED.closing,
-                out_qty = COALESCE(EXCLUDED.out_qty, gdh_lines.out_qty),
-                sold = COALESCE(EXCLUDED.sold, gdh_lines.sold),
-                unit_cost = COALESCE(EXCLUDED.unit_cost, gdh_lines.unit_cost)''', data, page_size=1000)
+                out_qty = EXCLUDED.out_qty, sold = EXCLUDED.sold, unit_cost = EXCLUDED.unit_cost''', data, page_size=1000)
+        # MỖI LẦN IMPORT = ĐÚNG SỐ LIỆU CỦA FILE VỪA IMPORT (mã, xuất, tồn): số cũ không còn sót lại.
+        #  - Mã có trong file: ghi đè Đầu kỳ / Nhập / Xuất / Bán / Cuối kỳ / Giá vốn bằng số của file (kể cả khi file không có cột đó).
+        #  - Mã KHÔNG còn trong file: xoá dòng; riêng dòng người dùng đã nhập tay (cộng/trừ thêm, loại đơn, ghi chú) thì giữ lại
+        #    nhưng đưa số liệu file về 0 để không hiện tồn/xuất của lần import cũ.
+        codes_in_file = list(rows.keys())
+        cur.execute("""DELETE FROM gdh_lines WHERE batch_id = %s AND part_code <> ALL(%s)
+                       AND COALESCE(adj_qty, 0) = 0 AND COALESCE(order_type, '') = '' AND COALESCE(note, '') = ''""",
+                    (bid, codes_in_file))
+        cur.execute("""UPDATE gdh_lines SET opening = 0, purchase = 0, closing = 0, out_qty = 0, sold = NULL, unit_cost = NULL
+                       WHERE batch_id = %s AND part_code <> ALL(%s)""", (bid, codes_in_file))
         db.commit()
         print(f"[gdh_import] {f.filename}: đọc+phân tích file {_t_parse:.1f}s, ghi {len(rows)} mã vào CSDL {time.perf_counter() - _t0 - _t_parse:.1f}s")
     except Exception:

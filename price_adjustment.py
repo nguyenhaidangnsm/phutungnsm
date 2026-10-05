@@ -566,6 +566,116 @@ def price_adjustment_lookup():
     return jsonify(result)
 
 
+_CATALOG_AND_LATEST_CTE = '''
+        WITH catalog AS (
+            -- Hợp: tồn kho hệ thống + mã mới + BẢNG GIÁ (part_prices), để mã có
+            -- giá nhưng không có tồn vẫn hiện ở "Chưa điều chỉnh" và đối chiếu
+            -- được với bảng giá. Tên ưu tiên: tồn kho > mã mới > file xuất bán.
+            SELECT part_code, MAX(NULLIF(part_name, '')) AS part_name
+            FROM (
+                SELECT part_code, part_name FROM inventory_items
+                UNION ALL
+                SELECT part_code, part_name FROM price_adjustment_new_codes
+                UNION ALL
+                SELECT p.part_code, (SELECT MIN(e.part_name) FROM sales_export_items e
+                                     WHERE e.part_code = p.part_code AND e.part_name <> '')
+                FROM part_prices p
+                WHERE p.sale_price IS NOT NULL AND p.sale_price > 0
+            ) u
+            GROUP BY part_code
+        ),
+        latest AS (
+            SELECT DISTINCT ON (part_code)
+                id, part_code, part_name AS proposal_part_name, thue, gia_de_xuat_hvn,
+                gia_ban, store_code, created_by, created_at
+            FROM price_adjustment_proposals
+            ORDER BY part_code, created_at DESC
+        )
+    '''
+
+
+@price_adjustment_bp.route('/api/price-adjustment/export', methods=['GET'])
+def price_adjustment_export():
+    """Xuất Excel danh sách mã hàng của tab Đề Xuất Tăng Giá, theo đúng bộ lọc
+    đang chọn trên màn hình (status = all | adjusted | not_adjusted, q = từ khoá
+    mã/tên). KHÔNG phân trang: xuất toàn bộ dòng khớp bộ lọc. Dùng chung cho cả
+    admin lẫn store, giống API /list."""
+    if 'user' not in session:
+        return jsonify({'error': 'Unauthorized'}), 401
+
+    status = (request.args.get('status') or 'all').strip().lower()
+    if status not in ('all', 'adjusted', 'not_adjusted'):
+        status = 'all'
+    q = (request.args.get('q') or '').strip()
+
+    where_clauses, params = [], []
+    if status == 'adjusted':
+        where_clauses.append('l.created_at IS NOT NULL')
+    elif status == 'not_adjusted':
+        where_clauses.append('l.created_at IS NULL')
+    if q:
+        where_clauses.append('(c.part_code ILIKE %s OR COALESCE(l.proposal_part_name, c.part_name) ILIKE %s)')
+        params.extend([f'%{q}%', f'%{q}%'])
+    where_sql = (' WHERE ' + ' AND '.join(where_clauses)) if where_clauses else ''
+
+    db = get_db()
+    cursor = db.cursor()
+    cursor.execute(f'''
+        {_CATALOG_AND_LATEST_CTE}
+        SELECT c.part_code,
+               COALESCE(l.proposal_part_name, c.part_name) AS part_name,
+               l.thue, l.gia_de_xuat_hvn, l.gia_ban, l.created_by, l.created_at
+        FROM catalog c
+        LEFT JOIN latest l ON l.part_code = c.part_code
+        {where_sql}
+        ORDER BY (l.created_at IS NULL), l.created_at DESC NULLS LAST, c.part_code ASC
+    ''', params)
+    rows = cursor.fetchall()
+    cursor.close()
+
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = 'De Xuat Tang Gia'
+    headers = ['STT', 'Mã Hàng', 'Tên Hàng', '% Tăng Giá', 'Giá Cũ', 'Giá Bán',
+               'Người Đề Xuất', 'Ngày Điều Chỉnh', 'Trạng Thái']
+    ws.append(headers)
+    for i, r in enumerate(rows, 1):
+        adjusted = r['created_at'] is not None
+        ws.append([
+            i,
+            r['part_code'],
+            r['part_name'] or '',
+            float(r['thue']) * 100 if r['thue'] is not None else None,
+            float(r['gia_de_xuat_hvn']) if r['gia_de_xuat_hvn'] is not None else None,
+            float(r['gia_ban']) if r['gia_ban'] is not None else None,
+            r['created_by'] or '',
+            r['created_at'].strftime('%d/%m/%Y %H:%M') if adjusted else '',
+            'Đã điều chỉnh' if adjusted else 'Chưa điều chỉnh',
+        ])
+    from openpyxl.styles import Font, PatternFill, Alignment
+    for cell in ws[1]:
+        cell.font = Font(bold=True, color='FFFFFF')
+        cell.fill = PatternFill('solid', fgColor='0D6EFD')
+        cell.alignment = Alignment(horizontal='center', vertical='center')
+    for col in ('E', 'F'):
+        for cell in ws[col][1:]:
+            cell.number_format = '#,##0'
+    for col, w in zip('ABCDEFGHI', (7, 20, 42, 12, 14, 14, 18, 18, 18)):
+        ws.column_dimensions[col].width = w
+    ws.freeze_panes = 'A2'
+    ws.auto_filter.ref = ws.dimensions
+
+    import io
+    from flask import send_file
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    suffix = {'all': 'tat-ca', 'adjusted': 'da-dieu-chinh', 'not_adjusted': 'chua-dieu-chinh'}[status]
+    filename = f"de-xuat-tang-gia-{suffix}-{vn_now().strftime('%Y%m%d-%H%M')}.xlsx"
+    return send_file(buf, as_attachment=True, download_name=filename,
+                     mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+
+
 @price_adjustment_bp.route('/api/price-adjustment/list', methods=['GET'])
 def price_adjustment_list():
     """Trả về danh sách mã hàng đã phân loại ĐÃ ĐIỀU CHỈNH / CHƯA ĐIỀU
@@ -603,32 +713,7 @@ def price_adjustment_list():
     # xuất gần nhất của mỗi mã) - tách riêng phần "WITH ... )" này ra khỏi
     # phần SELECT cụ thể để dùng lại cho CẢ câu đếm số lượng LẪN câu lấy dữ
     # liệu phân trang bên dưới, tránh lặp lại 2 khối CTE giống hệt nhau.
-    catalog_and_latest_cte = '''
-        WITH catalog AS (
-            -- Hợp: tồn kho hệ thống + mã mới + BẢNG GIÁ (part_prices), để mã có
-            -- giá nhưng không có tồn vẫn hiện ở "Chưa điều chỉnh" và đối chiếu
-            -- được với bảng giá. Tên ưu tiên: tồn kho > mã mới > file xuất bán.
-            SELECT part_code, MAX(NULLIF(part_name, '')) AS part_name
-            FROM (
-                SELECT part_code, part_name FROM inventory_items
-                UNION ALL
-                SELECT part_code, part_name FROM price_adjustment_new_codes
-                UNION ALL
-                SELECT p.part_code, (SELECT MIN(e.part_name) FROM sales_export_items e
-                                     WHERE e.part_code = p.part_code AND e.part_name <> '')
-                FROM part_prices p
-                WHERE p.sale_price IS NOT NULL AND p.sale_price > 0
-            ) u
-            GROUP BY part_code
-        ),
-        latest AS (
-            SELECT DISTINCT ON (part_code)
-                id, part_code, part_name AS proposal_part_name, thue, gia_de_xuat_hvn,
-                gia_ban, store_code, created_by, created_at
-            FROM price_adjustment_proposals
-            ORDER BY part_code, created_at DESC
-        )
-    '''
+    catalog_and_latest_cte = _CATALOG_AND_LATEST_CTE
     base_cte = catalog_and_latest_cte + '''
         SELECT c.part_code, l.id AS proposal_id,
                COALESCE(l.proposal_part_name, c.part_name) AS part_name,

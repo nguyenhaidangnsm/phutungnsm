@@ -1177,7 +1177,7 @@
             _gdhBusyLabel(impLbl, false);          // server đã import xong: tắt vòng xoay ngay (bước tải lại bảng bên dưới có hiệu ứng làm mờ riêng)
             await new Promise(r => requestAnimationFrame(() => setTimeout(r, 0)));      // cho trình duyệt vẽ lại nút TRƯỚC khi alert() chặn giao diện
             let msg = `Đã import ${j.total_parts} mã, kỳ ${_gdhDate(j.period_from)} - ${_gdhDate(j.period_to)}.\n(${j.period_note})`;
-            if (j.template === '1') msg += '\n\nLưu ý: file mẫu có giá trị chỉ có cột "Xuất kho" (gồm cả xuất chuyển kho...), thường lớn hơn số bán thật. Import thêm file mẫu "SL bán hàng" cho cùng kỳ để có số bán chính xác.';
+            if (j.template === '1') msg += '\n\nLưu ý: file này chỉ có cột "Xuất kho" (gồm cả xuất chuyển kho...), nên số Xuất có thể lớn hơn số bán thật.';
             alert(msg);
             _gdhMarkDirty(false); await gdhLoadBatches(j.batch_id);
         } catch (e) {
@@ -1323,12 +1323,8 @@
                `<div class="gdh-sub">Đặt <b class="text-body">${_gdhFmt(q, 0)}</b> (1 = ${_gdhFmt(r.bundle_ratio, 2)})</div></div>`;
     }
     const _GDH_STORES = ['NS1', 'NS2', 'NS3', 'NS4', 'NS5', 'NSM1'];
-    function _gdhStockCells(r) {           // Tồn HT (chi nhánh đang gôm, cam nếu lệch Cuối kỳ) + tồn từng chi nhánh (cột của chi nhánh đang gôm bị ẩn)
-        let hs = '<span class="text-muted">–</span>';
-        if (r.sys_stock !== null && r.sys_stock !== undefined) {
-            const diff = r.closing !== null && Math.abs(r.sys_stock - r.closing) > 0.0001;
-            hs = `<span class="${diff ? 'gdh-diff' : ''}" ${diff ? `title="Khác Tồn cuối kỳ trong file import (${_gdhFmt(r.closing)}) - Đề xuất đang tính theo số này"` : ''}>${_gdhFmt(r.sys_stock)}</span>`;
-        }
+    function _gdhStockCells(r) {           // Cột Tồn = Tồn CUỐI KỲ đúng như trong file import gần nhất của chi nhánh (số dùng để tính đề xuất) + tồn hệ thống từng chi nhánh khác (cột của chi nhánh đang gôm bị ẩn)
+        const hs = (r.closing === null || r.closing === undefined) ? '<span class="text-muted">–</span>' : _gdhFmt(r.closing);
         return `<td class="gdh-num gdh-hs">${hs}</td>` + _GDH_STORES.map((k, n) => {
             const v = (r.stock_by_store || {})[k];
             const inner = (v === undefined || v === null) ? '<span class="text-muted">·</span>' : (v === 0 ? '<span class="gdh-zero">0</span>' : _gdhFmt(v));
@@ -5691,6 +5687,35 @@ async function saveLocationRow(btn, partCode) {
             if (countNotAdjEl) countNotAdjEl.innerText = result.total_not_adjusted.toLocaleString();
         } catch (e) {
             tbody.innerHTML = `<tr><td colspan="9" class="text-center py-4 text-danger">Lỗi kết nối server.</td></tr>`;
+        }
+    }
+
+    // Xuất Excel danh sách mã hàng: backend xuất TOÀN BỘ dòng khớp tab + ô tìm
+    // kiếm đang chọn (không bị giới hạn 500 dòng như bảng trên màn hình).
+    async function exportPriceAdjList(btn) {
+        const q = (document.getElementById('price-adj-search') || {}).value || '';
+        const params = new URLSearchParams({ status: priceAdjStatusFilter, q: q });
+        const oldHtml = btn ? btn.innerHTML : '';
+        if (btn) { btn.disabled = true; btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Đang xuất...'; }
+        try {
+            const res = await fetch('/api/price-adjustment/export?' + params.toString());
+            if (!res.ok) {
+                const err = await res.json().catch(() => ({}));
+                showToast('Lỗi', err.error || 'Không xuất được file Excel.', 'danger');
+                return;
+            }
+            const cd = res.headers.get('Content-Disposition') || '';
+            const m = cd.match(/filename\*?=(?:UTF-8'')?"?([^";]+)"?/i);
+            const name = m ? decodeURIComponent(m[1]) : 'de-xuat-tang-gia.xlsx';
+            const url = URL.createObjectURL(await res.blob());
+            const a = document.createElement('a');
+            a.href = url; a.download = name;
+            document.body.appendChild(a); a.click(); a.remove();
+            setTimeout(() => URL.revokeObjectURL(url), 1000);
+        } catch (e) {
+            showToast('Lỗi', 'Lỗi kết nối server.', 'danger');
+        } finally {
+            if (btn) { btn.disabled = false; btn.innerHTML = oldHtml; }
         }
     }
 
