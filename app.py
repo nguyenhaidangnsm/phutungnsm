@@ -432,10 +432,10 @@ LOGIN_LOG_RETENTION_DAYS = 90
 STORE_EMPLOYEES = {
     'NS1': ['Phạm Huỳnh Trang', 'Phạm Thái Thật'],
     'NS2': ['Trần Cẩm Ái', 'Tạ Ngọc Thơ'],
-    'NS3': ['Lý Anh Kiệt', 'Nguyễn Duy Tiếng', 'Phạm Đông Anh', 'Nguyễn Minh Phú', 'Lê Ngọc Hạnh'],
+    'NS3': ['Lý Anh Kiệt', 'Nguyễn Duy Tiếng', 'Phạm Đông Anh', 'Nguyễn Minh Phú'],
     'NS4': ['Phạm Văn Dược', 'Tô Thị Khả Vi', 'Lê Nguyễn Thuý Hà'],
     'NS5': ['Hồ Kim Ngân', 'Châu Huỳnh Nhân', 'Trần Thị Bé Lài', 'Lâm Thị Tố Quyên'],
-    'NSM1': ['Nguyễn Ngọc Quyên', 'Trần Thị Diễm Thuý', 'Hồ Kim Hương'],
+    'NSM1': ['Nguyễn Ngọc Quyên', 'Trần Thị Diễm Thuý', 'Nguyễn Thị Kim Hương'],
 }
 # Thêm dòng này:
 ADMIN_EMPLOYEES = ['Lý Huỳnh Như', 'Nguyễn Như Ngọc']
