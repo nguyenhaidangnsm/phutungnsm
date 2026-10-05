@@ -345,6 +345,7 @@
     function loadOverviewDashboard() {
         if (globalInventory.length === 0) loadInventory();
         renderTransferOverviewStats();
+        if (typeof ovLoadOrders === 'function') ovLoadOrders();
     }
 
     // Đếm nhanh phiếu chuyển kho nội bộ theo trạng thái từ danh sách đã tải
@@ -9974,3 +9975,87 @@ function checkTransferChanges(prev, current) {
         );
     }
     document.addEventListener('DOMContentLoaded', reportLoginLocation);
+// ===== TRANG TỔNG QUAN: đơn hàng gôm (admin: chờ duyệt theo cửa hàng; cửa hàng: đã duyệt / đã xem / chưa đặt) =====
+function ovEsc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function ovWait(m) { if (m == null) return ''; if (m < 60) return m + ' phút'; if (m < 1440) return Math.floor(m / 60) + ' giờ'; return Math.floor(m / 1440) + ' ngày'; }
+function ovSet(id, html) { const el = document.getElementById(id); if (el) el.innerHTML = html; }
+function ovGo(kind, arg) {
+    if (kind === 'review') {        // admin -> Duyệt Đơn Hàng, lọc đúng cửa hàng vừa bấm
+        const sel = document.getElementById('ocGdhStore'); if (sel) sel.value = arg || '';
+        if (typeof _ocGdhTab !== 'undefined') _ocGdhTab = 'active';
+        megaNavClick('order-check-tab', document.body);
+    } else {                        // cửa hàng -> Gôm Đơn Hàng > Đơn đã đẩy (tab active | done | archive)
+        megaNavClick('gdh-tab', document.body);
+        if (typeof _gdhUTabCur !== 'undefined') _gdhUTabCur = arg || 'done';
+        gdhSwitchView('orders');
+    }
+}
+let _ovBusy = false;
+async function ovLoadOrders() {
+    if (!document.getElementById('ov-ord-body') || _ovBusy) return;
+    _ovBusy = true;
+    const isAdmin = CURRENT_ROLE === 'admin';
+    try {
+        const res = await fetch('/api/gom-don-hang/orders?status=' + (isAdmin ? 'active' : 'approved,viewed'));
+        const j = await res.json();
+        if (!res.ok || j.error) throw new Error(j.error || res.status);
+        const c = j.counts || {}, d = j.data || [];
+        if (isAdmin) {
+            const by = {};
+            d.forEach(o => {
+                const s = by[o.store] = by[o.store] || {store: o.store, pend: 0, rev: 0, urgent: 0, wait: 0};
+                if (o.status === 'reviewing') s.rev++; else s.pend++;
+                if (o.urgent_parts > 0) s.urgent++;
+                if (o.status === 'pending') s.wait = Math.max(s.wait, o.waiting_min || 0);
+            });
+            const rows = Object.values(by).sort((a, b) => (b.pend + b.rev) - (a.pend + a.rev) || b.wait - a.wait);
+            const max = Math.max(1, ...rows.map(r => r.pend + r.rev)), total = (c.pending || 0) + (c.reviewing || 0);
+            const old = j.pending_info && j.pending_info.oldest_min;
+            ovSet('ov-ord-main', total);
+            ovSet('ov-ord-sub', total ? `${c.pending || 0} chờ duyệt · ${c.reviewing || 0} đang được duyệt` + (old != null ? ` · đơn chờ lâu nhất ${ovWait(old)}` : '') : 'Không có đơn nào cần duyệt');
+            ovSet('ov-ord-body', rows.length ? '<div class="ov-rank">' + rows.map(r => `
+                <button type="button" class="ov-row" onclick="ovGo('review','${ovEsc(r.store)}')" title="Mở danh sách đơn của ${ovEsc(r.store)}">
+                    <span class="ov-store">${ovEsc(r.store)}</span>
+                    <span class="ov-track"><i class="s-pend" style="width:${r.pend / max * 100}%"></i><i class="s-rev" style="width:${r.rev / max * 100}%"></i></span>
+                    <span class="ov-cnt">${r.pend + r.rev}</span>
+                    <span class="ov-meta">${r.pend} chờ · ${r.rev} đang duyệt${r.urgent ? ` · <span class="u">${r.urgent} đơn khẩn</span>` : ''}${r.wait ? ' · chờ lâu nhất ' + ovWait(r.wait) : ''}</span>
+                </button>`).join('') + '</div>' : '<div class="ov-empty"><i class="bi bi-check2-circle fs-3 d-block mb-1"></i>Tất cả cửa hàng đã được duyệt xong.</div>');
+        } else {
+            const need = (c.approved || 0) + (c.viewed || 0);
+            ovSet('ov-ord-main', need);
+            ovSet('ov-ord-sub', need ? `${c.approved || 0} chưa xem · ${c.viewed || 0} đã xem nhưng chưa tải đơn đặt hàng` : 'Không có đơn nào đang chờ bạn đặt');
+            const st = [['pending','Chờ duyệt','active'], ['reviewing','Đang duyệt','active'], ['approved','Đã duyệt','done'], ['viewed','Đã xem','done'], ['ordered','Đã đặt','archive']];
+            const flow = '<div class="ov-flow">' + st.map(s => `<div class="ov-step${s[0] === 'approved' || s[0] === 'viewed' ? ' hot' : ''}" role="button" tabindex="0" onclick="ovGo('orders','${s[2]}')"><b>${c[s[0]] || 0}</b><span>${s[1]}</span></div>`).join('') + '</div>';
+            const list = d.slice(0, 4).map(o => {
+                const types = Object.keys(o.by_type || {}).join(', ');
+                return `<button type="button" class="ov-ord" onclick="ovGo('orders','done')"><span class="ov-chip${o.status === 'viewed' ? ' seen' : ''}">${ovEsc(o.status_label)}</span><span class="grow"><b>Đơn #${o.id}</b>${types ? ' · ' + ovEsc(types) : ''}<br><small>Duyệt lúc ${ovEsc(o.approved_at || '')}</small></span><i class="bi bi-chevron-right"></i></button>`;
+            }).join('');
+            ovSet('ov-ord-body', flow + (list ? '<div class="d-flex flex-column gap-2">' + list + '</div>' : ''));
+        }
+        const t = new Date(); ovSet('ov-updated', 'Cập nhật ' + String(t.getHours()).padStart(2, '0') + ':' + String(t.getMinutes()).padStart(2, '0'));
+    } catch (e) { ovSet('ov-ord-sub', 'Không tải được số liệu đơn hàng. Bấm làm mới để thử lại.'); }
+    _ovBusy = false;
+}
+function ovRefresh() { ovLoadOrders(); if (typeof renderTransferOverviewStats === 'function') renderTransferOverviewStats(); }
+
+// Vẽ thanh tỷ lệ từ chính các con số mà code cũ đã đổ vào (không phải sửa loadData/loadTransfers)
+function ovNum(id) { const el = document.getElementById(id); return el ? (parseInt((el.textContent || '').replace(/\D/g, ''), 10) || 0) : 0; }
+function ovPaintBars() {
+    [['ov-transfer-bar', 'ov-transfer-total', [['ov-transfer-pending', 's-pend'], ['ov-transfer-approved', 's-ok'], ['ov-transfer-rejected', 's-bad']]],
+     ['ov-po-bar', 'ov-stat-total', [['ov-stat-debt-2', 's-bad'], ['ov-stat-shipping', 's-pend'], ['ov-stat-received', 's-ok']]]].forEach(([bar, totId, parts]) => {
+        const el = document.getElementById(bar); if (!el) return;
+        const tot = Math.max(ovNum(totId), parts.reduce((a, p) => a + ovNum(p[0]), 0), 1);
+        el.innerHTML = parts.map(p => `<i class="${p[1]}" style="width:${ovNum(p[0]) / tot * 100}%"></i>`).join('');
+    });
+}
+(function () {
+    function init() {
+        let raf; const run = () => { cancelAnimationFrame(raf); raf = requestAnimationFrame(ovPaintBars); };
+        const mo = new MutationObserver(run);
+        ['ov-transfer-total','ov-transfer-pending','ov-transfer-approved','ov-transfer-rejected','ov-stat-total','ov-stat-debt-2','ov-stat-shipping','ov-stat-received']
+            .forEach(id => { const el = document.getElementById(id); if (el) mo.observe(el, {childList: true, characterData: true, subtree: true}); });
+        ovPaintBars();
+        setInterval(() => { const p = document.getElementById('overview-pane'); if (p && p.classList.contains('active') && !document.hidden) ovLoadOrders(); }, 60000);
+    }
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init); else init();
+})();

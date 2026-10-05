@@ -534,134 +534,99 @@
              làm mới riêng cho trang này. -->
         <div class="tab-pane fade show active" id="overview-pane">
 
-            <h5 class="fw-bold mb-3"><i class="bi bi-speedometer2 me-2 text-primary"></i>Tổng Quan</h5>
+            <div class="ov-head">
+                <h5 class="fw-bold mb-0"><i class="bi bi-speedometer2 me-2 text-primary"></i>Tổng Quan</h5>
+                <div class="ov-head-r">
+                    <span class="ov-updated" id="ov-updated"></span>
+                    <button type="button" class="btn btn-sm btn-outline-secondary" onclick="ovRefresh()" title="Làm mới số liệu đơn hàng"><i class="bi bi-arrow-clockwise"></i></button>
+                </div>
+            </div>
 
-            <!-- Chú Ý Cần Xử Lý -->
-            <div class="row g-2 g-md-3 mb-3 mb-md-4">
-                <div class="col-12 col-md-6">
-                    <div class="card card-custom p-3 h-100" style="border-left: 4px solid #dc3545; cursor: pointer;"
-                         onclick="megaNavClick('report-tab', document.querySelector('[data-target-tab=report-tab]'))">
-                        <div class="d-flex align-items-center justify-content-between">
+            <!-- Đơn hàng gôm: admin thấy đơn chờ duyệt theo cửa hàng; user cửa hàng thấy tiến trình đơn của chi nhánh mình -->
+            <div class="row g-3 mb-3">
+                <div class="col-12 col-xl-8">
+                    <section class="ov-hero h-100">
+                        <div class="ov-hero-top">
                             <div>
-                                <span class="fw-semibold text-uppercase text-danger" style="font-size: 0.7rem;">Chú Ý - Hàng Cần Xử Lý (Đang Nợ)</span>
-                                <h3 class="fw-bold text-danger mb-0 mt-1" id="ov-stat-debt">0</h3>
+                                <div class="ov-hero-label" id="ov-ord-label">{% if role == 'admin' %}Đơn hàng đang chờ duyệt{% else %}Đơn đã duyệt, chưa đặt hàng{% endif %}</div>
+                                <div class="ov-hero-num" id="ov-ord-main">–</div>
+                                <div class="ov-hero-sub" id="ov-ord-sub">Đang tải…</div>
                             </div>
-                            <div class="stat-icon bg-danger bg-opacity-10 text-danger"><i class="bi bi-exclamation-triangle-fill"></i></div>
+                            {% if role == 'admin' %}
+                            <button type="button" class="ov-hero-btn" onclick="ovGo('review')"><i class="bi bi-clipboard2-check me-1"></i>Mở Duyệt Đơn Hàng</button>
+                            {% else %}
+                            <button type="button" class="ov-hero-btn" onclick="ovGo('orders','done')"><i class="bi bi-download me-1"></i>Xem &amp; tải đơn</button>
+                            {% endif %}
                         </div>
-                        <div class="small text-muted mt-2"><i class="bi bi-arrow-right-short"></i>Xem chi tiết ở Dashboard &amp; Kết Quả</div>
-                    </div>
+                        {% if role == 'admin' %}
+                        <div class="ov-legend"><span><i class="ov-dot s-pend"></i>Chờ duyệt</span><span><i class="ov-dot s-rev"></i>Đang duyệt</span><span><i class="ov-dot s-urgent"></i>Có đơn khẩn</span></div>
+                        {% endif %}
+                        <div id="ov-ord-body"></div>
+                    </section>
                 </div>
-                <div class="col-12 col-md-6">
-                    {% if role == 'admin' %}
-                    <div class="card card-custom p-3 h-100" style="border-left: 4px solid #fd7e14; cursor: pointer;"
-                         onclick="megaNavClick('transfer-tab', document.querySelector('[data-target-tab=transfer-tab]'))">
-                    {% else %}
-                    <div class="card card-custom p-3 h-100" style="border-left: 4px solid #fd7e14; cursor: pointer;"
-                         onclick="megaNavClick('transfer-import-tab', document.querySelector('[data-target-tab=transfer-import-tab]'))">
-                    {% endif %}
-                        <div class="d-flex align-items-center justify-content-between">
+                <div class="col-12 col-xl-4">
+                    <div class="d-flex flex-column gap-3 h-100">
+                        <div class="ov-alert flex-fill" onclick="megaNavClick('report-tab', document.querySelector('[data-target-tab=report-tab]'))">
+                            <div class="ov-alert-ico bg-danger bg-opacity-10 text-danger"><i class="bi bi-exclamation-triangle-fill"></i></div>
                             <div>
-                                <span class="fw-semibold text-uppercase text-warning" style="font-size: 0.7rem;">Chú Ý - Phiếu Chuyển Kho Cần Xử Lý</span>
-                                <h3 class="fw-bold text-warning mb-0 mt-1" id="ov-transfer-pending-highlight">0</h3>
+                                <div class="ov-alert-num text-danger" id="ov-stat-debt">0</div>
+                                <div class="ov-alert-txt">Mã hàng đang nợ cần xử lý</div>
                             </div>
-                            <div class="stat-icon bg-warning bg-opacity-10 text-warning"><i class="bi bi-arrow-left-right"></i></div>
+                            <i class="bi bi-chevron-right ov-go"></i>
                         </div>
-                        <div class="small text-muted mt-2"><i class="bi bi-arrow-right-short"></i>Xem/duyệt các phiếu đang chờ</div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Dashboard Phiếu Chuyển Kho -->
-            <div class="card card-custom p-3 mb-3 mb-md-4">
-                <h6 class="fw-bold mb-3"><i class="bi bi-arrow-left-right me-2 text-primary"></i>Dashboard Phiếu Chuyển Kho Nội Bộ</h6>
-                <div class="row g-2 g-md-3">
-                    <div class="col-6 col-md-3">
-                        <div class="p-2 p-md-3 rounded-3 bg-light text-center">
-                            <div class="fw-bold fs-4" id="ov-transfer-total">0</div>
-                            <div class="small text-muted">Tổng Số Phiếu</div>
-                        </div>
-                    </div>
-                    <div class="col-6 col-md-3">
-                        <div class="p-2 p-md-3 rounded-3 bg-warning bg-opacity-10 text-center">
-                            <div class="fw-bold fs-4 text-warning" id="ov-transfer-pending">0</div>
-                            <div class="small text-muted">Đang Chờ Duyệt</div>
-                        </div>
-                    </div>
-                    <div class="col-6 col-md-3">
-                        <div class="p-2 p-md-3 rounded-3 bg-success bg-opacity-10 text-center">
-                            <div class="fw-bold fs-4 text-success" id="ov-transfer-approved">0</div>
-                            <div class="small text-muted">Đã Duyệt</div>
-                        </div>
-                    </div>
-                    <div class="col-6 col-md-3">
-                        <div class="p-2 p-md-3 rounded-3 bg-danger bg-opacity-10 text-center">
-                            <div class="fw-bold fs-4 text-danger" id="ov-transfer-rejected">0</div>
-                            <div class="small text-muted">Đã Từ Chối</div>
-                        </div>
-                    </div>
-                </div>
-                <div class="small text-muted mt-2">* Tính trên các phiếu gần đây và các phiếu đang cần xử lý đang tải sẵn trong hệ thống.</div>
-            </div>
-
-            <!-- Dashboard Hàng Nợ -->
-            <div class="card card-custom p-3 mb-3 mb-md-4">
-                <h6 class="fw-bold mb-3"><i class="bi bi-bar-chart-fill me-2 text-primary"></i>Dashboard Đối Soát PO - Hàng Nợ</h6>
-                <div class="row g-2 g-md-3">
-                    <div class="col-6 col-md-3">
-                        <div class="p-2 p-md-3 rounded-3 bg-light text-center">
-                            <div class="fw-bold fs-4" id="ov-stat-total">0</div>
-                            <div class="small text-muted">Tổng Mã Hàng</div>
-                        </div>
-                    </div>
-                    <div class="col-6 col-md-3">
-                        <div class="p-2 p-md-3 rounded-3 bg-danger bg-opacity-10 text-center">
-                            <div class="fw-bold fs-4 text-danger" id="ov-stat-debt-2">0</div>
-                            <div class="small text-muted">Đang Nợ Hàng</div>
-                        </div>
-                    </div>
-                    <div class="col-6 col-md-3">
-                        <div class="p-2 p-md-3 rounded-3 bg-warning bg-opacity-10 text-center">
-                            <div class="fw-bold fs-4 text-warning" id="ov-stat-shipping">0</div>
-                            <div class="small text-muted">Đang Vận Chuyển</div>
-                        </div>
-                    </div>
-                    <div class="col-6 col-md-3">
-                        <div class="p-2 p-md-3 rounded-3 bg-success bg-opacity-10 text-center">
-                            <div class="fw-bold fs-4 text-success" id="ov-stat-received">0</div>
-                            <div class="small text-muted">Đã Nhận Hàng</div>
+                        {% if role == 'admin' %}
+                        <div class="ov-alert flex-fill" onclick="megaNavClick('transfer-tab', document.querySelector('[data-target-tab=transfer-tab]'))">
+                        {% else %}
+                        <div class="ov-alert flex-fill" onclick="megaNavClick('transfer-import-tab', document.querySelector('[data-target-tab=transfer-import-tab]'))">
+                        {% endif %}
+                            <div class="ov-alert-ico bg-warning bg-opacity-10 text-warning"><i class="bi bi-arrow-left-right"></i></div>
+                            <div>
+                                <div class="ov-alert-num text-warning" id="ov-transfer-pending-highlight">0</div>
+                                <div class="ov-alert-txt">Phiếu chuyển kho chờ xử lý</div>
+                            </div>
+                            <i class="bi bi-chevron-right ov-go"></i>
                         </div>
                     </div>
                 </div>
             </div>
 
-            <!-- Mốc cập nhật + thông báo -->
-            <div class="row g-2 g-md-3">
-                <div class="col-12 col-md-4">
-                    <div class="card card-custom p-3 h-100">
-                        <div class="d-flex align-items-center gap-2 mb-2">
-                            <div class="stat-icon bg-primary bg-opacity-10 text-primary"><i class="bi bi-boxes"></i></div>
-                            <span class="fw-semibold text-uppercase text-muted" style="font-size: 0.7rem;">Tồn Kho Cập Nhật Lúc</span>
+            <div class="row g-3 mb-3">
+                <div class="col-12 col-lg-6">
+                    <div class="ov-panel h-100">
+                        <h6 class="ov-title"><i class="bi bi-arrow-left-right me-2 text-primary"></i>Phiếu chuyển kho nội bộ</h6>
+                        <div class="ov-stack" id="ov-transfer-bar"></div>
+                        <div class="ov-kpis">
+                            <div><b id="ov-transfer-total">0</b><span>Tổng số phiếu</span></div>
+                            <div><b class="c-pend" id="ov-transfer-pending">0</b><span><i class="ov-dot s-pend"></i>Đang chờ duyệt</span></div>
+                            <div><b class="c-ok" id="ov-transfer-approved">0</b><span><i class="ov-dot s-ok"></i>Đã duyệt</span></div>
+                            <div><b class="c-bad" id="ov-transfer-rejected">0</b><span><i class="ov-dot s-bad"></i>Đã từ chối</span></div>
                         </div>
-                        <div class="small" id="ov-inventory-updated">Đang tải...</div>
+                        <div class="ov-note">Tính trên các phiếu gần đây và phiếu đang cần xử lý.</div>
                     </div>
                 </div>
-                <div class="col-12 col-md-4">
-                    <div class="card card-custom p-3 h-100">
-                        <div class="d-flex align-items-center gap-2 mb-2">
-                            <div class="stat-icon bg-warning bg-opacity-10 text-warning"><i class="bi bi-tag-fill"></i></div>
-                            <span class="fw-semibold text-uppercase text-muted" style="font-size: 0.7rem;">Bảng Giá Cập Nhật Lúc</span>
+                <div class="col-12 col-lg-6">
+                    <div class="ov-panel h-100">
+                        <h6 class="ov-title"><i class="bi bi-bar-chart-fill me-2 text-primary"></i>Đối soát PO - hàng nợ</h6>
+                        <div class="ov-stack" id="ov-po-bar"></div>
+                        <div class="ov-kpis">
+                            <div><b id="ov-stat-total">0</b><span>Tổng mã hàng</span></div>
+                            <div><b class="c-bad" id="ov-stat-debt-2">0</b><span><i class="ov-dot s-bad"></i>Đang nợ hàng</span></div>
+                            <div><b class="c-pend" id="ov-stat-shipping">0</b><span><i class="ov-dot s-pend"></i>Đang vận chuyển</span></div>
+                            <div><b class="c-ok" id="ov-stat-received">0</b><span><i class="ov-dot s-ok"></i>Đã nhận hàng</span></div>
                         </div>
-                        <div class="small" id="ov-price-updated">Đang tải...</div>
                     </div>
                 </div>
+            </div>
+
+            <div class="row g-3">
                 <div class="col-12 col-md-4">
-                    <div class="card card-custom p-3 h-100" style="cursor: pointer;" onclick="document.getElementById('notif-bell-btn') ? document.getElementById('notif-bell-btn').click() : null">
-                        <div class="d-flex align-items-center gap-2 mb-2">
-                            <div class="stat-icon bg-danger bg-opacity-10 text-danger"><i class="bi bi-bell-fill"></i></div>
-                            <span class="fw-semibold text-uppercase text-muted" style="font-size: 0.7rem;">Thông Báo</span>
-                        </div>
-                        <div class="small" id="ov-unread-notif">Đang tải...</div>
-                    </div>
+                    <div class="ov-mini"><i class="bi bi-boxes text-primary"></i><div><div class="ov-mini-t">Tồn kho cập nhật lúc</div><div class="small" id="ov-inventory-updated">Đang tải...</div></div></div>
+                </div>
+                <div class="col-12 col-md-4">
+                    <div class="ov-mini"><i class="bi bi-tag-fill text-warning"></i><div><div class="ov-mini-t">Bảng giá cập nhật lúc</div><div class="small" id="ov-price-updated">Đang tải...</div></div></div>
+                </div>
+                <div class="col-12 col-md-4">
+                    <div class="ov-mini" style="cursor:pointer" onclick="document.getElementById('notif-bell-btn') ? document.getElementById('notif-bell-btn').click() : null"><i class="bi bi-bell-fill text-danger"></i><div><div class="ov-mini-t">Thông báo</div><div class="small" id="ov-unread-notif">Đang tải...</div></div></div>
                 </div>
             </div>
         </div>
