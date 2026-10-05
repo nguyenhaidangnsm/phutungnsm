@@ -1476,19 +1476,8 @@ def gdh_submit():
         if not pick:
             db.rollback()
             return jsonify({'error': f'Phiên gôm chưa có mã nào loại "{ot}" có SL cuối > 0 nên chưa đẩy được.'}), 400
-        dups = _dup_batches(cur, batch, [ot])
-        blocking = [d for d in dups if d['blocking']]
-        if blocking:
-            d = blocking[0]
-            db.rollback()
-            return jsonify({'error': f"Đã có đơn {ot} của chi nhánh này cùng kỳ số bán đang “{d['status_label']}” "
-                                     f"(đẩy lúc {d['submitted_at']}). Hãy chờ admin xử lý xong hoặc Thu hồi đơn đó trước khi đẩy thêm.",
-                            'duplicate': True, 'blocking': True, 'dups': dups}), 409
-        if dups and not payload.get('confirm_duplicate'):
-            d = dups[0]
-            db.rollback()
-            return jsonify({'error': f"Đã có đơn {ot} “{d['status_label']}” cùng kỳ số bán (đẩy lúc {d['submitted_at']}). Vẫn đẩy thêm một đơn {ot} nữa?",
-                            'duplicate': True, 'blocking': False, 'need_confirm': True, 'dups': dups}), 409
+        # Cho phép đẩy NHIỀU đơn cùng loại cho 1 phiên gôm: mỗi lần đẩy, các mã đã đẩy bị xoá khỏi phiên gôm
+        # nên đơn sau chỉ gồm mã MỚI/còn lại, không trùng đơn trước -> không chặn và không hỏi xác nhận trùng nữa.
         codes = [r['part_code'] for r in pick]
         old_id = int(batch['id'])
         # 1) đơn mới (Chờ duyệt) = bản sao cấu hình của phiên gôm
@@ -2366,13 +2355,13 @@ def gdh_submit_preview():
         by_type = {k: {'parts': v['parts'], 'qty': v['qty'], 'amount': v['amount'],
                        'no_cost': sum(1 for r in rows if r['order_type'] == k and r['qty_final'] > 0 and r['amount'] is None)}
                    for k, v in t['by_type'].items()}
-        dups_by_type = {k: _dup_batches(cur, batch, [k]) for k, v in by_type.items() if v['parts'] > 0}
+        dups_by_type = {}        # không còn cảnh báo/chặn đơn trùng loại: cho đẩy nhiều đơn cùng loại từ 1 phiên gôm
     finally:
         cur.close()
     now = datetime.now(_VN_TZ)
     names = {k: _order_name({'store_code': batch['store_code'], 'submitted_at': now}, [k]) for k in ORDER_TYPES}
     return jsonify({'success': True, 'batch': _batch_json(batch), 'by_type': by_type, 'dups_by_type': dups_by_type,
-                    'blocking_by_type': {k: any(d['blocking'] for d in v) for k, v in dups_by_type.items()},
+                    'blocking_by_type': {},
                     'order_names': names, 'typed': sum(v['parts'] for v in by_type.values()),
                     'qty': sum(v['qty'] for v in by_type.values()), 'amount': sum(v['amount'] for v in by_type.values()),
                     'unassigned_type': t['unassigned_type'], 'locked_no_replace': t['locked_no_replace'], 'no_cost': t['no_cost']})

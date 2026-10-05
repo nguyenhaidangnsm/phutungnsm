@@ -329,6 +329,7 @@ input.qe.late { color:#b91c1c; font-weight:800; } input.qe.bad { border-color:#d
     .ac { font-family: var(--f-ui); }
     .ac-i b { color: #0b3aa8; font-weight: 700; } .ac-i em { color: #047857; font-weight: 600; }
 </style>
+    <script src="/static/ns-dialog.js"></script>
 </head>
 <body>
 <div class="topbar ns-topbar">
@@ -611,7 +612,7 @@ function quickEdit(el) {
   if ((it[f] ?? '') === (v ?? '')) return; it[f] = v; quickSave(rq);
 }
 async function deleteRequest(rid) {
-  const rq = byId[rid]; if (!confirm(`Xoá toàn bộ đơn của khách "${rq ? rq.customer_name : ''}" (${rq ? rq.items.length : 0} mặt hàng)?`)) return;
+  const rq = byId[rid]; if (!await nsConfirm(`Xoá toàn bộ đơn của khách "${rq ? rq.customer_name : ''}" (${rq ? rq.items.length : 0} mặt hàng)?`)) return;
   try { await api('/api/orders/delete', { request_id: rid }); delete byId[rid]; const el = $('req-' + rid); if (el) el.remove(); toast('Đã xoá đơn'); }
   catch (e) { toast(e.message, true); }
 }
@@ -624,7 +625,7 @@ function openEditor(rid) {
   $('btnSaveNew').classList.toggle('d-none', !!rid); renderForm(); cur.items.forEach((it, i) => it.part_code && loadStock(i)); edModal = bootstrap.Modal.getOrCreateInstance($('edModal')); edModal.show();
 }
 $('edModal').addEventListener('shown.bs.modal', () => { const f = $('edBody').querySelector('[data-f="customer_name"]'); if (f) f.focus(); });
-$('edModal').addEventListener('hide.bs.modal', e => { if (dirty && !saving && !confirm('Đơn chưa lưu. Đóng và bỏ thay đổi?')) { e.preventDefault(); return; } acClose(); });
+$('edModal').addEventListener('hide.bs.modal', e => { if (dirty && !saving) { e.preventDefault(); nsConfirm('Đơn chưa lưu. Đóng và bỏ thay đổi?').then(ok => { if (ok) { dirty = false; edModal.hide(); } }); return; } acClose(); });
 const inp = (f, v, extra = '', cls = '') => `<input class="form-control ${cls}" data-f="${f}" value="${esc(v ?? '')}" autocomplete="off" ${extra}>`;
 const dateInp = (f, v, i) => `<input class="form-control" data-f="${f}" data-t="date" ${i != null ? `data-i="${i}"` : ''} value="${fmtDate(v)}" placeholder="dd/mm/yyyy" autocomplete="off">`;
 function renderForm() {
@@ -914,7 +915,7 @@ async function submitImport() {
   const store = $('imp_store_code'), file = $('imp_file'), box = $('importResult'), btn = $('importSubmitBtn'), replace = $('imp_replace').checked;
   if (!store.value) { box.innerHTML = '<span class="text-danger">Vui lòng chọn chi nhánh.</span>'; return; }
   if (!file.files.length) { box.innerHTML = '<span class="text-danger">Vui lòng chọn file Excel.</span>'; return; }
-  if (replace && !confirm(`Sẽ XOÁ TOÀN BỘ đơn hiện có của chi nhánh ${store.value} rồi nhập lại từ Excel. Tiếp tục?`)) return;
+  if (replace && !await nsConfirm(`Sẽ XOÁ TOÀN BỘ đơn hiện có của chi nhánh ${store.value} rồi nhập lại từ Excel. Tiếp tục?`)) return;
   const fd = new FormData(); fd.append('store_code', store.value); fd.append('file', file.files[0]); if (replace) fd.append('replace', '1');
   btn.disabled = true; box.innerHTML = '<span class="text-muted">Đang import, vui lòng đợi...</span>';
   try {

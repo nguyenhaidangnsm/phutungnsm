@@ -53,6 +53,7 @@
   .cell-btn.active { background: #0d6efd; border-color: #0d6efd; color: #fff; }
   .slot-block { padding: 8px; background: #f8f9fa; border-radius: 8px; }
 </style>
+    <script src="/static/ns-dialog.js"></script>
 </head>
 <body>
 <div id="app">
@@ -1227,7 +1228,7 @@ async function saveCellSlots(shelf, lvl, cell, rawValue) {
   }
   const cut = (shelf.items || []).filter(it =>
     it.level_index === lvl && it.cell_index === cell && it.slot_index > n).length;
-  if (cut > 0 && !confirm(`Giảm còn ${n} ngăn sẽ gỡ ${cut} mã hàng đang nằm ở các ngăn bị bỏ. Tiếp tục?`)) {
+  if (cut > 0 && !await nsConfirm(`Giảm còn ${n} ngăn sẽ gỡ ${cut} mã hàng đang nằm ở các ngăn bị bỏ. Tiếp tục?`)) {
     renderLevelItems(shelf);
     return;
   }
@@ -1570,7 +1571,7 @@ document.getElementById('floor-save-btn').addEventListener('click', async () => 
 
 document.getElementById('floor-rename-btn').addEventListener('click', async () => {
   const current = state.floors.find(f => f.id === state.floorId);
-  const name = prompt('Tên lầu:', current ? current.name : '');
+  const name = await nsPrompt('Tên lầu:', current ? current.name : '');
   if (name === null) return;
   if (!name.trim()) { showToast('Vui lòng nhập tên lầu.', 'danger'); return; }
   try {
@@ -1600,7 +1601,7 @@ document.getElementById('floor-add-btn').addEventListener('click', async () => {
 document.getElementById('floor-delete-btn').addEventListener('click', async () => {
   const current = state.floors.find(f => f.id === state.floorId);
   if (!current) return;
-  if (!confirm(`Xoá "${current.name}"? Toàn bộ kệ và mã hàng đã gán trên lầu này cũng sẽ bị xoá.`)) return;
+  if (!await nsConfirm(`Xoá "${current.name}"? Toàn bộ kệ và mã hàng đã gán trên lầu này cũng sẽ bị xoá.`)) return;
   try {
     await apiSend(`/api/warehouse3d/${state.storeCode}/floors/${state.floorId}`, 'DELETE');
     state.floorId = null;
@@ -1686,7 +1687,7 @@ document.getElementById('detail-save-btn').addEventListener('click', async () =>
   };
   const orphaned = countOrphansAfterEdit(shelf, payload.shelf_type, payload.levels,
     payload.cells_per_level, payload.slots_per_cell);
-  if (orphaned > 0 && !confirm(`Thay đổi cấu trúc này sẽ gỡ ${orphaned} mã hàng đang nằm ở vị trí không còn tồn tại. Tiếp tục?`)) return;
+  if (orphaned > 0 && !await nsConfirm(`Thay đổi cấu trúc này sẽ gỡ ${orphaned} mã hàng đang nằm ở vị trí không còn tồn tại. Tiếp tục?`)) return;
   try {
     await apiSend(`/api/warehouse3d/${state.storeCode}/shelves/${shelf.id}`, 'PUT', payload);
     await loadLayout();
@@ -1698,7 +1699,7 @@ document.getElementById('detail-save-btn').addEventListener('click', async () =>
 document.getElementById('detail-delete-btn').addEventListener('click', async () => {
   const shelf = state.shelves.find(s => s.id === state.selectedId);
   if (!shelf) return;
-  if (!confirm(`Xoá kệ "${shelf.code}"? Toàn bộ mã hàng đã gán trên kệ này cũng sẽ bị gỡ.`)) return;
+  if (!await nsConfirm(`Xoá kệ "${shelf.code}"? Toàn bộ mã hàng đã gán trên kệ này cũng sẽ bị gỡ.`)) return;
   try {
     await apiSend(`/api/warehouse3d/${state.storeCode}/shelves/${shelf.id}`, 'DELETE');
     state.selectedId = null;

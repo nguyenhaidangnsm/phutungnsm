@@ -257,6 +257,7 @@
     .st-scope-item .cnt { margin-left: auto; font-size: .72rem; font-weight: 500; color: var(--ns-muted); white-space: nowrap; }
     .group-chip { display: inline-block; padding: 1px 7px; border-radius: 6px; font-size: .7rem; font-weight: 600; background: #fef3c7; color: #92400e; border: 1px solid #fde68a; white-space: nowrap; }
 </style>
+    <script src="/static/ns-dialog.js"></script>
 </head>
 <body>
 <div class="ns-topbar mb-3 mb-md-4">
@@ -752,7 +753,7 @@
         } else {
             confirmMsg = `Bắt đầu kiểm kê TỔNG KHO cho cửa hàng ${store}? Hệ thống sẽ chụp tồn kho hiện tại làm mốc đối chiếu.`;
         }
-        if (!confirm(confirmMsg)) return;
+        if (!await nsConfirm(confirmMsg)) return;
 
         const btn = document.getElementById('st-start-btn');
         const originalHtml = btn.innerHTML;
@@ -1085,7 +1086,7 @@
 
     async function deleteLastCount() {
         if (!lastCountInfo) return;
-        if (!confirm(`Xoá lượt đếm mã "${lastCountInfo.part_code}" vừa quét?`)) return;
+        if (!await nsConfirm(`Xoá lượt đếm mã "${lastCountInfo.part_code}" vừa quét?`)) return;
         const res = await fetch(`/api/stocktake/count/${lastCountInfo.id}`, { method: 'DELETE' });
         const result = await res.json();
         if (!result.success) { document.getElementById('st-last-count-msg').innerHTML = `<span class="text-danger">${result.error}</span>`; return; }
@@ -1719,7 +1720,7 @@
     // trên dòng log) - dùng khi vị trí tự động điền lúc quét bị sai, hoặc
     // muốn sửa riêng 1 dòng mà không cần đồng bộ hàng loạt.
     async function editLogLocation(countId, currentArea) {
-        const newArea = prompt('Sửa vị trí kho cho lượt đếm này (để trống nếu muốn xoá):', currentArea || '');
+        const newArea = await nsPrompt('Sửa vị trí kho cho lượt đếm này (để trống nếu muốn xoá):', currentArea || '');
         if (newArea === null) return; // bấm Huỷ
         const res = await fetch(`/api/stocktake/count/${countId}`, {
             method: 'PUT', headers: { 'Content-Type': 'application/json' },
@@ -1736,7 +1737,7 @@
     async function syncLocations() {
         if (!currentSession) return;
         const msgEl = document.getElementById('st-sync-locations-msg');
-        if (!confirm('Lấy Vị Trí Kho trong Nhật Ký Đếm để THAY THẾ vị trí kho đang import của các mã đã đếm? Mã nào không có trong log kiểm sẽ giữ nguyên vị trí cũ.')) return;
+        if (!await nsConfirm('Lấy Vị Trí Kho trong Nhật Ký Đếm để THAY THẾ vị trí kho đang import của các mã đã đếm? Mã nào không có trong log kiểm sẽ giữ nguyên vị trí cũ.')) return;
         msgEl.innerHTML = '<span class="text-muted">Đang đồng bộ...</span>';
         try {
             const res = await fetch(`/api/stocktake/${currentSession.id}/sync-locations`, { method: 'POST' });
@@ -1757,7 +1758,7 @@
     // đúng 2 route PUT/DELETE /api/stocktake/count/<id> mà khung "Mã Vừa
     // Kiểm" đang dùng, chỉ khác là cho áp dụng lên BẤT KỲ dòng log nào.
     async function editLogEntry(countId, currentQty) {
-        const newQty = prompt('Sửa số lượng đếm cho lượt này:', currentQty);
+        const newQty = await nsPrompt('Sửa số lượng đếm cho lượt này:', currentQty);
         if (newQty === null) return; // bấm Huỷ
         if (newQty.trim() === '' || isNaN(Number(newQty)) || Number(newQty) < 0) {
             alert('Số lượng không hợp lệ.');
@@ -1781,7 +1782,7 @@
     }
 
     async function deleteLogEntry(countId, partCode) {
-        if (!confirm(`Xoá lượt đếm mã "${partCode}" này khỏi Nhật Ký?`)) return;
+        if (!await nsConfirm(`Xoá lượt đếm mã "${partCode}" này khỏi Nhật Ký?`)) return;
         const res = await fetch(`/api/stocktake/count/${countId}`, { method: 'DELETE' });
         const result = await res.json();
         if (!result.success) { alert('Lỗi: ' + (result.error || `HTTP ${res.status}`)); return; }
@@ -1838,7 +1839,7 @@
 
     async function closeSession() {
         if (!currentSession) return;
-        if (!confirm('Chốt kiểm kê sẽ khoá phiên này lại và lưu kết quả đối chiếu để xuất Excel. Số liệu kiểm kê KHÔNG tự động cập nhật vào tồn kho hệ thống. Tiếp tục?')) return;
+        if (!await nsConfirm('Chốt kiểm kê sẽ khoá phiên này lại và lưu kết quả đối chiếu để xuất Excel. Số liệu kiểm kê KHÔNG tự động cập nhật vào tồn kho hệ thống. Tiếp tục?')) return;
         const btn = document.getElementById('st-close-btn');
         const originalHtml = btn.innerHTML;
         btn.disabled = true;
@@ -1856,7 +1857,7 @@
                     const sample = (result.sample || []).join(', ');
                     const more = result.missing_parts > (result.sample || []).length ? ', ...' : '';
                     try { speakText('Còn mã chưa quét', _stBeepFallbackError); } catch (e) {}
-                    const ok = confirm(`CẢNH BÁO: ${result.error}\n\nVí dụ: ${sample}${more}\n\nNếu vẫn chốt, các mã này sẽ tính tồn = 0 (báo Thiếu).\nBấm OK để VẪN CHỐT, Huỷ để xem danh sách mã chưa quét và quét tiếp.`);
+                    const ok = await nsConfirm(`CẢNH BÁO: ${result.error}\n\nVí dụ: ${sample}${more}\n\nNếu vẫn chốt, các mã này sẽ tính tồn = 0 (báo Thiếu).\nBấm OK để VẪN CHỐT, Huỷ để xem danh sách mã chưa quét và quét tiếp.`);
                     if (!ok) { openMissingModal(); return; }
                     force = true;
                     continue;
@@ -1877,7 +1878,7 @@
     }
 
     async function reopenSession(id) {
-        const reason = prompt('Nhập lý do mở lại phiên kiểm kê này:');
+        const reason = await nsPrompt('Nhập lý do mở lại phiên kiểm kê này:');
         if (!reason) return;
         const res = await fetch(`/api/stocktake/${id}/reopen`, {
             method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ reason })
@@ -1910,7 +1911,7 @@
             return;
         }
 
-        const typed = prompt(
+        const typed = await nsPrompt(
             `Sắp XOÁ VĨNH VIỄN toàn bộ dữ liệu kiểm kê của cửa hàng ${store}:\n` +
             `- ${preview.session_count} phiên kiểm kê đã chốt\n` +
             `- Toàn bộ nhật ký đếm, biên bản kết quả, lịch sử mở lại đi kèm\n\n` +
@@ -2030,7 +2031,7 @@
     }
 
     async function deleteAdjustment(id) {
-        if (!confirm('Xoá lần báo phát sinh này?')) return;
+        if (!await nsConfirm('Xoá lần báo phát sinh này?')) return;
         try {
             const res = await fetch(`/api/stocktake/adjustment/${id}`, { method: 'DELETE' });
             const result = await res.json();

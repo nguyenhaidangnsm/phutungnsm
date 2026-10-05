@@ -1308,6 +1308,7 @@
         }
     }
 </style>
+    <script src="/static/ns-dialog.js"></script>
 </head>
 <link rel="manifest" href="/static/manifest.json">
 <meta name="theme-color" content="#0d6efd">
@@ -2507,7 +2508,7 @@
     };
     window.ahnClear = async () => {
         if (!store()) return msg('Vui lòng chọn 1 cửa hàng cụ thể để xoá.', false);
-        if (!confirm('Xoá toàn bộ dữ liệu hàng nợ đã đổ cho ' + store() + ' trong vùng riêng của bạn? (Dữ liệu thật của cửa hàng không bị ảnh hưởng.)')) return;
+        if (!await nsConfirm('Xoá toàn bộ dữ liệu hàng nợ đã đổ cho ' + store() + ' trong vùng riêng của bạn? (Dữ liệu thật của cửa hàng không bị ảnh hưởng.)')) return;
         try {
             await api('/api/admin-hang-no/clear', {method: 'POST', headers: {'Content-Type': 'application/x-www-form-urlencoded'}, body: 'store=' + encodeURIComponent(store())});
             await loadStores(); await loadData(); msg('Đã xoá dữ liệu của ' + store() + '.', true);
@@ -4437,7 +4438,7 @@
                     <button class="btn btn-success btn-sm" onclick="exportOrderCheckExcel()">
                         <i class="bi bi-file-earmark-excel me-1"></i>Xuất Excel
                     </button>
-                    <button class="btn btn-outline-danger btn-sm" onclick="if(confirm('Xoá phiên đang duyệt hiện tại? Kết quả đang xem sẽ mất (chưa lưu lên hệ thống).')) clearOrderCheckSession()">
+                    <button class="btn btn-outline-danger btn-sm" onclick="nsConfirm('Xoá phiên đang duyệt hiện tại? Kết quả đang xem sẽ mất (chưa lưu lên hệ thống).').then(function(ok){ if (ok) clearOrderCheckSession(); })">
                         <i class="bi bi-trash me-1"></i>Xoá Phiên
                     </button>
                     <button type="button" class="btn btn-outline-secondary btn-sm" id="ocMaxBtn" onclick="ocToggleMax()" title="Phóng to bảng duyệt đơn (bấm Esc để thu nhỏ)"><i class="bi bi-arrows-fullscreen me-1"></i><span>Phóng to</span></button>
@@ -5973,8 +5974,8 @@
     // Không gian gôm: admin mặc định 'mine' (riêng từng admin); 'store' = bảng gôm chung của chi nhánh. User cửa hàng luôn dùng chung nên không gửi.
     let _gdhSpaceVal = 'mine';
     function _gdhSpace() { return CURRENT_ROLE === 'admin' ? _gdhSpaceVal : ''; }
-    function gdhSpaceChanged(el) {         // 2 ô chọn không gian (bảng gôm + dashboard) luôn đồng bộ với nhau
-        if (!_gdhConfirmLeave()) { el.value = _gdhSpaceVal; return; }
+    async function gdhSpaceChanged(el) {         // 2 ô chọn không gian (bảng gôm + dashboard) luôn đồng bộ với nhau
+        if (_gdhDirty && !(await _gdhConfirmLeave())) { el.value = _gdhSpaceVal; return; }
         _gdhSpaceVal = el.value;
         ['gdhSpace', 'gdhDSpace'].forEach(id => { const x = document.getElementById(id); if (x) x.value = _gdhSpaceVal; });
         _gdhBatchId = null; _gdhEdited = {}; _gdhMarkDirty(false);
@@ -6020,8 +6021,8 @@
             delete lbl.dataset.busy; delete lbl.dataset.ico; delete lbl.dataset.txt;
         }
     }
-    function _gdhConfirmLeave() {
-        return !_gdhDirty || confirm('Có thay đổi chưa lưu. Tiếp tục sẽ mất các thay đổi này. Tiếp tục?');
+    async function _gdhConfirmLeave() {
+        return !_gdhDirty || await nsConfirm('Có thay đổi chưa lưu. Tiếp tục sẽ mất các thay đổi này. Tiếp tục?');
     }
     function gdhTabOpened() {
         const now = new Date(), y = now.getFullYear(), m = now.getMonth();
@@ -6035,8 +6036,8 @@
         else if (!document.getElementById('gdhOrdersView').classList.contains('d-none')) gdhOrdersLoad();
         else gdhLoadBatches(_gdhBatchId);
     }
-    function gdhSwitchView(v) {
-        if (v !== 'gom' && !_gdhConfirmLeave()) return;
+    async function gdhSwitchView(v) {
+        if (v !== 'gom' && (_gdhDirty && !(await _gdhConfirmLeave()))) return;
         if (v !== 'gom') { gdhToggleMax(false); _gdhMarkDirty(false); }
         document.getElementById('gdhGomView').classList.toggle('d-none', v !== 'gom');
         document.getElementById('gdhDashView').classList.toggle('d-none', v !== 'dash');
@@ -6073,14 +6074,14 @@
             }
         } catch (e) { alert(e.message); }
     }
-    function gdhBatchChanged() {
+    async function gdhBatchChanged() {
         const sel = document.getElementById('gdhBatch');
-        if (!_gdhConfirmLeave()) { sel.value = String(_gdhBatchId); return; }
+        if (_gdhDirty && !(await _gdhConfirmLeave())) { sel.value = String(_gdhBatchId); return; }
         _gdhBatchId = sel.value || null; _gdhEdited = {}; _gdhMarkDirty(false); gdhLoad(1);
     }
     async function gdhDeleteBatch() {
         if (!_gdhBatchId) return;
-        if (!confirm('Xoá đợt gôm đang chọn cùng toàn bộ loại đơn/số lượng đã chọn? Không khôi phục được.')) return;
+        if (!await nsConfirm('Xoá đợt gôm đang chọn cùng toàn bộ loại đơn/số lượng đã chọn? Không khôi phục được.')) return;
         try {
             await _gdhJson('/api/gom-don-hang/delete-batch', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({batch_id: _gdhBatchId})});
             _gdhBatchId = null; _gdhMarkDirty(false); gdhLoadBatches();
@@ -6089,7 +6090,7 @@
     async function gdhImport(input) {
         const file = input.files[0]; if (!file) return;
         if (CURRENT_ROLE === 'admin' && !_gdhStore()) { alert('Vui lòng chọn chi nhánh trước.'); input.value = ''; return; }
-        if (!_gdhConfirmLeave()) { input.value = ''; return; }
+        if (_gdhDirty && !(await _gdhConfirmLeave())) { input.value = ''; return; }
         const fd = new FormData();
         fd.append('file', file); fd.append('store', _gdhStore()); fd.append('space', _gdhSpace());
         const pf = document.getElementById('gdhImpFrom')?.value, pt = document.getElementById('gdhImpTo')?.value;
@@ -6382,7 +6383,7 @@
             gdhAddShow(show);
         } catch (e) {
             if (e.data && e.data.need_confirm) {
-                if (confirm(e.message + '\n\nBạn chắc chắn mã đúng và muốn thêm?')) return gdhAddCodes(codes, true);
+                if (await nsConfirm(e.message + '\n\nBạn chắc chắn mã đúng và muốn thêm?')) return gdhAddCodes(codes, true);
                 return;
             }
             alert(e.message);
@@ -6487,7 +6488,7 @@
         if (!_gdhBatchId) return;
         if (_gdhDirty && !(await gdhSave(true))) return;
         const ot = document.getElementById('gdhBulkType').value;
-        if (!confirm(`Gán loại đơn "${ot}" cho các mã cần đặt (SL cuối > 0) mà chưa chọn loại đơn?\nMã đã có loại đơn (kể cả loại khác) được giữ nguyên.`)) return;
+        if (!await nsConfirm(`Gán loại đơn "${ot}" cho các mã cần đặt (SL cuối > 0) mà chưa chọn loại đơn?\nMã đã có loại đơn (kể cả loại khác) được giữ nguyên.`)) return;
         const asgBtn = document.getElementById('gdhAssignBtn');
         _gdhBusy(asgBtn, true, 'Đang áp dụng...');
         try {
@@ -6503,7 +6504,7 @@
         const la = _gdhLastAssign;
         if (!la || la.batch !== _gdhBatchId || !la.codes.length) return;
         if (_gdhDirty && !(await gdhSave(true))) return;
-        if (!confirm(`Hoàn tác lần gán "${la.type}" vừa rồi (${la.codes.length} mã)?`)) return;
+        if (!await nsConfirm(`Hoàn tác lần gán "${la.type}" vừa rồi (${la.codes.length} mã)?`)) return;
         try {
             const j = await _gdhJson('/api/gom-don-hang/unassign-type', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({batch_id: _gdhBatchId, order_type: la.type, codes: la.codes})});
             _gdhLastAssign = null;
@@ -6520,7 +6521,7 @@
         try {
             const d = await _gdhJson('/api/gom-don-hang/unassign-type', {method: 'POST', headers: hdr, body: body({dry_run: true})});
             if (!d.count) { alert(`Không có mã nào đang gán loại đơn "${ot}".`); return; }
-            if (!confirm(`Bỏ loại đơn "${ot}" của ${d.count} mã trong đợt này (kể cả mã gán tay)?\nCác mã sẽ trở về "chưa chọn loại đơn".`)) return;
+            if (!await nsConfirm(`Bỏ loại đơn "${ot}" của ${d.count} mã trong đợt này (kể cả mã gán tay)?\nCác mã sẽ trở về "chưa chọn loại đơn".`)) return;
             const j = await _gdhJson('/api/gom-don-hang/unassign-type', {method: 'POST', headers: hdr, body: body({})});
             _gdhLastAssign = null;
             alert('Đã bỏ gán ' + j.count + ' mã.'); await gdhLoadBatches(_gdhBatchId); _gdhShowUndo();
@@ -6600,7 +6601,7 @@
         const go = (extra) => _gdhJson('/api/gom-don-hang/' + action, {method: 'POST', headers: hdr, body: JSON.stringify(Object.assign({batch_id: _gdhBatchId}, body || {}, extra || {}))});
         try {
             try { await go(); }
-            catch (e) { if (e.data && e.data.need_confirm && confirm(e.message)) await go({confirm_unassigned: true}); else throw e; }
+            catch (e) { if (e.data && e.data.need_confirm && await nsConfirm(e.message)) await go({confirm_unassigned: true}); else throw e; }
             if (doneMsg) alert(doneMsg);
             return true;
         } catch (e) { alert(e.message); return false; }
@@ -6762,11 +6763,11 @@
     async function gdhRecall(id) {
         const _o = id ? (_gdhOrdersCache || []).find(x => String(x.id) === String(id)) : null;
         if (_o && _o.kind === 'urgent') {          // đơn khẩn từ danh sách khách hàng: không có bản Nháp, thu hồi = xoá đơn
-            if (!confirm('Thu hồi đơn KHẨN? Đơn sẽ bị xoá và các mã khách được trả về Danh sách đặt hàng để gôm lại. (Chỉ được khi admin chưa lấy về duyệt)')) return;
+            if (!await nsConfirm('Thu hồi đơn KHẨN? Đơn sẽ bị xoá và các mã khách được trả về Danh sách đặt hàng để gôm lại. (Chỉ được khi admin chưa lấy về duyệt)')) return;
             if (await _gdhAct('recall', {batch_id: id}, 'Đã thu hồi đơn khẩn. Các mã khách đã về lại Danh sách đặt hàng.')) await _gdhAfterAct();
             return;
         }
-        if (!confirm('Thu hồi đơn để sửa lại? Các mã sẽ được trả về phiên gôm (chỉ được khi admin chưa lấy về duyệt).')) return;
+        if (!await nsConfirm('Thu hồi đơn để sửa lại? Các mã sẽ được trả về phiên gôm (chỉ được khi admin chưa lấy về duyệt).')) return;
         if (await _gdhAct('recall', id ? {batch_id: id} : {}, id ? 'Đã thu hồi đơn. Các mã được trả về phiên gôm ở tab Gôm đơn hàng để bạn sửa.' : '')) await _gdhAfterAct();
     }
     async function gdhClaim(id) {          // từ bảng gôm hoặc từ danh sách: lấy về duyệt rồi mở thẳng đơn đó để sửa
@@ -6777,20 +6778,20 @@
         gdhOrdersBadge();
     }
     async function gdhRelease(id) {
-        if (!confirm('Trả đơn về hàng chờ duyệt? Các chỉnh sửa bạn đã làm vẫn được giữ trong đơn.')) return;
+        if (!await nsConfirm('Trả đơn về hàng chờ duyệt? Các chỉnh sửa bạn đã làm vẫn được giữ trong đơn.')) return;
         if (id) _gdhBatchId = id;
         if (_gdhDirty && !(await gdhSave(true))) return;
         if (await _gdhAct('release')) _gdhGoOrders();
     }
-    function _gdhAskReject() {             // hỏi lý do từ chối (bắt buộc); trả null nếu admin huỷ hoặc bỏ trống
-        const r = prompt('Từ chối duyệt đơn này và trả về chi nhánh chỉnh sửa?\nNhập lý do từ chối (bắt buộc) - chi nhánh sẽ thấy lý do này:', '');
+    async function _gdhAskReject() {             // hỏi lý do từ chối (bắt buộc); trả null nếu admin huỷ hoặc bỏ trống
+        const r = await nsPrompt('Từ chối duyệt đơn này và trả về chi nhánh chỉnh sửa?\nNhập lý do từ chối (bắt buộc) - chi nhánh sẽ thấy lý do này:', '');
         if (r === null) return null;
         const t = r.trim();
         if (!t) { alert('Cần nhập lý do từ chối để chi nhánh biết cần chỉnh sửa gì.'); return null; }
         return t.slice(0, 500);
     }
     async function gdhReject(id, btn) {    // từ danh sách đơn: Từ chối đơn Chờ duyệt / Đang duyệt (của mình)
-        const reason = _gdhAskReject(); if (reason === null) return;
+        const reason = await _gdhAskReject(); if (reason === null) return;
         _gdhBusy(btn, true, 'Đang từ chối...');
         try {
             const j = await _gdhJson('/api/gom-don-hang/reject', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({batch_id: id, reason})});
@@ -6807,8 +6808,8 @@
         const m = document.getElementById('gdhCmpModal');
         if (m && m.classList.contains('show') && _gdhCmp && String(_gdhCmp.batch.id) === String(id)) gdhOpenCompare(id, true);
     }
-    function gdhOpenBatch(store, id) {     // mở 1 đơn trong tab Gôm đơn hàng (admin: sang không gian của chi nhánh)
-        if (!_gdhConfirmLeave()) return;
+    async function gdhOpenBatch(store, id) {     // mở 1 đơn trong tab Gôm đơn hàng (admin: sang không gian của chi nhánh)
+        if (_gdhDirty && !(await _gdhConfirmLeave())) return;
         _gdhBatchId = id; _gdhEdited = {}; _gdhMarkDirty(false);
         if (CURRENT_ROLE === 'admin') {
             _gdhSpaceVal = 'store';
@@ -7877,7 +7878,7 @@
     async function deleteBodyKitFromDetail() {
         const g = _bodyKitCurrentGroup;
         if (!g) return;
-        if (!confirm(`Xoá bộ áo "${g.group_label}"? Thao tác này không thể hoàn tác.`)) return;
+        if (!await nsConfirm(`Xoá bộ áo "${g.group_label}"? Thao tác này không thể hoàn tác.`)) return;
         try {
             const res = await fetch(`/api/body-kit/groups/${g.id}`, { method: 'DELETE' });
             const json = await res.json();
@@ -7900,7 +7901,7 @@
             alert('Vui lòng chọn 1 file Excel (.xlsx) trước.');
             return;
         }
-        if (!confirm('Nhập dữ liệu mới sẽ THAY THẾ toàn bộ bảng giá bộ áo đã nhập từ Excel trước đó (bộ áo thêm thủ công được giữ nguyên). Tiếp tục?')) return;
+        if (!await nsConfirm('Nhập dữ liệu mới sẽ THAY THẾ toàn bộ bảng giá bộ áo đã nhập từ Excel trước đó (bộ áo thêm thủ công được giữ nguyên). Tiếp tục?')) return;
 
         const formData = new FormData();
         formData.append('file', input.files[0]);
@@ -7947,7 +7948,7 @@
             alert('Vui lòng chọn 1 file trước.');
             return;
         }
-        if (!confirm('Nhập dữ liệu mới sẽ THAY THẾ TOÀN BỘ dữ liệu khoá đặt hàng hiện có. Tiếp tục?')) return;
+        if (!await nsConfirm('Nhập dữ liệu mới sẽ THAY THẾ TOÀN BỘ dữ liệu khoá đặt hàng hiện có. Tiếp tục?')) return;
 
         const formData = new FormData();
         formData.append('lock_file', input.files[0]);
@@ -7984,7 +7985,7 @@
             alert('Vui lòng chọn 1 file trước.');
             return;
         }
-        if (!confirm('Nhập dữ liệu mới sẽ THAY THẾ TOÀN BỘ dữ liệu Model xe hiện có. Tiếp tục?')) return;
+        if (!await nsConfirm('Nhập dữ liệu mới sẽ THAY THẾ TOÀN BỘ dữ liệu Model xe hiện có. Tiếp tục?')) return;
 
         const formData = new FormData();
         formData.append('vehicle_model_file', input.files[0]);
@@ -8247,11 +8248,11 @@
             `<div class="d-flex flex-wrap gap-1 mt-2 align-items-center"><span class="small text-muted me-1">Xem nhanh:</span>${chip('', 'Tất cả', null)}${chip('diff', 'SL duyệt ≠ SL gửi', st.diff)}${chip('locked', 'Bị khoá', st.locked)}${chip('short', 'Vẫn thiếu sau luân chuyển', st.short)}</div>` + _ocUrgPanel();
     }
     function ocGdhQuick(k) { _ocQuick = (_ocQuick === k) ? '' : k; renderOrderCheckTable(); _ocGdhRenderBar(); }
-    function ocGdhResetSuggest() {
+    async function ocGdhResetSuggest() {
         if (!_ocGdh) return;
         const n = _orderCheckData.filter(r => r._orig_suggest !== undefined && r._orig_suggest !== r.suggested_approve_qty).length;
         if (!n) { alert('Chưa có mã nào bị sửa so với đề xuất của hệ thống.'); return; }
-        if (!confirm(`Đặt lại SL Duyệt của ${n} mã đã sửa về số hệ thống đề xuất? (Ghi chú giữ nguyên)`)) return;
+        if (!await nsConfirm(`Đặt lại SL Duyệt của ${n} mã đã sửa về số hệ thống đề xuất? (Ghi chú giữ nguyên)`)) return;
         _orderCheckData.forEach(r => { if (r._orig_suggest !== undefined) r.suggested_approve_qty = r._orig_suggest; });
         renderOrderCheckTable(); saveOrderCheckSession(); _ocGdhDirty();
     }
@@ -8291,13 +8292,7 @@
         } catch (err) { _ocGdhDraftTxt = 'lưu nháp lỗi: ' + err.message; }
         _ocGdhRenderBar();
     }
-    function _ocToast(msg, onClick) {
-        let t = document.getElementById('ocToast');
-        if (!t) { t = document.createElement('div'); t.id = 'ocToast'; t.style.cssText = 'position:fixed;right:16px;bottom:84px;z-index:2000;max-width:320px;background:#0f172a;color:#fff;border-radius:.6rem;padding:.6rem .8rem;box-shadow:0 6px 20px rgba(0,0,0,.25);cursor:pointer;font-size:.9rem'; document.body.appendChild(t); }
-        t.innerHTML = '<i class="bi bi-bell-fill me-2 text-warning"></i>' + _gdhEsc(msg);
-        t.onclick = () => { t.remove(); if (onClick) onClick(); };
-        t.style.display = 'block'; clearTimeout(t._h); t._h = setTimeout(() => t.remove(), 12000);
-    }
+    function _ocToast(msg, onClick) { nsToast(msg, 'info', 12000, {title: 'Thông báo', onClick}); }
     async function ocGdhNavBadge() {            // số đơn Chờ duyệt trên menu + báo khi có đơn mới đẩy
         if (CURRENT_ROLE !== 'admin') return;
         try { _ocGdhApplyCounts(await _gdhJson('/api/gom-don-hang/orders?counts_only=1')); } catch (err) { /* không chặn giao diện */ }
@@ -8793,7 +8788,7 @@
         } catch (err) { list.innerHTML = `<div class="text-center text-danger py-3">${_gdhEsc(err.message)}</div>`; }
     }
     async function ocGdhClaim(id) {
-        if (_ocGdh && _ocGdh.id !== id && !confirm('Bạn đang duyệt dở một đơn gôm khác trên màn này. Lấy đơn mới sẽ thay phiên đang duyệt (đơn cũ vẫn ở trạng thái Đang duyệt, nháp đã lưu, mở lại được bằng nút "Mở để duyệt"). Tiếp tục?')) return;
+        if (_ocGdh && _ocGdh.id !== id && !await nsConfirm('Bạn đang duyệt dở một đơn gôm khác trên màn này. Lấy đơn mới sẽ thay phiên đang duyệt (đơn cũ vẫn ở trạng thái Đang duyệt, nháp đã lưu, mở lại được bằng nút "Mở để duyệt"). Tiếp tục?')) return;
         _ocBusy(true, 'Đang lấy đơn về duyệt...');
         let j;
         try { j = await _gdhJson('/api/gom-don-hang/claim', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({batch_id: id})}); }
@@ -8801,7 +8796,7 @@
         await ocGdhOpen(id, true, j.review);          // máy chủ trả sẵn danh sách mã -> bớt 1 vòng gọi
     }
     async function ocGdhOpen(id, skipConfirm, pre) {
-        if (!skipConfirm && _ocGdh && _ocGdh.id !== id && !confirm('Mở đơn này sẽ thay phiên đang duyệt trên màn hình (nháp của đơn đang mở đã được lưu). Tiếp tục?')) return;
+        if (!skipConfirm && _ocGdh && _ocGdh.id !== id && !await nsConfirm('Mở đơn này sẽ thay phiên đang duyệt trên màn hình (nháp của đơn đang mở đã được lưu). Tiếp tục?')) return;
         _ocBusy(true, 'Đang nạp đơn...');
         if (_ocGdh && _ocGdh.id !== id) { clearTimeout(_ocGdhT); await _ocGdhSaveDraft(); }
         let j = pre || null;
@@ -8831,7 +8826,7 @@
         ocGdhLoad();
     }
     async function ocGdhRelease() {
-        if (!_ocGdh || !confirm('Trả đơn về hàng chờ duyệt? SL Duyệt và ghi chú đang chỉnh cho đơn này sẽ không được giữ lại.')) return;
+        if (!_ocGdh || !await nsConfirm('Trả đơn về hàng chờ duyệt? SL Duyệt và ghi chú đang chỉnh cho đơn này sẽ không được giữ lại.')) return;
         _ocBusy(true, 'Đang trả đơn về hàng chờ...');
         try { await _gdhJson('/api/gom-don-hang/release', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({batch_id: _ocGdh.id})}); }
         catch (err) { _ocBusy(false); alert(err.message); return; }
@@ -8841,7 +8836,7 @@
     }
     async function ocGdhReject() {          // trong khung duyệt: đơn chưa ổn -> từ chối, trả về chi nhánh kèm lý do
         if (!_ocGdh) return;
-        const reason = _gdhAskReject(); if (reason === null) return;
+        const reason = await _gdhAskReject(); if (reason === null) return;
         _ocBusy(true, 'Đang từ chối đơn...');
         try { await _gdhJson('/api/gom-don-hang/reject', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({batch_id: _ocGdh.id, reason})}); }
         catch (err) { _ocBusy(false); alert(err.message); return; }
@@ -8859,8 +8854,8 @@
         if (!_orderCheckData || !_orderCheckData.length || _orderCheckCurrentStore !== _ocGdh.store) { alert('Bảng Kiểm Tra Đơn Hàng hiện không phải của đơn này. Bấm "Mở để duyệt" ở danh sách để nạp lại đơn rồi duyệt.'); return; }
         const items = _ocGdhCollect();
         const missing = items.filter(i => i.approved_qty === null).length;
-        if (missing && !confirm(`Có ${missing} mã của đơn không còn trong bảng kiểm tra (SL duyệt sẽ để trống). Vẫn duyệt xong?`)) return;
-        const note = prompt('Duyệt xong và trả kết quả về cho chi nhánh?\nChi nhánh sẽ thấy: STT, mã hàng, tên hàng, SL gửi, SL duyệt và ghi chú từng mã của bạn.\n\nGhi chú chung cho chi nhánh (không bắt buộc) - bấm OK để duyệt xong:', '');
+        if (missing && !await nsConfirm(`Có ${missing} mã của đơn không còn trong bảng kiểm tra (SL duyệt sẽ để trống). Vẫn duyệt xong?`)) return;
+        const note = await nsPrompt('Duyệt xong và trả kết quả về cho chi nhánh?\nChi nhánh sẽ thấy: STT, mã hàng, tên hàng, SL gửi, SL duyệt và ghi chú từng mã của bạn.\n\nGhi chú chung cho chi nhánh (không bắt buộc) - bấm OK để duyệt xong:', '');
         if (note === null) return;
         clearTimeout(_ocGdhT);
         _ocBusy(true, 'Đang lưu kết quả duyệt...');
@@ -8918,7 +8913,7 @@
         ocArcLoad();
     }
     async function ocArcRunNow() {
-        const v = prompt('Lưu trữ NGAY các đơn Đã duyệt / Đã xem / Đã đặt quá bao nhiêu ngày?\n(0 = tất cả đơn đủ trạng thái, không đợi hết hạn).\nMỗi đơn sẽ được xuất Excel rồi XOÁ khỏi hệ thống.', '0');
+        const v = await nsPrompt('Lưu trữ NGAY các đơn Đã duyệt / Đã xem / Đã đặt quá bao nhiêu ngày?\n(0 = tất cả đơn đủ trạng thái, không đợi hết hạn).\nMỗi đơn sẽ được xuất Excel rồi XOÁ khỏi hệ thống.', '0');
         if (v === null) return;
         _ocBusy(true, 'Đang xuất Excel và lưu trữ...');
         try {
@@ -9521,7 +9516,7 @@
             alert('Vui lòng chọn 1 file Excel (.xlsx) trước.');
             return;
         }
-        if (!confirm('Nhập bảng tra mới sẽ THAY THẾ TOÀN BỘ bảng tra Mã xe → Dòng xe hiện tại. Tiếp tục?')) return;
+        if (!await nsConfirm('Nhập bảng tra mới sẽ THAY THẾ TOÀN BỘ bảng tra Mã xe → Dòng xe hiện tại. Tiếp tục?')) return;
 
         const formData = new FormData();
         formData.append('file', input.files[0]);
@@ -10064,7 +10059,7 @@ async function saveLocationRow(btn, partCode) {
 }
 
     async function deleteLocationRow(partCode) {
-        if (!confirm(`Xoá toàn bộ vị trí đã lưu của mã hàng "${partCode}"?`)) return;
+        if (!await nsConfirm(`Xoá toàn bộ vị trí đã lưu của mã hàng "${partCode}"?`)) return;
         try {
             const res = await fetch('/api/locations/delete', {
                 method: 'POST',
@@ -10229,7 +10224,7 @@ async function saveLocationRow(btn, partCode) {
     }
 
     async function resolveDamagedRow(id, resolved) {
-        if (resolved && !confirm('Đánh dấu lần báo này là ĐÃ XỬ LÝ? Tồn kho sẽ không còn cảnh báo vàng cho phần này.')) return;
+        if (resolved && !await nsConfirm('Đánh dấu lần báo này là ĐÃ XỬ LÝ? Tồn kho sẽ không còn cảnh báo vàng cho phần này.')) return;
         try {
             const res = await fetch('/api/damaged/resolve', {
                 method: 'POST',
@@ -10247,7 +10242,7 @@ async function saveLocationRow(btn, partCode) {
     }
 
     async function deleteDamagedRow(id) {
-        if (!confirm('Xoá lần báo hư hỏng này?')) return;
+        if (!await nsConfirm('Xoá lần báo hư hỏng này?')) return;
         try {
             const res = await fetch('/api/damaged/delete', {
                 method: 'POST',
@@ -10405,7 +10400,7 @@ async function saveLocationRow(btn, partCode) {
     }
 
     async function deleteDamagedImage(imageId) {
-        if (!confirm('Xoá ảnh này?')) return;
+        if (!await nsConfirm('Xoá ảnh này?')) return;
         try {
             const res = await fetch('/api/damaged/image/delete', {
                 method: 'POST',
@@ -10664,7 +10659,7 @@ async function saveLocationRow(btn, partCode) {
     // liệu của lần đề xuất gần nhất, không xoá trạng thái). Dùng chung cho
     // mọi vai trò, có xác nhận trước vì đây là thao tác xoá dữ liệu.
     async function resetPriceAdjCode(partCode) {
-        if (!confirm(`Xác nhận đưa mã "${partCode}" về trạng thái CHƯA TĂNG GIÁ?\n\nToàn bộ lịch sử đề xuất tăng giá trước đó của mã này sẽ bị xoá và KHÔNG thể khôi phục lại.`)) {
+        if (!await nsConfirm(`Xác nhận đưa mã "${partCode}" về trạng thái CHƯA TĂNG GIÁ?\n\nToàn bộ lịch sử đề xuất tăng giá trước đó của mã này sẽ bị xoá và KHÔNG thể khôi phục lại.`)) {
             return;
         }
         try {
@@ -12893,7 +12888,7 @@ if (storeLocationForm) {
     // chỉ đổi trạng thái và vẫn còn phiếu để xem lại) - dùng khi phiếu tạo
     // nhầm hoặc không còn cần lưu nữa. Xoá xong tải lại danh sách ngay.
     async function deleteAdminTransfer(id) {
-        if (!confirm(`Xoá HẲN phiếu #${id}? Thao tác này không thể hoàn tác.`)) return;
+        if (!await nsConfirm(`Xoá HẲN phiếu #${id}? Thao tác này không thể hoàn tác.`)) return;
         try {
             const res = await fetch('/api/admin/transfer/delete', {
                 method: 'POST',
@@ -13009,7 +13004,7 @@ if (storeLocationForm) {
     }
 
     async function revertTransfer(id) {
-        if (!confirm('Đổi lại lựa chọn và đưa phiếu này về trạng thái Chờ Xử Lý?')) return;
+        if (!await nsConfirm('Đổi lại lựa chọn và đưa phiếu này về trạng thái Chờ Xử Lý?')) return;
         try {
             const res = await fetch('/api/transfer/revert', {
                 method: 'POST',
@@ -13079,7 +13074,7 @@ if (storeLocationForm) {
     }
 
     async function cancelTransferRequest(id) {
-        if (!confirm('Bạn có chắc muốn huỷ phiếu này?')) return;
+        if (!await nsConfirm('Bạn có chắc muốn huỷ phiếu này?')) return;
         try {
             const res = await fetch('/api/transfer/cancel', {
                 method: 'POST',
@@ -13128,7 +13123,7 @@ if (storeLocationForm) {
     // Admin bỏ qua yêu cầu xin xoá (phiếu vẫn được giữ nguyên) - dùng khi
     // admin xem lý do xong và thấy không cần xoá.
     async function dismissDeleteRequest(id) {
-        if (!confirm('Bỏ qua yêu cầu xin xoá phiếu này? Phiếu sẽ được giữ nguyên, không bị xoá.')) return;
+        if (!await nsConfirm('Bỏ qua yêu cầu xin xoá phiếu này? Phiếu sẽ được giữ nguyên, không bị xoá.')) return;
         try {
             const res = await fetch('/api/admin/transfer/dismiss-delete-request', {
                 method: 'POST',
@@ -13169,7 +13164,7 @@ if (storeLocationForm) {
     }
 
     async function archiveTransferNow() {
-        if (!confirm('Lưu trữ ngay các phiếu ĐÃ ĐỒNG Ý và ĐÃ NHẬN ĐỦ HÀNG? Các phiếu này sẽ được xuất ra Excel rồi xoá khỏi hệ thống. Phiếu ở trạng thái khác sẽ được giữ nguyên.')) return;
+        if (!await nsConfirm('Lưu trữ ngay các phiếu ĐÃ ĐỒNG Ý và ĐÃ NHẬN ĐỦ HÀNG? Các phiếu này sẽ được xuất ra Excel rồi xoá khỏi hệ thống. Phiếu ở trạng thái khác sẽ được giữ nguyên.')) return;
         const btn = document.getElementById('btn-archive-now');
         const originalHtml = btn.innerHTML;
         btn.disabled = true;
@@ -13777,7 +13772,7 @@ if (storeLocationForm) {
     }
 
     async function removeStoreIp(ipId, storeCode) {
-        if (!confirm('Xoá IP này khỏi danh sách IP đã biết của cửa hàng?')) return;
+        if (!await nsConfirm('Xoá IP này khỏi danh sách IP đã biết của cửa hàng?')) return;
         try {
             await fetch(`/api/admin/store-ips/${ipId}`, { method: 'DELETE' });
             await openLoginHistory(document.getElementById('login-history-username').innerText, { skipShow: true });
@@ -14569,7 +14564,7 @@ async function submitTruckAnnouncement() {
 }
 
 async function deleteTruckAnnouncement(id) {
-    if (!confirm('Xoá HẲN thông báo này khỏi lịch sử? Hành động này không thể hoàn tác.')) return;
+    if (!await nsConfirm('Xoá HẲN thông báo này khỏi lịch sử? Hành động này không thể hoàn tác.')) return;
     try {
         const res = await fetch(`/api/admin/truck-announcements/${id}`, { method: 'DELETE' });
         const result = await res.json();
@@ -14583,7 +14578,7 @@ async function deleteTruckAnnouncement(id) {
 }
 
 async function cancelTruckAnnouncement(id) {
-    if (!confirm('Ẩn ngay thông báo này khỏi tất cả cửa hàng? (dữ liệu vẫn được giữ lại trong lịch sử)')) return;
+    if (!await nsConfirm('Ẩn ngay thông báo này khỏi tất cả cửa hàng? (dữ liệu vẫn được giữ lại trong lịch sử)')) return;
     try {
         const res = await fetch(`/api/admin/truck-announcements/${id}/cancel`, { method: 'POST' });
         const result = await res.json();
@@ -14767,27 +14762,8 @@ function handleNotificationClick(id, transferId) {
 
 // Hàm hiển thị toast thông báo
 function showToast(title, message, type = 'info') {
-    const container = document.getElementById('toast-container');
-    if (!container) return;
-    const toastEl = document.createElement('div');
-    toastEl.className = `toast align-items-center text-bg-${type} border-0`;
-    toastEl.setAttribute('role', 'alert');
-    toastEl.setAttribute('aria-live', 'assertive');
-    toastEl.setAttribute('aria-atomic', 'true');
-    toastEl.innerHTML = `
-        <div class="d-flex">
-            <div class="toast-body">
-                <strong>${title}</strong><br>${message}
-            </div>
-            <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast"></button>
-        </div>
-    `;
-    container.appendChild(toastEl);
-    const toast = new bootstrap.Toast(toastEl, { autohide: true, delay: 8000 });
-    toast.show();
-    toastEl.addEventListener('hidden.bs.toast', () => {
-        toastEl.remove();
-    });
+    const map = {danger: 'error', success: 'success', warning: 'warning', info: 'info'};
+    nsToast(message, map[type] || 'info', 8000, {title});
 }
 
 // Hàm so sánh danh sách phiếu cũ và mới, hiển thị thông báo
