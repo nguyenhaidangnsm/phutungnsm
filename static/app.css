@@ -1379,3 +1379,43 @@
 .ns-skel-row td{padding:.7rem .75rem!important}
 @keyframes ns-skel{0%{background-position:200% 0}100%{background-position:-200% 0}}
 @media (prefers-reduced-motion:reduce){.ns-skel{animation:none}}
+
+/* ===== Thẻ đơn gôm kiểu mới ===== */
+.ns-row{display:grid;grid-template-columns:1fr minmax(200px,250px) auto;gap:16px;align-items:center;background:#fff;border:1px solid #e3e8ef;border-left:4px solid var(--ns-c,#0d6efd);border-radius:10px;padding:12px 14px;margin-bottom:8px}
+.ns-row:hover{border-color:var(--ns-c,#0d6efd)}
+.ns-t-k{--ns-c:#d92d3a}.ns-t-d{--ns-c:#0d6efd}.ns-t-n{--ns-c:#5b6573}
+.ns-mine{background:#f3f8ff}.ns-urgent{box-shadow:0 0 0 1px #d92d3a33}
+.ns-title{font-weight:700;display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.ns-dot,.ns-when{font-weight:400;color:#6b7686}
+.ns-b{font-size:.78rem;font-weight:600;border-radius:6px;padding:1px 8px}
+.ns-b-k{background:#fdebed;color:#d92d3a}.ns-b-d{background:#e7f0ff;color:#0d6efd}.ns-b-n{background:#eef0f3;color:#5b6573}.ns-b-kh{background:#fdf3dc;color:#b7791f}
+.ns-sub{color:#6b7686;font-size:.85rem;margin-top:3px}
+.ns-note{font-size:.85rem;margin-top:4px;color:#b7791f}.ns-note-n{color:#6b7686;font-style:italic;max-width:520px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ns-num{font-size:1.1rem;font-weight:700;white-space:nowrap;font-variant-numeric:tabular-nums}
+.ns-num s{color:#6b7686;font-weight:500;text-decoration:none}
+.ns-num em{font-style:normal;font-size:.75rem;font-weight:600;color:#d92d3a;margin-left:6px}.ns-num em.up{color:#198754}
+.ns-prog{height:6px;background:#eef0f3;border-radius:9px;overflow:hidden;margin:6px 0 4px}
+.ns-prog div{height:100%;background:#198754;border-radius:9px}
+.ns-meta{font-size:.78rem;color:#6b7686;display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+.ns-zero{background:#fdebed;color:#d92d3a;font-weight:600;border-radius:6px;padding:0 7px}.ns-late{color:#d92d3a;font-weight:600}
+.ns-act{display:flex;gap:6px;position:relative;align-items:center}
+.ns-btn{border:1px solid #d5dbe5;background:#fff;color:#1b2430;border-radius:8px;padding:5px 12px;font-weight:600;font-size:.88rem;cursor:pointer;white-space:nowrap}
+.ns-btn:hover{border-color:#0d6efd;color:#0d6efd}
+.ns-pri{background:#0d6efd;border-color:#0d6efd;color:#fff}.ns-pri:hover{background:#0b5ed7;color:#fff}
+.ns-ok{background:#198754;border-color:#198754;color:#fff}.ns-ok:hover{background:#157347;color:#fff;border-color:#157347}
+.ns-more{width:34px;padding:5px 0;text-align:center}
+.ns-mw{position:relative}
+.ns-menu{position:absolute;right:0;top:38px;z-index:20;background:#fff;border:1px solid #e3e8ef;border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,.16);padding:4px;min-width:170px}
+.ns-menu button{display:block;width:100%;text-align:left;border:0;background:none;padding:8px 10px;border-radius:7px;cursor:pointer}
+.ns-menu button:hover{background:#eef0f3}
+@media(max-width:760px){.ns-row{grid-template-columns:1fr;gap:10px}.ns-act{justify-content:flex-end;flex-wrap:wrap}}
+
+.ns-cards{white-space:normal!important;border-collapse:separate}
+.ns-cards thead{display:none}
+.ns-cards>tbody>tr>td.ns-cell{padding:0;border:0;background:none}
+.ns-cards>tbody>tr:hover>*{background:none;--bs-table-accent-bg:transparent}
+.ns-menu .ns-danger{color:#d92d3a}
+#gdhOListWrap{padding-right:56px}
+@media(max-width:760px){#gdhOListWrap{padding-right:0}}
+.ns-row .ns-meta{flex-wrap:wrap}
+.ns-row{grid-template-columns:1fr minmax(230px,280px) auto}

@@ -1974,6 +1974,7 @@
     }
     async function gdhRejListLoad() {
         const isAdmin = CURRENT_ROLE === 'admin', body = document.getElementById('gdhOBody'), e = _gdhEsc;
+        body.closest('table')?.classList.remove('ns-cards');
         const resBox = document.getElementById('gdhOResult'); if (resBox) resBox.innerHTML = '';
         try {
             const j = await _gdhRejFetch(isAdmin ? (document.getElementById('gdhOStore')?.value || '') : '');
@@ -2021,32 +2022,10 @@
             const sum = s => s ? `${_gdhFmt(s.parts, 0)} mã · SL ${_gdhFmt(s.qty, 0)}<div class="gdh-sub">${_gdhFmt(s.amount, 0)} đ</div>` : '<span class="text-muted">–</span>';
             const isAdmin = CURRENT_ROLE === 'admin';
             const resBox = document.getElementById('gdhOResult');          // thẻ kết quả: đơn đã duyệt xong, chờ chi nhánh tải về
-            if (resBox) resBox.innerHTML = isAdmin ? '' : j.data.filter(o => o.status === 'approved' && o.result).map(o => {
-                const r = o.result;
-                return `<div class="alert alert-success py-2 px-3 mb-0 d-flex flex-wrap align-items-center gap-2"><div class="flex-grow-1"><b><i class="bi bi-check2-circle me-1"></i>${_gdhEsc(_gdhOrderName(o))} đã được duyệt</b>` +
-                    `<div class="small">Duyệt ${r.approved_parts}/${r.total} mã · giảm SL ${r.reduced} mã · về 0: ${r.zeroed}${r.increased ? ' · tăng SL ' + r.increased : ''} · SL gửi ${_gdhFmt(r.sent_qty, 0)} → SL duyệt ${_gdhFmt(r.approved_qty, 0)}${o.review_note ? ' · Admin: “' + _gdhEsc(o.review_note) + '”' : ''}</div></div>` +
-                    _gdhBtn('btn-outline-secondary', 'bi-eye', 'Xem kết quả', `gdhOpenCompare(${o.id})`) + _gdhBtn('btn-success', 'bi-download', 'Tải đơn về', `gdhDownloadOrder(${o.id})`) + `</div>`;
-            }).join('');
-            body.innerHTML = j.data.length ? j.data.map(o => {
-                let acts = '';
-                if (isAdmin && o.status === 'pending') acts += _gdhBtn('btn-primary', 'bi-box-arrow-in-down', 'Lấy về duyệt', `gdhClaim(${o.id})`);
-                else if (isAdmin && o.status === 'reviewing' && o.claimed_by_me) acts += _gdhBtn('btn-outline-primary', 'bi-pencil-square', 'Mở để duyệt', `gdhOpenBatch('${_gdhEsc(o.store)}', ${o.id})`);
-                if (isAdmin && (o.status === 'pending' || (o.status === 'reviewing' && o.claimed_by_me))) acts += _gdhBtn('btn-outline-danger', 'bi-x-circle', 'Từ chối', `gdhReject(${o.id}, this)`);
-                if (!isAdmin && o.status === 'pending') acts += _gdhBtn('btn-outline-danger', 'bi-arrow-counterclockwise', 'Thu hồi', `gdhRecall(${o.id})`);
-                if (o.kind === 'urgent') acts += _gdhBtn('btn-outline-danger', 'bi-people', 'Thông tin khách', `gdhUrgentDetail(${o.id})`);
-                if (o.status !== 'pending' && (isAdmin || ['approved', 'viewed', 'ordered'].includes(o.status))) acts += _gdhBtn(!isAdmin && o.status === 'approved' ? 'btn-warning' : 'btn-outline-secondary', 'bi-eye', 'Xem kết quả duyệt', `gdhOpenCompare(${o.id})`);
-                if (!isAdmin && ['approved', 'viewed', 'ordered'].includes(o.status)) acts += _gdhBtn(o.status === 'ordered' ? 'btn-outline-success' : 'btn-success', 'bi-download', o.status === 'ordered' ? 'Tải lại file đặt hàng' : 'Tải đơn về', `gdhDownloadOrder(${o.id})`);
-                const who = o.status === 'reviewing' ? `${_gdhEsc(o.claimed_by)}<div class="gdh-sub">${_gdhEsc(o.claimed_at)}</div>`
-                          : (o.approved_by ? `${_gdhEsc(o.approved_by)}<div class="gdh-sub">${_gdhEsc(o.approved_at)}</div>` : '<span class="text-muted">–</span>');
-                const rs = o.result;
-                const last = (o.ordered_at ? `Đặt ${_gdhEsc(o.ordered_at)}` : (o.viewed_at ? `Xem ${_gdhEsc(o.viewed_at)}` : '')) +
-                    (rs ? `<div class="gdh-sub">Duyệt ${rs.approved_parts}/${rs.total} mã · giảm SL ${rs.reduced} · về 0: ${rs.zeroed}</div>` : '');
-                return `<tr><td class="fw-semibold">${_gdhEsc(_gdhOrderName(o))}${o.kind === 'urgent' ? ' <span class="badge bg-danger-subtle text-danger border border-danger-subtle">Từ danh sách KH</span>' : ''} <span class="gdh-sub fw-normal">#${o.id} · ${_gdhEsc(String(o.submitted_at || '').slice(11))}</span><div class="mt-1">${_gdhTypeChips(o)}</div></td>` +
-                    `<td>${_gdhStBadge(o.status, o.status_label)}<div class="gdh-sub">${last}</div></td>` +
-                    `<td>${_gdhEsc(o.submitted_by)}<div class="gdh-sub">${_gdhEsc(o.submitted_at)}</div>${o.submit_note ? `<div class="gdh-sub" title="${_gdhEsc(o.submit_note)}">“${_gdhEsc(o.submit_note.slice(0, 40))}${o.submit_note.length > 40 ? '…' : ''}”</div>` : ''}</td>` +
-                    `<td>${who}</td><td class="text-end">${sum(o.submitted_sum)}</td>` +
-                    `<td><div class="d-flex flex-wrap gap-1">${acts}</div></td></tr>`;
-            }).join('') : '<tr><td colspan="6" class="text-center text-muted py-3">Không có đơn nào khớp bộ lọc.</td></tr>';
+            if (resBox) resBox.innerHTML = '';  // thẻ kết quả đã nằm trong danh sách bên dưới
+            const _tbl = body.closest('table'); if (_tbl) _tbl.classList.add('ns-cards');
+            body.innerHTML = j.data.length ? j.data.map(o => `<tr><td colspan="6" class="ns-cell">${_nsOrderCardHtml(o, 'list')}</td></tr>`).join('')
+                : '<tr><td colspan="6" class="text-center text-muted py-3">Không có đơn nào khớp bộ lọc.</td></tr>';
         } catch (e) { body.innerHTML = `<tr><td colspan="6" class="text-center text-danger py-3">${_gdhEsc(e.message)}</td></tr>`; }
         gdhOrdersBadge();
     }
@@ -3774,31 +3753,82 @@
             `<i class="bi bi-people me-1"></i>Thông tin khách của đơn khẩn · ${_ocUrg.lines.length} dòng</summary>` +
             `<div class="border rounded mt-1" style="max-height:220px;overflow:auto">${_urgTableHtml(_ocUrg.lines)}</div></details>`;
     }
-    function _ocGdhCardHtml(o) {
-        const e = _gdhEsc, sub = o.submitted_sum, rs = o.result;
+    // ===== Thẻ đơn gôm kiểu mới (dùng chung cho admin + cửa hàng) =====
+    const _NS_TYPE_KEY = {'Khẩn': 'k', 'Định kỳ': 'd', 'Đơn 26': 'n'};
+    function nsOcMenu(btn, ev) {
+        ev.stopPropagation();
+        const m = btn.nextElementSibling, was = !m.hidden;
+        document.querySelectorAll('.ns-menu').forEach(x => x.hidden = true);
+        m.hidden = was;
+    }
+    window.nsOcMenu = nsOcMenu;
+    document.addEventListener('click', () => document.querySelectorAll('.ns-menu').forEach(x => x.hidden = true));
+    document.addEventListener('keydown', ev => { if (ev.key === 'Escape') document.querySelectorAll('.ns-menu').forEach(x => x.hidden = true); });
+    function _nsOrderCardHtml(o, mode) {
+        const e = _gdhEsc, F = n => _gdhFmt(n, 0), list = mode === 'list', isAd = CURRENT_ROLE === 'admin', store = mode === 'store' || (list && !isAd);
+        const rs = o.result, sub = o.submitted_sum;
         const mine = o.status === 'reviewing' && o.claimed_by_me;
         const open = ['pending', 'reviewing'].includes(o.status);
         const urgent = open && o.urgent_parts > 0;
-        let acts = '';
-        if (o.status === 'pending') acts += _gdhBtn('btn-primary', 'bi-box-arrow-in-down', 'Lấy về duyệt', `ocGdhClaim(${o.id})`);
-        else if (mine) acts += _gdhBtn('btn-primary', 'bi-pencil-square', 'Mở để duyệt', `ocGdhOpen(${o.id})`);
-        if (o.kind === 'urgent') acts += _gdhBtn('btn-outline-danger', 'bi-people', 'Thông tin khách', `gdhUrgentDetail(${o.id})`);
-        if (o.status !== 'pending') acts += _gdhBtn('btn-outline-secondary', 'bi-eye', 'Xem kết quả', `gdhOpenCompare(${o.id})`);
+        const types = Object.keys(o.by_type || {}).filter(t => o.by_type[t] && o.by_type[t].parts > 0);
+        const key = types.length === 1 ? (_NS_TYPE_KEY[types[0]] || 'd') : 'd';
+        const badges = types.map(t => `<span class="ns-b ns-b-${_NS_TYPE_KEY[t] || 'd'}">${e(t)}${types.length > 1 ? ' ' + F(o.by_type[t].parts) + ' mã' : ''}</span>`).join(' ');
+        const when = e(String(o.submitted_at || '').slice(0, 16));
+        const title = `${badges}<span class="ns-dot">·</span>${e(o.store)}<span class="ns-dot">·</span><span class="ns-when">${when}</span>` +
+            (o.kind === 'urgent' ? ' <span class="ns-b ns-b-kh">Từ danh sách KH</span>' : '') +
+            ((store && !list) ? '' : ((list || ['pending', 'reviewing'].includes(o.status)) ? ' ' + _gdhStBadge(o.status, o.status_label) : ''));
+        const apAt = String(o.approved_at || '');
+        const apTime = apAt.slice(0, 10) === String(o.submitted_at || '').slice(0, 10) ? apAt.slice(11) : apAt;
+        const parts = [];
+        if (o.status === 'reviewing') parts.push(`${e(o.claimed_by)} đang duyệt từ ${e(o.claimed_at)}`);
+        else {
+            if (!store) parts.push(`Đẩy bởi ${e(o.submitted_by)}${o.status === 'pending' ? ' lúc ' + e(o.submitted_at) : ''}`);
+            if (o.approved_by) parts.push(`Duyệt bởi ${e(o.approved_by)} lúc ${e(apTime)}`);
+            if (list && o.ordered_at) parts.push(`Đặt ${e(o.ordered_at)}`); else if (list && o.viewed_at) parts.push(`Xem ${e(o.viewed_at)}`);
+        }
+        const notes = (o.submit_note ? `<div class="ns-note ns-note-n" title="${e(o.submit_note)}">“${e(o.submit_note)}”</div>` : '') +
+            (o.review_note ? `<div class="ns-note">${store ? 'Admin' : 'Ghi chú của admin'}: “${e(o.review_note)}”</div>` : '');
         let wait = '';
         if (open && o.waiting_min !== null && o.waiting_min !== undefined) {
-            const cls = o.waiting_min > 1440 ? 'text-danger fw-semibold' : (o.waiting_min > 240 ? 'text-warning-emphasis fw-semibold' : 'text-muted');
-            wait = `<span class="${cls} small ms-2"><i class="bi bi-hourglass-split me-1"></i>Chờ ${_ocFmtWait(o.waiting_min)}</span>`;
+            const c = o.waiting_min > 1440 ? 'ns-late' : '';
+            wait = `<span class="${c}">Chờ ${_ocFmtWait(o.waiting_min)}</span>`;
         }
-        let extra = '';
-        if (o.status === 'reviewing') extra = `${e(o.claimed_by)} đang duyệt từ ${e(o.claimed_at)}`;
-        else if (rs && ['approved', 'viewed', 'ordered'].includes(o.status)) extra = `Duyệt bởi ${e(o.approved_by)} lúc ${e(o.approved_at)} · giảm SL ${rs.reduced} mã · về 0: ${rs.zeroed}${rs.increased ? ' · tăng SL ' + rs.increased : ''}`;
-        const note = o.submit_note ? `<div class="small fst-italic text-muted text-truncate" style="max-width:520px" title="${e(o.submit_note)}">“${e(o.submit_note)}”</div>` : '';
-        return `<div class="oc-gcard ${urgent ? 'urgent' : ''} ${mine ? 'mine' : ''}"><div class="oc-g-main">` +
-            `<div><span class="oc-g-store">${e(_gdhOrderName(o))}</span>${o.kind === 'urgent' ? '<span class="badge bg-danger-subtle text-danger border border-danger-subtle me-1">Từ danh sách KH</span>' : ''}<span class="text-muted small me-2">#${o.id} · ${e(String(o.submitted_at || '').slice(11))}</span>${_gdhStBadge(o.status, o.status_label)}${wait}</div>` +
-            `<div class="oc-g-meta">${_gdhTypeChips(o)}${sub ? `<b>${_gdhFmt(sub.parts, 0)}</b> mã · SL <b>${_gdhFmt(sub.qty, 0)}</b> · ` : ''}đẩy bởi ${e(o.submitted_by)} lúc ${e(o.submitted_at)}</div>` +
-            (extra ? `<div class="small text-muted">${extra}</div>` : '') + note +
-            `</div><div class="d-flex flex-wrap gap-1">${acts}</div></div>`;
+        let stats = '';
+        if (rs) {
+            const hasQ = rs.sent_qty != null && rs.approved_qty != null;
+            const pct = hasQ && rs.sent_qty ? Math.round((rs.sent_qty - rs.approved_qty) / rs.sent_qty * 100) : 0;
+            const dp = rs.total ? Math.round(rs.approved_parts / rs.total * 100) : 0;
+            stats = (hasQ ? `<div class="ns-num"><s>${F(rs.sent_qty)}</s> → ${F(rs.approved_qty)}${pct > 0 ? `<em>−${pct}%</em>` : (pct < 0 ? `<em class="up">+${-pct}%</em>` : '')}</div>` : '') +
+                `<div class="ns-prog" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${dp}"><div style="width:${dp}%"></div></div>` +
+                `<div class="ns-meta"><span>Duyệt ${F(rs.approved_parts)}/${F(rs.total)} mã</span>${rs.zeroed ? `<span class="ns-zero">Về 0: ${F(rs.zeroed)}</span>` : ''}${rs.reduced ? `<span>Giảm SL ${F(rs.reduced)} mã</span>` : ''}${rs.increased ? `<span>Tăng SL ${rs.increased}</span>` : ''}</div>`;
+        } else if (sub) {
+            stats = `<div class="ns-num">${F(sub.parts)} mã</div><div class="ns-meta"><span>SL ${F(sub.qty)}</span>${list && sub.amount != null ? `<span>${F(sub.amount)} đ</span>` : ''}${wait}</div>`;
+        }
+        const btn = (cls, icon, text, fn) => `<button type="button" class="ns-btn ${cls}" onclick="${fn}"><i class="bi ${icon}"></i> ${text}</button>`;
+        let acts = '', menu = '';
+        const mi = (fn, text, cls) => `<button type="button" role="menuitem"${cls ? ' class="' + cls + '"' : ''} onclick="${fn}">${text}</button>`;
+        if (list) {
+            const done = ['approved', 'viewed', 'ordered'].includes(o.status);
+            if (isAd && o.status === 'pending') acts += btn('ns-pri', 'bi-box-arrow-in-down', 'Lấy về duyệt', `gdhClaim(${o.id})`);
+            else if (isAd && o.status === 'reviewing' && o.claimed_by_me) acts += btn('ns-pri', 'bi-pencil-square', 'Mở để duyệt', `gdhOpenBatch('${e(o.store)}', ${o.id})`);
+            if (o.status !== 'pending' && (isAd || done)) acts += btn('', 'bi-eye', 'Xem kết quả', `gdhOpenCompare(${o.id})`);
+            if (!isAd && done) acts += btn(o.status === 'ordered' ? '' : 'ns-ok', 'bi-download', o.status === 'ordered' ? 'Tải lại file đặt hàng' : 'Tải đơn về', `gdhDownloadOrder(${o.id})`);
+            if (o.kind === 'urgent') menu += mi(`gdhUrgentDetail(${o.id})`, 'Thông tin khách');
+            if (isAd && (o.status === 'pending' || (o.status === 'reviewing' && o.claimed_by_me))) menu += mi(`gdhReject(${o.id}, this)`, 'Từ chối', 'ns-danger');
+            if (!isAd && o.status === 'pending') menu += mi(`gdhRecall(${o.id})`, 'Thu hồi', 'ns-danger');
+        } else if (store) {
+            acts = btn('', 'bi-eye', 'Xem kết quả', `gdhOpenCompare(${o.id})`) + btn('ns-ok', 'bi-download', 'Tải đơn về', `gdhDownloadOrder(${o.id})`);
+        } else {
+            if (o.status === 'pending') acts += btn('ns-pri', 'bi-box-arrow-in-down', 'Lấy về duyệt', `ocGdhClaim(${o.id})`);
+            else if (mine) acts += btn('ns-pri', 'bi-pencil-square', 'Mở để duyệt', `ocGdhOpen(${o.id})`);
+            if (o.status !== 'pending') acts += btn('', 'bi-eye', 'Xem kết quả', `gdhOpenCompare(${o.id})`);
+            if (o.kind === 'urgent') menu += `<button type="button" role="menuitem" onclick="gdhUrgentDetail(${o.id})">Thông tin khách</button>`;
+        }
+        const more = menu ? `<span class="ns-mw"><button type="button" class="ns-btn ns-more" aria-label="Thêm thao tác" aria-haspopup="true" onclick="nsOcMenu(this,event)">⋯</button><div class="ns-menu" role="menu" hidden>${menu}</div></span>` : '';
+        return `<div class="ns-row ns-t-${key}${urgent ? ' ns-urgent' : ''}${mine ? ' ns-mine' : ''}"><div class="ns-main"><div class="ns-title">${title}</div>` +
+            (parts.length ? `<div class="ns-sub">${parts.join(' · ')}</div>` : '') + notes + `</div><div class="ns-stats">${stats}</div><div class="ns-act">${acts}${more}</div></div>`;
     }
+    function _ocGdhCardHtml(o) { return _nsOrderCardHtml(o, 'admin'); }
     async function _ocGdhRejBadge() {          // huy hiệu tab "Đã từ chối" = số đơn đang chờ chi nhánh sửa
         try {
             const j = await _gdhRejFetch(document.getElementById('ocGdhStore')?.value || '', true);
