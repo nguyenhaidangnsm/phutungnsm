@@ -1958,7 +1958,7 @@ def gdh_mark_viewed():
 @gom_don_hang_bp.route('/api/gom-don-hang/compare', methods=['GET'])
 def gdh_compare():
     """Kết quả duyệt của 1 đơn: STT, mã hàng, tên hàng, SL gửi (SL cuối chi nhánh gửi), SL duyệt, ghi chú của admin (từng mã).
-    Cửa hàng chỉ xem khi đã duyệt xong; admin xem được cả lúc Chờ duyệt / Đang duyệt (SL duyệt chưa có)."""
+    Cả cửa hàng lẫn admin đều xem được lúc Chờ duyệt / Đang duyệt (SL duyệt chưa có, reviewed=False). Cửa hàng chỉ xem đơn của chi nhánh mình (_get_batch)."""
     db, cur = _ctx()
     try:
         batch, err = _get_batch(cur, request.args.get('batch_id'))
@@ -1967,8 +1967,7 @@ def gdh_compare():
         st = batch.get('status') or 'draft'
         if batch['owner'] or st == 'draft':
             return jsonify({'error': 'Đợt gôm này chưa đẩy đi duyệt nên chưa có kết quả duyệt.'}), 409
-        if session.get('role') == 'store' and st not in ('approved', 'viewed', 'ordered'):
-            return jsonify({'error': 'Đơn chưa được admin duyệt xong nên chưa xem được kết quả.'}), 409
+        # Cửa hàng cũng xem lại được đơn đã đẩy khi còn Chờ duyệt / Đang duyệt (reviewed=False -> SL duyệt hiện "–")
         sent = _snap_load(cur, batch['id'], 'submitted')
         rev = _review_map(cur, batch['id'], list(sent))
         rows = []

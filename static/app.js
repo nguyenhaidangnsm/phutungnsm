@@ -191,6 +191,22 @@
         loadInventory(); // tải sớm để trang "Tổng Quan" có ngay mốc cập nhật tồn kho/giá
         loadOverviewDashboard(); // trang "Tổng Quan" active sẵn từ đầu, không qua sự kiện click tab nên gọi tay ở đây
         _ocGdhRestore(); ocGdhNavBadge(); setInterval(ocGdhNavBadge, 60000);
+        // Tự làm mới danh sách đơn đã đẩy mỗi 10 giây (chỉ khi đang xem đúng màn đó, tab trình duyệt đang mở, không có menu "⋯" đang mở)
+        // để admin thấy ngay ai vừa lấy đơn về duyệt, và cửa hàng thấy đơn đã bị lấy / duyệt xong.
+        let _gdhAutoBusy = false;
+        setInterval(async () => {
+            if (document.hidden || _gdhAutoBusy || document.querySelector('.ns-menu:not([hidden])')) return;
+            const act = id => document.getElementById(id)?.classList.contains('active');
+            _gdhAutoBusy = true;
+            try {
+                if (CURRENT_ROLE === 'admin') {
+                    if (act('order-check-pane') && _ocGdhTab === 'active' && document.getElementById('ocBusy')?.style.display !== 'flex') await ocGdhLoad();
+                } else if (act('gdh-pane') && !document.getElementById('gdhOrdersView')?.classList.contains('d-none') && !document.querySelector('.modal.show')) {
+                    await gdhOrdersLoad();
+                }
+            } catch (err) { /* lần sau tự thử lại */ }
+            finally { _gdhAutoBusy = false; }
+        }, 10000);
         restoreOrderCheckSession(); // khôi phục phiên "Kiểm Tra Đơn Hàng" đang duyệt dở (nếu có), xem NHỚ PHIÊN ở trên
         setupDragZones();
         startVersionPolling();
@@ -1832,13 +1848,26 @@
     async function gdhRecall(id) {
         const _o = id ? (_gdhOrdersCache || []).find(x => String(x.id) === String(id)) : null;
         if (_o && _o.kind === 'urgent') {          // đơn khẩn từ danh sách khách hàng: không có bản Nháp, thu hồi = xoá đơn
-            if (!await nsConfirm('Thu hồi đơn KHẨN? Đơn sẽ bị xoá và các mã khách được trả về Danh sách đặt hàng để gôm lại. (Chỉ được khi admin chưa lấy về duyệt)')) return;
-            if (await _gdhAct('recall', {batch_id: id}, 'Đã thu hồi đơn khẩn. Các mã khách đã về lại Danh sách đặt hàng.')) await _gdhAfterAct();
-            return;
+            if (!await nsConfirm('Thu hồi đơn KHẨN? Đơn sẽ bị xoá và các mã khách được trả về Danh sách đặt hàng để gôm lại. (Chỉ được khi admin chưa lấy về duyệt)')) return 'cancel';
+            if (await _gdhAct('recall', {batch_id: id}, 'Đã thu hồi đơn khẩn. Các mã khách đã về lại Danh sách đặt hàng.')) { await _gdhAfterAct(); return 'ok'; }
+            return 'fail';
         }
-        if (!await nsConfirm('Thu hồi đơn để sửa lại? Các mã sẽ được trả về phiên gôm (chỉ được khi admin chưa lấy về duyệt).')) return;
-        if (await _gdhAct('recall', id ? {batch_id: id} : {}, id ? 'Đã thu hồi đơn. Các mã được trả về phiên gôm ở tab Gôm đơn hàng để bạn sửa.' : '')) await _gdhAfterAct();
+        if (!await nsConfirm('Thu hồi đơn để sửa lại? Các mã sẽ được trả về phiên gôm (chỉ được khi admin chưa lấy về duyệt).')) return 'cancel';
+        if (await _gdhAct('recall', id ? {batch_id: id} : {}, id ? 'Đã thu hồi đơn. Các mã được trả về phiên gôm ở tab Gôm đơn hàng để bạn sửa.' : '')) { await _gdhAfterAct(); return 'ok'; }
+        return 'fail';          // giá trị trả về chỉ để modal xem đơn biết kết quả; các nơi gọi cũ bỏ qua nên không ảnh hưởng
     }
+    async function gdhRecallFromCmp(id) {          // nút "Thu hồi để chỉnh sửa" trong modal xem lại đơn
+        const r = await gdhRecall(id);
+        if (r === 'ok') bootstrap.Modal.getInstance(document.getElementById('gdhCmpModal'))?.hide();
+        else if (r === 'fail') { await _gdhAfterAct(); gdhOpenCompare(id, true); }      // vd admin vừa lấy đơn: làm mới trạng thái, ẩn nút thu hồi
+    }
+    function nsRowClick(ev, id) {          // user cửa hàng bấm vào thẻ đơn để xem lại (bấm nút / menu bên trong thì không mở)
+        if (ev.target.closest('button, a, input, select, textarea, .ns-mw')) return;
+        const sel = window.getSelection && window.getSelection();
+        if (sel && String(sel).length) return;          // đang bôi đen chữ để copy
+        gdhOpenCompare(id);
+    }
+    window.nsRowClick = nsRowClick;
     async function gdhClaim(id) {          // từ bảng gôm hoặc từ danh sách: lấy về duyệt rồi mở thẳng đơn đó để sửa
         if (id) _gdhBatchId = id;
         if (!(await _gdhAct('claim'))) { _gdhAfterAct(); return; }
@@ -2062,9 +2091,14 @@
         const j = _gdhCmp, b = j.batch, e = _gdhEsc;
         const oc = (_gdhOrdersCache.concat(typeof _ocGdhCache !== 'undefined' ? _ocGdhCache : [])).find(x => x.id === b.id);
         document.getElementById('gdhCmpTitle').innerHTML = `${e(oc ? _gdhOrderName(oc) : 'Đơn ' + b.store)} ${_gdhStBadge(b.status, b.status_label)}`;
+        const isStore = CURRENT_ROLE === 'store';
         const info = j.reviewed
             ? `<div class="small text-muted mb-2">Duyệt bởi <b>${e(b.approved_by)}</b> lúc ${e(b.approved_at)}${b.review_note ? ` · Ghi chú chung: <i>${e(b.review_note)}</i>` : ''}</div>`
-            : `<div class="alert alert-info py-1 px-2 small">Đơn chưa duyệt xong: SL duyệt và ghi chú sẽ hiện sau khi admin duyệt xong.</div>`;
+            : (isStore && b.status === 'pending')
+                ? `<div class="alert alert-info py-1 px-2 small">Admin chưa lấy đơn về duyệt nên bạn vẫn có thể bấm <b>Thu hồi để chỉnh sửa</b>.</div>`
+                : (isStore && b.status === 'reviewing')
+                    ? `<div class="alert alert-warning py-1 px-2 small"><i class="bi bi-lock-fill me-1"></i>Admin${b.claimed_by ? ' <b>' + e(b.claimed_by) + '</b>' : ''} đã lấy đơn về duyệt${b.claimed_at ? ' từ ' + e(b.claimed_at) : ''} nên không thể thu hồi hay chỉnh sửa nữa.</div>`
+                    : `<div class="alert alert-info py-1 px-2 small">Đơn chưa duyệt xong: SL duyệt và ghi chú sẽ hiện sau khi admin duyệt xong.</div>`;
         const sentTotal = j.rows.reduce((s, r) => s + (r.sent_qty || 0), 0);
         const rows = j.rows.map(r => {
             const diff = r.approved_qty !== null && r.approved_qty !== r.sent_qty;
@@ -2079,7 +2113,9 @@
         document.getElementById('gdhCmpBody').innerHTML = `<style>#gdhCmpModal .modal-content{font-family:var(--ns-font-main);font-variant-numeric:tabular-nums slashed-zero;}` +
             `#gdhCmpModal table{font-size:.95rem;}#gdhCmpModal th{font-weight:700;letter-spacing:.02em;color:#334155;}#gdhCmpModal td{color:#0f172a;}</style>` + _gdhTimeline(b) + info + table;
         const canDl = CURRENT_ROLE === 'store' && ['approved', 'viewed', 'ordered'].includes(b.status);
-        document.getElementById('gdhCmpFoot').innerHTML = `<button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Đóng</button>` +
+        const canRecall = isStore && b.status === 'pending';
+        document.getElementById('gdhCmpFoot').innerHTML = (canRecall ? `<button type="button" class="btn btn-outline-danger me-auto" onclick="gdhRecallFromCmp(${b.id})"><i class="bi bi-arrow-counterclockwise me-1"></i>Thu hồi để chỉnh sửa</button>` : '') +
+            `<button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Đóng</button>` +
             (canDl ? `<button type="button" class="btn ${b.status === 'ordered' ? 'btn-outline-success' : 'btn-success'}" onclick="gdhDownloadOrder(${b.id})"><i class="bi bi-download me-1"></i>${b.status === 'ordered' ? 'Tải lại file đặt hàng' : 'Tải đơn về (chuyển Đã đặt)'}</button>` : '');
     }
 
@@ -3803,12 +3839,15 @@
         }
         const btn = (cls, icon, text, fn) => `<button type="button" class="ns-btn ${cls}" onclick="${fn}"><i class="bi ${icon}"></i> ${text}</button>`;
         let acts = '', menu = '';
+        const lockBtn = o => `<button type="button" class="ns-btn" disabled style="opacity:.8;cursor:not-allowed" title="Chỉ ${e(o.claimed_by || 'admin đó')} trả đơn về hàng chờ thì mới lấy được"><i class="bi bi-lock-fill"></i> ${e(o.claimed_by || 'Admin khác')} đang duyệt</button>`;
         const mi = (fn, text, cls) => `<button type="button" role="menuitem"${cls ? ' class="' + cls + '"' : ''} onclick="${fn}">${text}</button>`;
         if (list) {
             const done = ['approved', 'viewed', 'ordered'].includes(o.status);
             if (isAd && o.status === 'pending') acts += btn('ns-pri', 'bi-box-arrow-in-down', 'Lấy về duyệt', `gdhClaim(${o.id})`);
             else if (isAd && o.status === 'reviewing' && o.claimed_by_me) acts += btn('ns-pri', 'bi-pencil-square', 'Mở để duyệt', `gdhOpenBatch('${e(o.store)}', ${o.id})`);
+            else if (isAd && o.status === 'reviewing') acts += lockBtn(o);
             if (o.status !== 'pending' && (isAd || done)) acts += btn('', 'bi-eye', 'Xem kết quả', `gdhOpenCompare(${o.id})`);
+            if (!isAd && (o.status === 'pending' || o.status === 'reviewing')) acts += btn('', 'bi-eye', 'Xem đơn', `gdhOpenCompare(${o.id})`);
             if (!isAd && done) acts += btn(o.status === 'ordered' ? '' : 'ns-ok', 'bi-download', o.status === 'ordered' ? 'Tải lại file đặt hàng' : 'Tải đơn về', `gdhDownloadOrder(${o.id})`);
             if (o.kind === 'urgent') menu += mi(`gdhUrgentDetail(${o.id})`, 'Thông tin khách');
             if (isAd && (o.status === 'pending' || (o.status === 'reviewing' && o.claimed_by_me))) menu += mi(`gdhReject(${o.id}, this)`, 'Từ chối', 'ns-danger');
@@ -3818,11 +3857,13 @@
         } else {
             if (o.status === 'pending') acts += btn('ns-pri', 'bi-box-arrow-in-down', 'Lấy về duyệt', `ocGdhClaim(${o.id})`);
             else if (mine) acts += btn('ns-pri', 'bi-pencil-square', 'Mở để duyệt', `ocGdhOpen(${o.id})`);
+            else if (o.status === 'reviewing') acts += lockBtn(o);
             if (o.status !== 'pending') acts += btn('', 'bi-eye', 'Xem kết quả', `gdhOpenCompare(${o.id})`);
             if (o.kind === 'urgent') menu += `<button type="button" role="menuitem" onclick="gdhUrgentDetail(${o.id})">Thông tin khách</button>`;
         }
         const more = menu ? `<span class="ns-mw"><button type="button" class="ns-btn ns-more" aria-label="Thêm thao tác" aria-haspopup="true" onclick="nsOcMenu(this,event)">⋯</button><div class="ns-menu" role="menu" hidden>${menu}</div></span>` : '';
-        return `<div class="ns-row ns-t-${key}${urgent ? ' ns-urgent' : ''}${mine ? ' ns-mine' : ''}"><div class="ns-main"><div class="ns-title">${title}</div>` +
+        const clickable = (list && !isAd) ? ` onclick="nsRowClick(event,${o.id})" style="cursor:pointer" title="Bấm để xem lại đơn"` : '';
+        return `<div class="ns-row ns-t-${key}${urgent ? ' ns-urgent' : ''}${mine ? ' ns-mine' : ''}"${clickable}><div class="ns-main"><div class="ns-title">${title}</div>` +
             (parts.length ? `<div class="ns-sub">${parts.join(' · ')}</div>` : '') + notes + `</div><div class="ns-stats">${stats}</div><div class="ns-act">${acts}${more}</div></div>`;
     }
     function _ocGdhCardHtml(o) { return _nsOrderCardHtml(o, 'admin'); }
@@ -3927,7 +3968,7 @@
         if (!_ocGdh || !await nsConfirm('Trả đơn về hàng chờ duyệt? SL Duyệt và ghi chú đang chỉnh cho đơn này sẽ không được giữ lại.')) return;
         _ocBusy(true, 'Đang trả đơn về hàng chờ...');
         try { await _gdhJson('/api/gom-don-hang/release', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({batch_id: _ocGdh.id})}); }
-        catch (err) { _ocBusy(false); alert(err.message); return; }
+        catch (err) { _ocBusy(false); alert(err.message); ocGdhLoad(); return; }
         _ocBusy(false);
         clearTimeout(_ocGdhT);
         _ocGdh = null; _ocGdhSave(); _ocGdhRenderActive(); _ocGdhRenderBar(); ocToggleMax(false); ocGdhLoad();
