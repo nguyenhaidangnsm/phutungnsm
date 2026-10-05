@@ -10097,13 +10097,13 @@ async function ovLoadOrders() {
             const max = Math.max(1, ...rows.map(r => r.pend + r.rev)), total = (c.pending || 0) + (c.reviewing || 0);
             const old = j.pending_info && j.pending_info.oldest_min;
             ovSet('ov-ord-main', total);
-            ovSet('ov-ord-sub', total ? `${c.pending || 0} chờ duyệt · ${c.reviewing || 0} đang được duyệt` + (old != null ? ` · đơn chờ lâu nhất ${ovWait(old)}` : '') : 'Không có đơn nào cần duyệt');
+            ovSet('ov-ord-sub', total ? `${c.pending || 0} chờ duyệt · ${c.reviewing || 0} đang được duyệt` + (old != null ? ` · đã gửi ${ovWait(old)}` : '') : 'Không có đơn nào cần duyệt');
             ovSet('ov-ord-body', rows.length ? '<div class="ov-rank">' + rows.map(r => `
                 <button type="button" class="ov-row" onclick="ovGo('review','${ovEsc(r.store)}')" title="Mở danh sách đơn của ${ovEsc(r.store)}">
                     <span class="ov-store">${ovEsc(r.store)}</span>
                     <span class="ov-track"><i class="s-pend" style="width:${r.pend / max * 100}%"></i><i class="s-rev" style="width:${r.rev / max * 100}%"></i></span>
                     <span class="ov-cnt">${r.pend + r.rev}</span>
-                    <span class="ov-meta">${r.pend} chờ · ${r.rev} đang duyệt${r.urgent ? ` · <span class="u">${r.urgent} đơn khẩn</span>` : ''}${r.wait ? ' · chờ lâu nhất ' + ovWait(r.wait) : ''}</span>
+                    <span class="ov-meta">${r.pend} chờ · ${r.rev} đang duyệt${r.urgent ? ` · <span class="u">${r.urgent} đơn khẩn</span>` : ''}${r.wait ? ' · đã gửi ' + ovWait(r.wait) : ''}</span>
                 </button>`).join('') + '</div>' : '<div class="ov-empty"><i class="bi bi-check2-circle fs-3 d-block mb-1"></i>Tất cả cửa hàng đã được duyệt xong.</div>');
         } else {
             const need = (c.approved || 0) + (c.viewed || 0);
