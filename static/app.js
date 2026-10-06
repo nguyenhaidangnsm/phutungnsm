@@ -1861,7 +1861,7 @@
         if (r === 'ok') bootstrap.Modal.getInstance(document.getElementById('gdhCmpModal'))?.hide();
         else if (r === 'fail') { await _gdhAfterAct(); gdhOpenCompare(id, true); }      // vd admin vừa lấy đơn: làm mới trạng thái, ẩn nút thu hồi
     }
-    function nsRowClick(ev, id) {          // user cửa hàng bấm vào thẻ đơn để xem lại (bấm nút / menu bên trong thì không mở)
+    function nsRowClick(ev, id) {          // admin / user cửa hàng bấm vào thẻ đơn để xem (bấm nút / menu bên trong thì không mở)
         if (ev.target.closest('button, a, input, select, textarea, .ns-mw')) return;
         const sel = window.getSelection && window.getSelection();
         if (sel && String(sel).length) return;          // đang bôi đen chữ để copy
@@ -3862,7 +3862,7 @@
             if (o.kind === 'urgent') menu += `<button type="button" role="menuitem" onclick="gdhUrgentDetail(${o.id})">Thông tin khách</button>`;
         }
         const more = menu ? `<span class="ns-mw"><button type="button" class="ns-btn ns-more" aria-label="Thêm thao tác" aria-haspopup="true" onclick="nsOcMenu(this,event)">⋯</button><div class="ns-menu" role="menu" hidden>${menu}</div></span>` : '';
-        const clickable = (list && !isAd) ? ` onclick="nsRowClick(event,${o.id})" style="cursor:pointer" title="Bấm để xem lại đơn"` : '';
+        const clickable = ` onclick="nsRowClick(event,${o.id})" style="cursor:pointer" title="Bấm để xem đơn"`;      // admin + cửa hàng đều bấm vào thẻ để xem đơn
         return `<div class="ns-row ns-t-${key}${urgent ? ' ns-urgent' : ''}${mine ? ' ns-mine' : ''}"${clickable}><div class="ns-main"><div class="ns-title">${title}</div>` +
             (parts.length ? `<div class="ns-sub">${parts.join(' · ')}</div>` : '') + notes + `</div><div class="ns-stats">${stats}</div><div class="ns-act">${acts}${more}</div></div>`;
     }
