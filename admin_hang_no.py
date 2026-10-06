@@ -33,7 +33,7 @@ from psycopg2.extras import execute_values
 from audit_log import audit_record
 from app import (get_db, _valid_store_codes, process_data, read_any, find_col, clean_str,
                  dumps_json, loads_json, get_summary_from_data, vn_now, PO_DETAIL_RETENTION_DAYS,
-                 get_debt_view_group)
+                 get_debt_view_group, append_po_detail_multi)
 from gom_don_hang import _send_xlsx
 
 admin_hang_no_bp = Blueprint('admin_hang_no', __name__)
@@ -229,8 +229,9 @@ def ahn_upload():
     blk = _need_admin()
     if blk:
         return blk
-    ds_f, det_f, rc_f = (request.files.get(k) for k in ('ds_po_file', 'po_detail_file', 'receipt_file'))
-    if not (ds_f or det_f or rc_f):
+    ds_f, rc_f = (request.files.get(k) for k in ('ds_po_file', 'receipt_file'))
+    det_files = [f for f in request.files.getlist('po_detail_file') if f and f.filename]   # tối đa 10 file / lần
+    if not (ds_f or det_files or rc_f):
         return jsonify({'error': 'Vui lòng chọn ít nhất một file để đổ.'}), 400
     db, cur = _ctx()
     try:
@@ -238,7 +239,7 @@ def ahn_upload():
         if err:
             return err
         owner, now = _owner(), vn_now()
-        done, inserted, skipped = [], None, None
+        done, inserted, skipped, det_report = [], None, None, None
 
         if ds_f:                                    # Danh sách PO: thay thế
             df = read_any(ds_f)
@@ -256,9 +257,10 @@ def ahn_upload():
                                receipt_json = EXCLUDED.receipt_json, receipt_time = EXCLUDED.receipt_time''',
                         (owner, store, rc_f.filename, dumps_json(df.to_dict(orient='records')), now))
             done.append('Chi tiết nhận hàng')
-        if det_f:                                   # Chi tiết PO: cộng dồn, bỏ dòng trùng
-            inserted, skipped = _append_po_detail(cur, owner, store, det_f, read_any(det_f), now)
-            done.append('Chi tiết PO')
+        if det_files:                               # Chi tiết PO (1-10 file): cộng dồn, bỏ dòng trùng
+            inserted, skipped, det_report = append_po_detail_multi(cur, store, det_files, now,
+                                                                   append_fn=lambda c, s, f, df, t: _append_po_detail(c, owner, s, f, df, t))
+            done.append('Chi tiết PO' + (f' ({len(det_files)} file)' if len(det_files) > 1 else ''))
         cur.execute("DELETE FROM ahn_po_detail WHERE upload_time < NOW() - (%s || ' days')::interval",
                     (PO_DETAIL_RETENTION_DAYS,))
         db.commit()
@@ -273,7 +275,8 @@ def ahn_upload():
         return jsonify({'error': str(e)}), 500
     finally:
         cur.close()
-    return jsonify({'success': True, 'done': done, 'po_detail_inserted': inserted, 'po_detail_skipped': skipped})
+    return jsonify({'success': True, 'done': done, 'po_detail_inserted': inserted, 'po_detail_skipped': skipped,
+                    'po_detail_files': det_report})
 
 
 def _append_po_detail(cur, owner, store, f, df, now):

@@ -27,7 +27,7 @@ table.bo td { padding:.65rem .8rem; vertical-align:top; border-top:2px solid #b9
 tbody.req:nth-of-type(even) td { background:#f7f9fc; }
 tbody.req tr { cursor:pointer; } tbody.req tr:hover td { background:#e8f0ff; }
 .k-stt { width:58px; text-align:center; } .k-cust { min-width:190px; } .k-veh { min-width:190px; } .k-money { min-width:130px; text-align:right; } .k-act { width:84px; text-align:center; }
-.ig { display:grid; grid-template-columns:minmax(230px,1fr) 42px 132px 100px repeat(4,98px) minmax(180px,240px); column-gap:.5rem; align-items:center; min-width:1230px; }
+.ig { display:grid; grid-template-columns:minmax(230px,1fr) 42px 64px 132px 100px repeat(4,98px) minmax(180px,240px); column-gap:.5rem; align-items:center; min-width:1300px; }
 .ig > div { padding:.32rem 0; border-top:1px solid #e1e8f2; } .ig > div.h { border:0; padding:0; font-size:.7rem; font-weight:600; color:#b8c4d9; }
 .ig > div.first { border-top:0; }
 .stt { font-weight:800; color:var(--brand); font-size:1rem; } .stt-store { font-size:.68rem; color:var(--faint); font-weight:700; }
@@ -106,10 +106,26 @@ input.qe.late { color:#b91c1c; font-weight:800; } input.qe.bad { border-color:#d
         --ns-shadow-md: 0 6px 20px rgba(15,23,42,.09);
         --ns-focus-ring: 0 0 0 .2rem rgba(13,110,253,.18);
     }
+    /* Chế độ nhúng trong tab của trang chủ (/orders?embed=1): bỏ thanh trên cùng riêng, nền trong suốt */
+    body.embed .ns-topbar { display: none; }
+    body.embed { background-color: transparent; }
+    body.embed .container-main { margin-top: .25rem; }
+    :root {
+        --f-ui: system-ui, -apple-system, 'Segoe UI', Roboto, Arial, sans-serif;   /* chữ nội dung */
+        --f-brand: 'SVN-MonaSans', system-ui, -apple-system, 'Segoe UI', Roboto, Arial, sans-serif;  /* chỉ cho menu/tiêu đề quan trọng */
+    }
+    /* Mona Sans CHỈ dùng cho: tiêu đề trang, chip lọc trạng thái, tiêu đề cột bảng, tiêu đề mục/modal */
+    .brand-title, .ns-topbar .ns-title, .chip, table.bo thead th, table.bo thead .ig > .h,
+    .modal-title, #edBody .sec { font-family: var(--f-brand); }
+    /* Ô tồn kho cạnh SL */
+    .sk { display:inline-block; min-width:2.1rem; padding:.05rem .45rem; border-radius:999px; font-size:.8rem; font-weight:700; font-variant-numeric:tabular-nums; border:1px solid; }
+    .sk.ok  { background:#dcfce7; color:#166534; border-color:#86efac; }
+    .sk.low { background:#fef3c7; color:#92400e; border-color:#fcd34d; }
+    .sk.out { background:#fee2e2; color:#b91c1c; border-color:#fca5a5; }
     body {
         background-color: #f4f6f9;
         color: var(--ns-dark);
-        font-family: 'SVN-MonaSans', system-ui, -apple-system, 'Segoe UI', Roboto, Arial, sans-serif;
+        font-family: var(--f-ui);
         -webkit-font-smoothing: antialiased;
         text-rendering: optimizeLegibility;
     }
@@ -228,7 +244,7 @@ input.qe.late { color:#b91c1c; font-weight:800; } input.qe.bad { border-color:#d
 
     /* Lưới mặt hàng (tiêu đề + dòng dùng chung): cột SL & ngày rộng hơn
        để chữ số/ngày không bị cắt với font thương hiệu */
-    .ig { grid-template-columns: minmax(230px,1fr) 56px 136px 108px repeat(4, 110px) minmax(180px,240px); min-width: 1310px; }
+    .ig { grid-template-columns: minmax(230px,1fr) 56px 76px 136px 108px repeat(4, 110px) minmax(180px,240px); min-width: 1390px; }
     .ig > div { border-top-color: #e6edf6; }
 
     /* Tiêu đề lưới: căn theo cột dữ liệu bên dưới (cột 1 & 9 trái, còn lại giữa) */
@@ -331,7 +347,7 @@ input.qe.late { color:#b91c1c; font-weight:800; } input.qe.bad { border-color:#d
 </style>
     <script src="/static/ns-dialog.js"></script>
 </head>
-<body>
+<body class="{{ 'embed' if embed else '' }}">
 <div class="topbar ns-topbar">
   <div class="d-flex align-items-center gap-2">
     <img src="{{ url_for('static', filename='logo.png') }}" alt="Logo" class="brand-logo">
@@ -349,6 +365,21 @@ input.qe.late { color:#b91c1c; font-weight:800; } input.qe.bad { border-color:#d
       <button class="btn btn-nam-suong" onclick="openEditor(null)"><i class="bi bi-plus-lg"></i> Thêm đơn mới</button>
       <button class="btn btn-danger" onclick="urgOpen()" title="Chọn các mã khách chưa đặt (không xin nội bộ) và gửi thẳng admin duyệt"><i class="bi bi-lightning-charge-fill"></i> Gôm đơn khẩn</button>
       <div style="min-width:280px;flex:1;max-width:420px"><input type="text" id="fSearch" class="form-control" placeholder="Tìm tên khách, SĐT, số khung, mã hàng... (Enter)"></div>
+      <div class="d-flex align-items-end gap-2 flex-wrap" id="dateFilter">
+        <div><div class="lb">Lọc theo</div>
+          <select id="fDateBy" class="form-select" style="width:auto"><option value="customer_request_date">Ngày yêu cầu</option><option value="deposit_date">Ngày khách đặt cọc</option></select></div>
+        <div><div class="lb">Thời gian</div>
+          <select id="fRange" class="form-select" style="width:auto">
+            <option value="">Tất cả thời gian</option><option value="today">Hôm nay</option><option value="yesterday">Hôm qua</option>
+            <option value="7d">7 ngày gần nhất</option><option value="30d">30 ngày gần nhất</option>
+            <option value="month">Tháng này</option><option value="lastmonth">Tháng trước</option><option value="custom">Tuỳ chọn...</option>
+          </select></div>
+        <div id="fCustom" class="d-none d-flex align-items-end gap-2">
+          <div><div class="lb">Từ ngày</div><input type="date" id="fFrom" class="form-control"></div>
+          <div><div class="lb">Đến ngày</div><input type="date" id="fTo" class="form-control"></div>
+        </div>
+        <button type="button" class="btn btn-outline-secondary d-none" id="fClear" title="Xoá lọc thời gian"><i class="bi bi-x-lg"></i></button>
+      </div>
       {% if role == 'admin' %}
       <select id="fStore" class="form-select" style="width:auto"><option value="">Tất cả chi nhánh</option>{% for s in store_list %}<option value="{{ s }}">{{ s }}</option>{% endfor %}</select>
       <button class="btn btn-outline-primary ms-auto" data-bs-toggle="modal" data-bs-target="#importModal"><i class="bi bi-file-earmark-excel"></i> Nhập từ Excel</button>
@@ -364,7 +395,7 @@ input.qe.late { color:#b91c1c; font-weight:800; } input.qe.bad { border-color:#d
           <th class="k-stt">STT</th>
           <th class="k-cust">Khách hàng</th>
           <th class="k-veh">Xe</th>
-          <th><div class="ig"><div class="h" style="font-size:.76rem;color:#fff;font-weight:700">Mặt hàng</div><div class="h" style="text-align:center">SL</div><div class="h">Trạng thái</div><div class="h">Loại đơn</div><div class="h">Đặt / xin NB</div><div class="h">PT về</div><div class="h">Gọi K/H</div><div class="h">Giao PT</div><div class="h">Ghi chú</div></div></th>
+          <th><div class="ig"><div class="h" style="font-size:.76rem;color:#fff;font-weight:700">Mặt hàng</div><div class="h" style="text-align:center">SL</div><div class="h" style="text-align:center" title="Tồn kho hiện tại của chi nhánh">Tồn CN</div><div class="h">Trạng thái</div><div class="h">Loại đơn</div><div class="h">Đặt / xin NB</div><div class="h">PT về</div><div class="h">Gọi K/H</div><div class="h">Giao PT</div><div class="h">Ghi chú</div></div></th>
           <th class="k-money">Giá trị đơn</th><th class="k-act"></th>
         </tr></thead>
         <tbody id="loadingTbody"><tr><td colspan="6" class="text-center text-muted py-4">Đang tải...</td></tr></tbody>
@@ -434,7 +465,7 @@ const ROLE = "{{ role }}";
 const STATUS_OPTIONS = {{ status_options|tojson }};
 const STORE_LIST = {{ store_list|tojson }};
 const REFRESH_MS = 30000, PAGE_SIZE = 50, DONE = ['Đã về kho', 'Đã gọi', 'Đã giao', 'Đã huỷ'];
-const HFIELDS = ['customer_name','customer_phone','customer_request_date','vehicle_type','frame_number','vehicle_color','vehicle_year','order_value','deposit_amount','quote_no'];
+const HFIELDS = ['customer_name','customer_phone','customer_request_date','deposit_date','vehicle_type','frame_number','vehicle_color','vehicle_year','order_value','deposit_amount','quote_no'];
 const IFIELDS = ['part_code','part_name','quantity','unit_price','status','order_type','order_date','expected_delivery_date','customer_call_date','actual_delivery_date','call_note','source','source_store'];
 const MERGEDFIELDS = ['status','order_type','order_date','expected_delivery_date','customer_call_date','actual_delivery_date'];   // giao/gọi/trạng thái dùng chung cho cả đơn -> 1 ô sửa, ghi vào mọi mặt hàng
 const DATEFIELDS = ['order_date','expected_delivery_date','customer_call_date','actual_delivery_date'];
@@ -466,10 +497,10 @@ const fmtDate = iso => { if (!iso) return ''; const p = String(iso).split('-'); 
 const norm = s => String(s || '').replace(/[^A-Za-z0-9]/g, '').toUpperCase();
 const stCls = s => 's' + Math.max(0, STATUS_OPTIONS.indexOf(s));
 const todayISO = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; };
-function toast(msg, err) { const t = $('toast'); t.textContent = msg; t.className = err ? 'err' : ''; t.style.display = 'block'; clearTimeout(toast._t); toast._t = setTimeout(() => t.style.display = 'none', 3200); }
+function toast(msg, err) { const t = $('toast'); t.textContent = msg; t.className = err ? 'err' : ''; t.style.display = 'block'; clearTimeout(toast._t); toast._t = setTimeout(() => t.style.display = 'none', err ? 7000 : 3200); }
 async function api(url, body) {
   const res = await fetch(url, { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body) });
-  const json = await res.json(); if (!res.ok || !json.success) throw new Error(json.error || 'Lỗi máy chủ'); return json;
+  const json = await res.json(); if (!res.ok || !json.success) { const er = new Error(json.error || 'Lỗi máy chủ'); er.code = json.code; throw er; } return json;
 }
 function parseDate(s) {
   s = String(s).trim().toLowerCase(); if (!s) return null; if (s === 't') return todayISO();
@@ -497,6 +528,13 @@ function buildPayload(rq) {
 function renderChips() {
   $('chips').innerHTML = ['', ...STATUS_OPTIONS].map(s => `<button class="chip ${s === curStatus ? 'on' : ''}" data-st="${esc(s)}">${s || 'Tất cả'}</button>`).join('');
 }
+function stockBadge(it) {
+  if (!it.part_code || it.stock == null) return '<span class="dv none">—</span>';
+  const s = Number(it.stock), need = qtyNum(it.quantity), n = Number.isInteger(s) ? s : s.toFixed(1);
+  const cls = s <= 0 ? 'out' : s >= need ? 'ok' : 'low';
+  const tip = s <= 0 ? 'Chưa có tồn' : s >= need ? `Đủ hàng (tồn ${n}, cần ${need})` : `Tồn ${n} - chưa đủ (cần ${need})`;
+  return `<span class="sk ${cls}" title="${tip}">${s <= 0 ? 'Hết' : n}</span>`;
+}
 function rowHtml(rq) {
   const N = rq.items.length, it0 = rq.items[0], late0 = isLate(it0);
   const bigList = N >= ITEMS_COLLAPSE_AT, expanded = expandedItems.has(rq.request_id), collapsed = bigList && !expanded;
@@ -512,14 +550,15 @@ function rowHtml(rq) {
     const f = i === 0 ? ' first' : '', nb = it.source === 'Xin nội bộ';
     return `<div class="${f}">${it.part_code ? `<span class="code">${esc(it.part_code)}</span>` : '<span class="dv none">chưa có mã</span>'}${nb ? `<span class="src">NỘI BỘ${it.source_store ? ' ← ' + esc(it.source_store) : ''}</span>` : ''}${it.urgent_batch_id > 0 ? `<span class="src urg" title="Đã gôm vào đơn khẩn #${it.urgent_batch_id} gửi admin">KHẨN #${it.urgent_batch_id}</span>` : ''}<div class="pname">${esc(it.part_name)}</div></div>`
       + `<div class="qty${f}">${esc(it.quantity)}</div>`
+      + `<div class="qty${f}">${stockBadge(it)}</div>`
       + (i === 0 ? merged : '')
       + `<div class="${f}"><input class="qe note" data-rid="${esc(rq.request_id)}" data-i="${i}" data-f="call_note" value="${esc(it.call_note)}" placeholder="Ghi chú..." autocomplete="off"></div>`;
   }).join('')
-    + (bigList ? `<div><button class="lnk" data-act="toggle-items" data-rid="${esc(rq.request_id)}">${collapsed ? `+ ${N - ITEMS_SHOW_WHEN_COLLAPSED} mã khác — Xem tất cả (${N})` : 'Thu gọn danh sách mã ▲'}</button></div><div class="qty"></div><div></div>` : '');
+    + (bigList ? `<div><button class="lnk" data-act="toggle-items" data-rid="${esc(rq.request_id)}">${collapsed ? `+ ${N - ITEMS_SHOW_WHEN_COLLAPSED} mã khác — Xem tất cả (${N})` : 'Thu gọn danh sách mã ▲'}</button></div><div class="qty"></div><div class="qty"></div><div></div>` : '');
   const rest = rq.order_value != null && rq.deposit_amount != null ? rq.order_value - rq.deposit_amount : null;
   return `<tbody class="req" id="req-${esc(rq.request_id)}"><tr data-rid="${esc(rq.request_id)}">`
     + `<td class="k-stt"><div class="stt">${esc(rq.seq_no)}</div>${ROLE === 'admin' ? `<div class="stt-store">${esc(rq.store_code)}</div>` : ''}</td>`
-    + `<td class="k-cust"><div class="f-name">${esc(rq.customer_name)}</div><div class="f-sub"><i class="bi bi-telephone"></i> ${esc(rq.customer_phone) || '—'}</div><div class="f-sub"><i class="bi bi-calendar-event"></i> ${fmtDate(rq.customer_request_date) || '—'}</div>${rq.quote_no ? `<div class="f-sub mono"><i class="bi bi-receipt"></i> ${esc(rq.quote_no)}</div>` : ''}</td>`
+    + `<td class="k-cust"><div class="f-name">${esc(rq.customer_name)}</div><div class="f-sub"><i class="bi bi-telephone"></i> ${esc(rq.customer_phone) || '—'}</div><div class="f-sub" title="Ngày yêu cầu"><i class="bi bi-calendar-event"></i> ${fmtDate(rq.customer_request_date) || '—'}</div>${rq.deposit_date ? `<div class="f-sub" title="Ngày khách đặt cọc"><i class="bi bi-cash-coin"></i> ${fmtDate(rq.deposit_date)}</div>` : ''}${rq.quote_no ? `<div class="f-sub mono"><i class="bi bi-receipt"></i> ${esc(rq.quote_no)}</div>` : ''}</td>`
     + `<td class="k-veh"><div style="font-weight:600">${esc(rq.vehicle_type) || '—'}</div><div class="f-sub mono">${esc(rq.frame_number)}</div><div class="f-sub">${esc(rq.vehicle_color)}${rq.vehicle_color && rq.vehicle_year ? ' · ' : ''}${esc(rq.vehicle_year)}</div></td>`
     + `<td><div class="ig">${items}</div></td>`
     + `<td class="k-money"><div class="money-big">${fmtMoney(rq.order_value) || '—'}</div><div class="money-sub">Cọc: ${fmtMoney(rq.deposit_amount) || '—'}</div>${rest ? `<div class="money-sub" style="color:#b91c1c;font-weight:700">Còn: ${fmtMoney(rest)}</div>` : ''}</td>`
@@ -560,9 +599,27 @@ function updatePager(total, page, size) {
   $('pagerPrev').disabled = page <= 1; $('pagerNext').disabled = page >= pages;
 }
 const goToPage = p => { if (p >= 1) { currentPage = p; loadOrders(); } };
+const isoOf = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+function dateRange() {   // khoảng ngày đang chọn ở bộ lọc thời gian -> {from,to} dạng YYYY-MM-DD
+  const v = $('fRange').value, now = new Date(), d0 = new Date(now.getFullYear(), now.getMonth(), now.getDate()), add = (d, n) => new Date(d.getFullYear(), d.getMonth(), d.getDate() + n);
+  if (v === 'today') return { from: isoOf(d0), to: isoOf(d0) };
+  if (v === 'yesterday') return { from: isoOf(add(d0, -1)), to: isoOf(add(d0, -1)) };
+  if (v === '7d') return { from: isoOf(add(d0, -6)), to: isoOf(d0) };
+  if (v === '30d') return { from: isoOf(add(d0, -29)), to: isoOf(d0) };
+  if (v === 'month') return { from: isoOf(new Date(now.getFullYear(), now.getMonth(), 1)), to: isoOf(new Date(now.getFullYear(), now.getMonth() + 1, 0)) };
+  if (v === 'lastmonth') return { from: isoOf(new Date(now.getFullYear(), now.getMonth() - 1, 1)), to: isoOf(new Date(now.getFullYear(), now.getMonth(), 0)) };
+  if (v === 'custom') return { from: $('fFrom').value, to: $('fTo').value };
+  return { from: '', to: '' };
+}
+function onDateFilter() {
+  const v = $('fRange').value; $('fCustom').classList.toggle('d-none', v !== 'custom'); $('fClear').classList.toggle('d-none', !v);
+  const dr = dateRange(); if (dr.from && dr.to && dr.from > dr.to) { toast('Ngày bắt đầu phải trước ngày kết thúc', true); return; }
+  currentPage = 1; loadOrders();
+}
 async function loadOrders(opts = {}) {
   const silent = !!opts.silent, q = new URLSearchParams(), s = $('fSearch').value.trim(), fs = $('fStore');
   if (s) q.set('search', s); if (curStatus) q.set('status', curStatus); if (fs && fs.value) q.set('store_code', fs.value);
+  const dr = dateRange(); if (dr.from) q.set('date_from', dr.from); if (dr.to) q.set('date_to', dr.to); if (dr.from || dr.to) q.set('date_by', $('fDateBy').value);
   q.set('page', currentPage); q.set('page_size', PAGE_SIZE);
   if (!silent) setMsg('Đang tải...', 'text-muted');
   try {
@@ -619,10 +676,10 @@ async function deleteRequest(rid) {
 
 /* ---------- Phiếu nhập / sửa ---------- */
 function openEditor(rid) {
-  cur = rid ? JSON.parse(JSON.stringify(byId[rid])) : { request_id: null, store_code: STORE_LIST[0] || '', customer_name: '', customer_phone: '', customer_request_date: todayISO(), vehicle_type: '', frame_number: '', vehicle_color: '', vehicle_year: '', order_value: null, deposit_amount: null, order_value_manual: false, quote_no: '', items: [blankItem()] };
+  cur = rid ? JSON.parse(JSON.stringify(byId[rid])) : { request_id: null, store_code: STORE_LIST[0] || '', customer_name: '', customer_phone: '', customer_request_date: todayISO(), deposit_date: null, vehicle_type: '', frame_number: '', vehicle_color: '', vehicle_year: '', order_value: null, deposit_amount: null, order_value_manual: false, quote_no: '', items: [blankItem()] };
   if (cur.order_value_manual && autoTotal(cur) === null) cur.order_value_manual = false;   // đơn cũ chưa có đơn giá: cho tự tính khi thêm mã
   dirty = false; $('edTitle').textContent = rid ? `Sửa đơn #${cur.seq_no} — ${cur.customer_name}` : 'Thêm đơn mới';
-  $('btnSaveNew').classList.toggle('d-none', !!rid); renderForm(); cur.items.forEach((it, i) => it.part_code && loadStock(i)); edModal = bootstrap.Modal.getOrCreateInstance($('edModal')); edModal.show();
+  $('btnSaveNew').classList.toggle('d-none', !!rid); renderForm(); loadAllStock(); edModal = bootstrap.Modal.getOrCreateInstance($('edModal')); edModal.show();
 }
 $('edModal').addEventListener('shown.bs.modal', () => { const f = $('edBody').querySelector('[data-f="customer_name"]'); if (f) f.focus(); });
 $('edModal').addEventListener('hide.bs.modal', e => { if (dirty && !saving) { e.preventDefault(); nsConfirm('Đơn chưa lưu. Đóng và bỏ thay đổi?').then(ok => { if (ok) { dirty = false; edModal.hide(); } }); return; } acClose(); });
@@ -646,7 +703,7 @@ function renderForm() {
     </div></div>`).join('');
   $('edBody').innerHTML = `<div class="sec">Khách hàng</div><div class="row g-2">
       ${ROLE === 'admin' && !c.request_id ? L('Chi nhánh', `<select class="form-select" data-f="store_code">${STORE_LIST.map(s => `<option ${s === c.store_code ? 'selected' : ''}>${esc(s)}</option>`).join('')}</select>`, 2) : ''}
-      ${L('Ngày yêu cầu', dateInp('customer_request_date', c.customer_request_date), 2)}${L('Tên khách hàng *', inp('customer_name', c.customer_name, '', 'fw-bold'), 3)}${L('SĐT', inp('customer_phone', c.customer_phone), 2)}${L('Số báo giá', inp('quote_no', c.quote_no, '', 'mono'), 2)}</div>
+      ${L('Ngày yêu cầu', dateInp('customer_request_date', c.customer_request_date), 2)}${L('Ngày khách đặt cọc', dateInp('deposit_date', c.deposit_date), 2)}${L('Tên khách hàng *', inp('customer_name', c.customer_name, '', 'fw-bold'), 3)}${L('SĐT', inp('customer_phone', c.customer_phone), 2)}${L('Số báo giá', inp('quote_no', c.quote_no, '', 'mono'), 2)}</div>
     <div class="sec">Xe</div><div class="row g-2">${L('Loại xe', inp('vehicle_type', c.vehicle_type), 3)}${L('Số khung', inp('frame_number', c.frame_number, '', 'text-uppercase'), 3)}${L('Màu', inp('vehicle_color', c.vehicle_color), 3)}${L('Đời xe', inp('vehicle_year', c.vehicle_year), 3)}</div>
     <div class="sec">Trạng thái &amp; lịch hẹn <span class="tag">chung cho cả đơn</span></div><div class="row g-2">
       ${L('Trạng thái', `<select class="form-select" data-f="status" data-mrg="1">${STATUS_OPTIONS.map(s => `<option ${s === m0.status ? 'selected' : ''}>${esc(s)}</option>`).join('')}</select>`, 2)}
@@ -696,23 +753,44 @@ $('edBody').addEventListener('input', e => {
   if (el.dataset.f === 'part_code') acQuery(el);
   recalc();
 });
+async function checkQuoteDup(el) {   // cảnh báo ngay khi gõ tay số báo giá đã có ở đơn khác (lưu vẫn bị chặn ở máy chủ)
+  el.classList.remove('is-bad'); const q = el.value.trim(); if (!q) return;
+  try {
+    const j = await (await fetch('/api/orders/check_quote?quote_no=' + encodeURIComponent(q) + (cur.request_id ? '&request_id=' + encodeURIComponent(cur.request_id) : ''))).json();
+    if (j.duplicate && el.value.trim() === q) { el.classList.add('is-bad'); toast(j.message, true); }
+  } catch (e) { /* không chặn giao diện; máy chủ vẫn kiểm lại khi lưu */ }
+}
 $('edBody').addEventListener('change', e => {
   const el = e.target; if (!el.dataset.f) return;
   syncField(el, true);
+  if (el.dataset.f === 'quote_no') checkQuoteDup(el);
   if (el.dataset.f === 'source') { $('sf-' + el.dataset.i).classList.toggle('d-none', el.value !== 'Xin nội bộ'); if (el.value === 'Xin nội bộ') loadStock(+el.dataset.i); }
   if (el.dataset.f === 'part_code') loadStock(+el.dataset.i);
   recalc();
 });
-async function loadStock(i) {
+function paintStock(i, it, list) {   // vẽ nút tồn các chi nhánh khác cho mặt hàng i
+  const box = $('stk-' + i); if (!box) return;
+  const own = ROLE === 'admin' ? cur.store_code : MY_STORE, rows = (list || []).filter(r => r.store !== own);
+  box.innerHTML = rows.length ? rows.map(r => `<button type="button" tabindex="-1" data-store="${esc(r.store)}" data-i="${i}" class="${it.source === 'Xin nội bộ' && it.source_store === r.store ? 'on' : ''}">${esc(r.store)}: ${r.qty}</button>`).join('') : '<span class="none">Không chi nhánh nào còn tồn</span>';
+}
+async function loadStock(i) {   // 1 mặt hàng (khi người dùng gõ/đổi mã)
   const it = cur.items[i], box = $('stk-' + i); if (!box) return;
   if (!it.part_code) { box.innerHTML = '<span class="none">—</span>'; return; }
   const code = it.part_code;
   try {
-    const j = await (await fetch('/api/orders/stock?code=' + encodeURIComponent(code))).json(), own = ROLE === 'admin' ? cur.store_code : MY_STORE;
+    const j = await (await fetch('/api/orders/stock?code=' + encodeURIComponent(code))).json();
     if (cur.items[i] !== it || it.part_code !== code) return;
-    const rows = (j.data || []).filter(r => r.store !== own);
-    box.innerHTML = rows.length ? rows.map(r => `<button type="button" tabindex="-1" data-store="${esc(r.store)}" data-i="${i}" class="${it.source === 'Xin nội bộ' && it.source_store === r.store ? 'on' : ''}">${esc(r.store)}: ${r.qty}</button>`).join('') : '<span class="none">Không chi nhánh nào còn tồn</span>';
+    paintStock(i, it, j.data);
   } catch (e) { box.innerHTML = '<span class="none">—</span>'; }
+}
+async function loadAllStock() {   // TẤT CẢ mặt hàng của đơn trong 1 request (mở đơn / nhập báo giá / dán mã)
+  const snap = cur, list = cur.items.map((it, i) => ({ it, i, code: it.part_code })).filter(x => x.code);
+  if (!list.length) return;
+  try {
+    const j = await (await fetch('/api/orders/stock_bulk', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ codes: [...new Set(list.map(x => x.code))] }) })).json();
+    if (cur !== snap) return;
+    list.forEach(x => { if (cur.items[x.i] === x.it && x.it.part_code === x.code) paintStock(x.i, x.it, (j.data || {})[x.code]); });
+  } catch (e) { list.forEach(x => { const b = $('stk-' + x.i); if (b) b.innerHTML = '<span class="none">—</span>'; }); }
 }
 document.querySelector('.tot-bar').addEventListener('input', e => {
   const el = e.target; if (!el.dataset.f) return; dirty = true;
@@ -746,7 +824,7 @@ async function importCodes(text) {
     it.part_code = p ? p.code : r.code; it.quantity = r.qty || '1';
     if (p) { if (p.name) it.part_name = p.name; if (p.price != null) it.unit_price = p.price; } else miss++;
   });
-  dirty = true; renderForm(); cur.items.forEach((it, i) => it.part_code && loadStock(i));
+  dirty = true; renderForm(); loadAllStock();
   toast(`Đã thêm ${rows.length} mã` + (miss ? ` — ${miss} mã không có trong danh mục (tự nhập tên/giá)` : ''), miss > 0);
   const last = $('edBody').querySelector(`[data-f="quantity"][data-i="${cur.items.length - 1}"]`); if (last) last.scrollIntoView({ block: 'center' });
 }
@@ -761,7 +839,7 @@ $('quoteFile').addEventListener('change', async () => {
   const file = $('quoteFile').files[0]; $('quoteFile').value = '';
   if (!file) return;
   syncAll();
-  const fd = new FormData(); fd.append('file', file);
+  const fd = new FormData(); fd.append('file', file); if (cur.request_id) fd.append('request_id', cur.request_id);
   $('btnQuoteImport').disabled = true; $('quoteImportLoading').classList.remove('d-none');
   try {
     const res = await fetch('/api/orders/import_quote', { method: 'POST', body: fd });
@@ -772,6 +850,7 @@ $('quoteFile').addEventListener('change', async () => {
     if (d.customer_phone) cur.customer_phone = d.customer_phone;
     if (d.quote_no) cur.quote_no = d.quote_no;
     if (d.deposit_amount != null) cur.deposit_amount = d.deposit_amount;
+    if (d.deposit_date) cur.deposit_date = d.deposit_date;   // Ngày đặt cọc quét từ PDF (vẫn sửa tay được)
     if (d.order_value != null) { cur.order_value = d.order_value; cur.order_value_manual = true; }
     const cd = mergedVals(cur);
     const newItems = (d.items || []).map(it => { const b = blankItem(); Object.assign(b, cd);
@@ -780,7 +859,7 @@ $('quoteFile').addEventListener('change', async () => {
       // Đơn đang trống (mặt hàng đầu chưa nhập gì) -> thay thế; ngược lại nối thêm vào cuối
       cur.items = (cur.items.length === 1 && !itemFilled(cur.items[0])) ? newItems : [...cur.items, ...newItems];
     }
-    dirty = true; renderForm(); cur.items.forEach((it, i) => it.part_code && loadStock(i));
+    dirty = true; renderForm(); loadAllStock();
     let msg = `Đã điền ${j.total_items} mã từ báo giá${d.quote_no ? ' ' + d.quote_no : ''} (${j.matched_catalog} khớp danh mục)`;
     if (j.unmatched_rows) msg += ` — ${j.unmatched_rows} dòng trong PDF đọc không rõ, vui lòng kiểm tra lại`;
     toast(msg, !!j.unmatched_rows);
@@ -806,7 +885,10 @@ async function saveEditor(again) {
     const p = buildPayload(cur); if (cur.request_id) p.request_id = cur.request_id; else if (ROLE === 'admin') p.store_code = cur.store_code;
     await api('/api/orders/save', p); dirty = false; edModal.hide(); toast('Đã lưu đơn');
     if (!cur.request_id) currentPage = 1; loadOrders(); if (again) setTimeout(() => openEditor(null), 350);
-  } catch (e) { toast('Lỗi lưu: ' + e.message, true); }
+  } catch (e) {
+    toast(e.code === 'dup_quote' ? e.message : 'Lỗi lưu: ' + e.message, true);
+    if (e.code === 'dup_quote') { const f = document.querySelector('#edBody [data-f="quote_no"]'); if (f) { f.classList.add('is-bad'); f.focus(); } }
+  }
   finally { saving = false; $('btnSave').disabled = false; }
 }
 /* Enter = sang ô kế; Ctrl+Enter = thêm mặt hàng; Ctrl+S = lưu */
@@ -888,6 +970,8 @@ document.addEventListener('DOMContentLoaded', () => {
   $('chips').addEventListener('click', e => { const b = e.target.closest('[data-st]'); if (b) { curStatus = b.dataset.st; currentPage = 1; renderChips(); loadOrders(); } });
   $('fSearch').addEventListener('keyup', e => { if (e.key === 'Enter') { currentPage = 1; loadOrders(); } });
   if ($('fStore')) $('fStore').addEventListener('change', () => { currentPage = 1; loadOrders(); });
+  ['fDateBy', 'fRange', 'fFrom', 'fTo'].forEach(id => $(id).addEventListener('change', onDateFilter));
+  $('fClear').addEventListener('click', () => { $('fRange').value = ''; $('fFrom').value = ''; $('fTo').value = ''; onDateFilter(); });
   $('ordersTable').addEventListener('change', e => { if (e.target.classList.contains('pillsel')) quickStatus(e.target); else if (e.target.classList.contains('qe')) quickEdit(e.target); });
   $('ordersTable').addEventListener('input', e => { const el = e.target; if (el.classList.contains('qe') && el.dataset.t === 'date') el.value = maskDate(el.value); });
   $('ordersTable').addEventListener('keydown', e => {

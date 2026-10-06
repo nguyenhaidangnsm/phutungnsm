@@ -1,3 +1,5 @@
+// Số file Chi tiết PO tối đa cho 1 lần import (khớp PO_DETAIL_MAX_FILES ở app.py).
+const PO_DETAIL_MAX_FILES = 10;
 (function () {
     const S = {all: [], view: [], page: 1, size: 100, stores: []};
     const esc = (v) => String(v == null ? '' : v).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -81,13 +83,17 @@
     window.ahnUpload = async () => {
         if (!store()) return msg('Vui lòng chọn 1 cửa hàng cụ thể để đổ dữ liệu.', false);
         const fd = new FormData(); fd.append('store', store());
-        [['ahnFileDs', 'ds_po_file'], ['ahnFileDet', 'po_detail_file'], ['ahnFileRc', 'receipt_file']].forEach(([id, k]) => { const f = $(id).files[0]; if (f) fd.append(k, f); });
+        const detFiles = Array.from($('ahnFileDet').files);
+        if (detFiles.length > PO_DETAIL_MAX_FILES) return msg(`Chỉ được chọn tối đa ${PO_DETAIL_MAX_FILES} file Chi tiết PO cho một lần đổ (bạn đã chọn ${detFiles.length} file).`, false);
+        [['ahnFileDs', 'ds_po_file'], ['ahnFileRc', 'receipt_file']].forEach(([id, k]) => { const f = $(id).files[0]; if (f) fd.append(k, f); });
+        detFiles.forEach(f => fd.append('po_detail_file', f));
         if ([...fd.keys()].length < 2) return msg('Vui lòng chọn ít nhất một file.', false);
         const btn = $('ahnUploadBtn'); btn.disabled = true; msg('Đang đổ dữ liệu...', true);
         try {
             const j = await api('/api/admin-hang-no/upload', {method: 'POST', body: fd});
             let t = 'Đã đổ: ' + j.done.join(', ') + '.';
             if (j.po_detail_inserted != null) t += ` Chi tiết PO: +${j.po_detail_inserted} dòng mới, bỏ ${j.po_detail_skipped} dòng trùng.`;
+            if (Array.isArray(j.po_detail_files) && j.po_detail_files.length > 1) t += ' [' + j.po_detail_files.map(f => `${f.file}: +${f.inserted}/bỏ ${f.skipped}`).join('; ') + ']';
             ['ahnFileDs', 'ahnFileDet', 'ahnFileRc'].forEach(id => $(id).value = '');
             await loadStores(); await loadData(); msg(t, true);
         } catch (e) { msg(e.message, false); } finally { btn.disabled = false; }
@@ -492,7 +498,8 @@
             e.preventDefault();
 
             const dsPoFile = document.getElementById('ds_po_file').files[0];
-            const poDetailFile = document.getElementById('po_detail_file').files[0];
+            const poDetailFiles = Array.from(document.getElementById('po_detail_file').files);
+            const poDetailFile = poDetailFiles[0];
             const receiptFile = document.getElementById('receipt_file').files[0];
 
             if (!dsPoFile && !poDetailFile && !receiptFile) {
@@ -502,7 +509,11 @@
 
             const formData = new FormData();
             if (dsPoFile) formData.append('ds_po_file', dsPoFile);
-            if (poDetailFile) formData.append('po_detail_file', poDetailFile);
+            if (poDetailFiles.length > PO_DETAIL_MAX_FILES) {
+                alert(`Chỉ được chọn tối đa ${PO_DETAIL_MAX_FILES} file Chi tiết PO cho một lần import (bạn đã chọn ${poDetailFiles.length} file).`);
+                return;
+            }
+            poDetailFiles.forEach(f => formData.append('po_detail_file', f));
             if (receiptFile) formData.append('receipt_file', receiptFile);
 
             document.getElementById('loading-overlay').style.display = 'flex';
@@ -515,6 +526,9 @@
                         messages.push(`Chi tiết PO: đã ghi thêm ${result.po_detail_inserted.toLocaleString()} dòng mới.`);
                         if (result.po_detail_skipped > 0) {
                             messages.push(`Đã bỏ qua ${result.po_detail_skipped.toLocaleString()} dòng trùng lặp (đã tồn tại sẵn theo Mã PO + Mã phụ tùng + Số lượng).`);
+                        }
+                        if (Array.isArray(result.po_detail_files) && result.po_detail_files.length > 1) {
+                            result.po_detail_files.forEach(f => messages.push(`  • ${f.file}: +${f.inserted.toLocaleString()} mới, bỏ ${f.skipped.toLocaleString()} trùng`));
                         }
                     }
                     if (result.warning) {
@@ -1944,6 +1958,7 @@
     async function gdhUArcLoad() {
         const body = document.getElementById('gdhUArcBody'); if (!body) return;
         const p = new URLSearchParams(); const t = document.getElementById('gdhUArcType')?.value; if (t) p.set('type', t);
+        _gdhMonthParams(p, document.getElementById('gdhOMonth')?.value);          // lọc file lưu trữ theo tháng đẩy đơn
         try {
             const j = await _gdhJson('/api/gom-don-hang/archives?' + p), e = _gdhEsc;
             _gdhUSetBadge('files', j.total);
@@ -1986,8 +2001,14 @@
     // ---- Đơn bị admin từ chối: lịch sử cho admin (mọi chi nhánh) và cho chi nhánh (của mình) ----
     const _GDH_REJ_STATE = {waiting: ['bg-warning text-dark', 'Chờ chi nhánh sửa'], resubmitted: ['bg-info text-dark', 'Đã đẩy lại'], deleted: ['bg-secondary', 'Đã xoá']};
     const _gdhRejStateBadge = st => { const x = _GDH_REJ_STATE[st]; return x ? `<span class="badge ${x[0]}">${x[1]}</span>` : ''; };
-    async function _gdhRejFetch(store, countsOnly) {
+    async function _gdhRejFetch(store, countsOnly, fromOrdersView) {
         const p = new URLSearchParams(); if (store) p.set('store', store); if (countsOnly) p.set('counts_only', '1');
+        if (!countsOnly) {
+            if (fromOrdersView) {          // màn Danh sách đơn (admin + chi nhánh): dùng từ ngày - đến ngày (ô Tháng tự điền)
+                const f = document.getElementById('gdhOFrom')?.value, t = document.getElementById('gdhOTo')?.value;
+                if (f) p.set('from', f); if (t) p.set('to', t);
+            } else _gdhMonthParams(p, document.getElementById('ocGdhMonth')?.value);
+        }
         return _gdhJson('/api/gom-don-hang/rejections?' + p);
     }
     async function _gdhRejOpenBadge() {      // huy hiệu tab "Bị từ chối" của chi nhánh = số đơn đang chờ sửa
@@ -2003,7 +2024,7 @@
         body.closest('table')?.classList.remove('ns-cards');
         const resBox = document.getElementById('gdhOResult'); if (resBox) resBox.innerHTML = '';
         try {
-            const j = await _gdhRejFetch(isAdmin ? (document.getElementById('gdhOStore')?.value || '') : '');
+            const j = await _gdhRejFetch(isAdmin ? (document.getElementById('gdhOStore')?.value || '') : '', false, true);
             if (!isAdmin) _gdhUSetBadge('rejected', j.open || 0);
             document.getElementById('gdhOCounts').innerHTML = `Chờ chi nhánh sửa: <b>${j.open || 0}</b> · Tổng số lần từ chối: <b>${j.data.length}</b>`;
             body.innerHTML = j.data.length ? j.data.map(r => {
@@ -2017,6 +2038,19 @@
             }).join('') : '<tr><td colspan="6" class="text-center text-muted py-3">Chưa có đơn nào bị từ chối.</td></tr>';
         } catch (err) { body.innerHTML = `<tr><td colspan="6" class="text-center text-danger py-3">${e(err.message)}</td></tr>`; }
     }
+    function _gdhMonthRange(ym) {          // 'YYYY-MM' -> {from:'YYYY-MM-01', to:'YYYY-MM-<ngày cuối>'}; rỗng -> {}
+        const m = /^(\d{4})-(\d{2})$/.exec(ym || ''); if (!m) return {};
+        const last = new Date(Number(m[1]), Number(m[2]), 0).getDate();
+        return {from: `${m[1]}-${m[2]}-01`, to: `${m[1]}-${m[2]}-${String(last).padStart(2, '0')}`};
+    }
+    function _gdhMonthParams(p, ym) { const r = _gdhMonthRange(ym); if (r.from) { p.set('from', r.from); p.set('to', r.to); } return p; }
+    function gdhOMonthPick() {             // chọn tháng -> tự điền từ ngày / đến ngày (vẫn chỉnh tay được)
+        const r = _gdhMonthRange(document.getElementById('gdhOMonth')?.value);
+        const f = document.getElementById('gdhOFrom'), t = document.getElementById('gdhOTo');
+        if (f) f.value = r.from || ''; if (t) t.value = r.to || '';
+        gdhOrdersLoad();
+    }
+    window.gdhOMonthPick = gdhOMonthPick;
     async function gdhOrdersLoad() {
         const g = id => document.getElementById(id)?.value || '';
         const isStoreUser = CURRENT_ROLE !== 'admin';
@@ -3905,15 +3939,16 @@
         const store = document.getElementById('ocGdhStore')?.value || '';
         const p = new URLSearchParams({status: {active: 'active', done: 'approved,viewed', archive: 'ordered'}[_ocGdhTab] || 'active'});
         if (store) p.set('store', store);
+        _gdhMonthParams(p, document.getElementById('ocGdhMonth')?.value);          // lọc theo tháng đẩy đơn
         try {
             const j = await _gdhJson('/api/gom-don-hang/orders?' + p);
             const c = j.counts, n = {active: (c.pending || 0) + (c.reviewing || 0), done: (c.approved || 0) + (c.viewed || 0), archive: c.ordered || 0};
             document.querySelectorAll('#ocGdhTabs [data-tab]').forEach(b => { const s = b.querySelector('.n'); if (s && n[b.dataset.tab] !== undefined) s.textContent = n[b.dataset.tab]; });
             _ocGdhRejBadge();
-            if (!store) _ocGdhApplyCounts(j); else ocArcBadge(j.archive_pending || 0);      // đang lọc theo chi nhánh thì số liệu bị lọc, không dùng cho huy hiệu menu
+            if (!store && !p.has('from')) _ocGdhApplyCounts(j); else ocArcBadge(j.archive_pending || 0);      // đang lọc theo chi nhánh thì số liệu bị lọc, không dùng cho huy hiệu menu
             const bd = document.getElementById('ocGdhBadge'); if (bd) { bd.textContent = c.pending || 0; bd.classList.toggle('d-none', !(c.pending > 0)); }
             if (_ocGdh) {                                                               // phiên đang duyệt còn thuộc về mình không?
-                const j2 = _ocGdhTab === 'active' ? j : await _gdhJson('/api/gom-don-hang/orders?status=reviewing');
+                const j2 = (_ocGdhTab === 'active' && !p.has('from') && !store) ? j : await _gdhJson('/api/gom-don-hang/orders?status=reviewing');
                 if (!j2.data.some(o => o.id === _ocGdh.id && o.claimed_by_me)) { _ocGdh = null; _ocGdhSave(); _ocGdhRenderActive(); _ocGdhRenderBar(); }
             }
             _ocGdhCache = j.data;
@@ -4020,6 +4055,7 @@
         const s = document.getElementById('ocArcStore')?.value, t = document.getElementById('ocArcType')?.value;
         if (s) p.set('store', s);
         if (t) p.set('type', t);
+        _gdhMonthParams(p, document.getElementById('ocGdhMonth')?.value);
         return p;
     }
     async function ocArcLoad() {
@@ -9242,7 +9278,7 @@ if (storeLocationForm) {
     function setupDragZones() {
         const fileInputs = [
     { id: 'ds_po_file', nameId: 'ds-po-file-name' },
-    { id: 'po_detail_file', nameId: 'po-detail-file-name' },
+    { id: 'po_detail_file', nameId: 'po-detail-file-name', multiple: true },
     { id: 'receipt_file', nameId: 'receipt-file-name' },
     { id: 'inventory_file', nameId: 'inventory-file-name' },
     { id: 'price_file', nameId: 'price-file-name' },
@@ -9259,10 +9295,23 @@ if (storeLocationForm) {
             const dropZone = input.closest('.drop-zone');
             if(!dropZone) return;
 
+            // Ô nhiều file (Chi tiết PO): hiện số file + danh sách tên; chọn quá PO_DETAIL_MAX_FILES thì huỷ lựa chọn.
+            const showNames = () => {
+                const fl = Array.from(input.files);
+                if (!item.multiple) { nameDisplay.innerText = "✓ " + fl[0].name; return; }
+                nameDisplay.innerText = fl.length === 1 ? "✓ " + fl[0].name : `✓ ${fl.length} file: ` + fl.map(f => f.name).join(', ');
+                nameDisplay.title = fl.map(f => f.name).join('\n');
+            };
+
             input.addEventListener('change', () => {
-                if(input.files.length > 0) {
-                    nameDisplay.innerText = "✓ " + input.files[0].name;
+                if (item.multiple && input.files.length > PO_DETAIL_MAX_FILES) {
+                    alert(`Chỉ được chọn tối đa ${PO_DETAIL_MAX_FILES} file cho một lần import (bạn đã chọn ${input.files.length} file). Vui lòng chọn lại.`);
+                    input.value = '';
+                    nameDisplay.innerText = '';
+                    nameDisplay.title = '';
+                    return;
                 }
+                if(input.files.length > 0) showNames();
             });
 
             ['dragenter', 'dragover'].forEach(eventName => {
@@ -9282,10 +9331,15 @@ if (storeLocationForm) {
             dropZone.addEventListener('drop', (e) => {
                 e.preventDefault();
                 if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+                    const dropped = item.multiple ? Array.from(e.dataTransfer.files) : [e.dataTransfer.files[0]];
+                    if (item.multiple && dropped.length > PO_DETAIL_MAX_FILES) {
+                        alert(`Chỉ được chọn tối đa ${PO_DETAIL_MAX_FILES} file cho một lần import (bạn đã thả ${dropped.length} file).`);
+                        return;
+                    }
                     const dt = new DataTransfer();
-                    dt.items.add(e.dataTransfer.files[0]);
+                    dropped.forEach(f => dt.items.add(f));
                     input.files = dt.files;
-                    nameDisplay.innerText = "✓ " + input.files[0].name;
+                    showNames();
                 }
             });
         });

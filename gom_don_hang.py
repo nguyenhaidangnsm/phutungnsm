@@ -2724,6 +2724,14 @@ def _arch_filters(args, lock_store=''):
         sql += ' AND status = ANY(%s)'; params.append([x.strip() for x in sts])
     if args.get('only_new') == '1':
         sql += ' AND store_downloaded_at IS NULL' if lock_store else ' AND downloaded_at IS NULL'
+    for key, op in (('from', '>='), ('to', '<=')):          # lọc theo THÁNG/NGÀY ĐẨY ĐƠN (submitted_at); thiếu thì lấy ngày duyệt / ngày lưu trữ
+        v = (args.get(key) or '').strip()
+        if v:
+            try:
+                d = _parse_date(v)
+            except ValueError:
+                continue
+            sql += f' AND COALESCE(submitted_at, approved_at, archived_at)::date {op} %s'; params.append(d)
     return sql, params
 
 

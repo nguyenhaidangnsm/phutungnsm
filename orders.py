@@ -35,7 +35,7 @@ from flask import Blueprint, request, jsonify, session, g, render_template, redi
 import psycopg2
 from psycopg2 import pool as pg_pool, sql
 from part_code_utils import norm_code, n_sql, norm_index_sql
-from psycopg2.extras import RealDictCursor, execute_values
+from psycopg2.extras import RealDictCursor, execute_values, execute_batch
 
 # Import lại vài hàm/hằng số dùng chung từ app.py chính. AN TOÀN vì
 # orders.py chỉ được `from orders import ...` Ở CUỐI app.py (sau khi các
@@ -74,7 +74,9 @@ STATUS_OPTIONS = ['Chưa đặt', 'Đã đặt', 'Đang về', 'Đã về kho', 
 # bo_orders đều lưu bản sao, nhưng luôn sửa đồng loạt qua /api/orders/save).
 HEADER_TEXT_FIELDS = ['customer_name', 'customer_phone', 'vehicle_type', 'frame_number',
                       'vehicle_color', 'vehicle_year', 'quote_no']
-HEADER_DATE_FIELDS = ['customer_request_date']
+# customer_request_date = NGÀY YÊU CẦU (mặc định hôm nay khi thêm đơn); deposit_date = NGÀY KHÁCH ĐẶT CỌC
+# (quét từ Phiếu thu đặt cọc PDF, có thể điền tay).
+HEADER_DATE_FIELDS = ['customer_request_date', 'deposit_date']
 # Giá trị đơn / Đặt cọc là số của CẢ ĐƠN (trong Excel gộp ô dọc qua mọi mặt hàng)
 HEADER_NUMBER_FIELDS = ['order_value', 'deposit_amount']
 
@@ -103,7 +105,7 @@ LIST_COLUMNS = (
     'id, request_id, store_code, seq_no, status, customer_name, customer_phone, '
     'vehicle_type, frame_number, vehicle_color, vehicle_year, part_code, part_name, '
     'quantity, order_value, deposit_amount, order_date, order_type, '
-    'customer_request_date, expected_delivery_date, customer_call_date, '
+    'customer_request_date, deposit_date, expected_delivery_date, customer_call_date, '
     'actual_delivery_date, call_note, unit_price, order_value_manual, source, source_store, '
     'quote_no, urgent_batch_id'
 )
@@ -227,6 +229,7 @@ def init_orders_tables():
             'source VARCHAR(30)',       # NGUỒN HÀNG: 'Đặt hàng' | 'Xin nội bộ'
             'source_store VARCHAR(20)',  # chi nhánh được xin tồn (khi xin nội bộ)
             'order_value_manual BOOLEAN',
+            'deposit_date DATE',        # NGÀY KHÁCH ĐẶT CỌC - "Ngày đặt cọc" trên Phiếu thu đặt cọc (chung cho cả đơn)
             'quote_no VARCHAR(50)',     # SỐ BÁO GIÁ - "Số phiếu" trên Phiếu thu đặt cọc/Báo giá của khách (chung cho cả đơn)
             'urgent_batch_id INTEGER',  # ĐƠN KHẨN: NULL = chưa gửi; 0 = đang giữ chỗ (tạm); >0 = id đơn khẩn (gdh_batches, CSDL chính) đã gửi admin
         ):
@@ -269,6 +272,7 @@ def init_orders_tables():
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_bo_orders_part_code ON bo_orders(part_code)')
         cursor.execute(norm_index_sql('bo_orders'))   # tra 'khách đang chờ mã' theo mã chuẩn hoá
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_bo_orders_request ON bo_orders(request_id)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_bo_orders_quote_norm ON bo_orders (UPPER(BTRIM(quote_no)))')   # kiểm tra trùng số báo giá
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_bo_orders_urgent ON bo_orders(urgent_batch_id) WHERE urgent_batch_id IS NOT NULL')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_bo_orders_store_seq ON bo_orders(store_code, seq_no)')
         db.commit()
@@ -412,6 +416,7 @@ def _rows_to_request(rid, items):
         'seq_no': items[0]['seq_no'],
         'customer_name': items[0]['customer_name'],
         'customer_request_date': _iso(first('customer_request_date')),
+        'deposit_date': _iso(first('deposit_date')),
     }
     for f in ['customer_phone', 'vehicle_type', 'frame_number', 'vehicle_color', 'vehicle_year', 'quote_no']:
         req[f] = first(f)
@@ -436,6 +441,7 @@ def orders_page():
         role=session.get('role'),
         store_code=session.get('store_code'),
         store_list=sorted(STORE_EMPLOYEES.keys()),
+        embed=(request.args.get('embed') == '1'),   # nhúng trong tab của trang chủ: ẩn thanh trên cùng
     )
 
 
@@ -481,6 +487,21 @@ def list_orders():
     if request_id_filter:
         conditions.append('request_id = %s')
         params.append(request_id_filter)
+
+    # Lọc theo khoảng ngày (ngày yêu cầu HOẶC ngày khách đặt cọc; cả admin và chi nhánh đều dùng được).
+    # Chỉ nhận định dạng YYYY-MM-DD; giá trị sai thì bỏ qua, không báo lỗi.
+    date_col = (request.args.get('date_by') or '').strip()
+    if date_col not in ('customer_request_date', 'deposit_date'):   # chỉ nhận cột trong danh sách cho phép
+        date_col = 'customer_request_date'
+    for arg, op in (('date_from', '>='), ('date_to', '<=')):
+        v = (request.args.get(arg) or '').strip()
+        if re.fullmatch(r'\d{4}-\d{2}-\d{2}', v):
+            try:
+                datetime.strptime(v, '%Y-%m-%d')
+            except ValueError:
+                continue
+            conditions.append(f'{date_col} {op} %s')
+            params.append(v)
 
     search = (request.args.get('search') or '').strip()
     if search:
@@ -554,6 +575,33 @@ def list_orders():
         except Exception:
             pass
 
+    # Tồn kho của CHÍNH chi nhánh đặt đơn, để đối chiếu mã đã có tồn hay chưa
+    # (it['stock'] = số tồn hiện tại của chi nhánh đó; None nếu dòng chưa có mã).
+    try:
+        norms = {_norm_code(it['part_code']) for rq in data for it in rq['items'] if it['part_code']}
+        norms.discard('')
+        stores = list({rq['store_code'] for rq in data if rq['store_code']})
+        stock = {}
+        if norms and stores:
+            sc = get_main_db().cursor()
+            sc.execute(f"SELECT {_n_sql('part_code')} AS pc, store_code, SUM(quantity) AS q "
+                       f"FROM inventory_items WHERE store_code = ANY(%s) "
+                       f"AND {_n_sql('part_code')} = ANY(%s) GROUP BY 1, 2", (stores, list(norms)))
+            for r in sc.fetchall():
+                stock[(r['pc'], r['store_code'])] = float(r['q'])
+            sc.close()
+        for rq in data:
+            for it in rq['items']:
+                it['stock'] = stock.get((_norm_code(it['part_code']), rq['store_code']), 0.0) if it['part_code'] else None
+    except Exception:
+        try:
+            get_main_db().rollback()
+        except Exception:
+            pass
+        for rq in data:
+            for it in rq['items']:
+                it.setdefault('stock', None)
+
     return jsonify({
         'success': True,
         'data': data,
@@ -561,6 +609,54 @@ def list_orders():
         'page': page,
         'page_size': page_size,
     })
+
+
+def _norm_quote(q):
+    """Số báo giá chuẩn hoá để so trùng: bỏ khoảng trắng 2 đầu, không phân biệt hoa/thường."""
+    return str(q or '').strip().upper()
+
+
+def _find_dup_quote(cursor, quote_no, exclude_request_id=None):
+    """Tìm đơn KHÁC (request_id khác) đã dùng số báo giá này (toàn hệ thống, mọi chi nhánh).
+    Trả dòng đầu tiên tìm thấy hoặc None."""
+    qn = _norm_quote(quote_no)
+    if not qn:
+        return None
+    cursor.execute('SELECT request_id, store_code, seq_no, customer_name FROM bo_orders '
+                   'WHERE UPPER(BTRIM(quote_no)) = %s AND request_id IS DISTINCT FROM %s '
+                   'ORDER BY id LIMIT 1', (qn, exclude_request_id or None))
+    return cursor.fetchone()
+
+
+def _dup_quote_message(dup, quote_no):
+    """Thông báo trùng. Đơn của chi nhánh KHÁC: chỉ nói chi nhánh nào, không lộ tên khách."""
+    if session.get('role') == 'admin' or dup['store_code'] == session.get('store_code'):
+        return (f"Số báo giá {quote_no} đã tồn tại ở đơn STT {dup['seq_no']} của khách "
+                f"{dup['customer_name']} (chi nhánh {dup['store_code']}). Trùng số báo giá là sai nên không thể tiếp tục.")
+    return (f"Số báo giá {quote_no} đã được dùng ở một đơn của chi nhánh {dup['store_code']}. "
+            f"Trùng số báo giá là sai nên không thể tiếp tục.")
+
+
+def _dup_quote_response(dup, quote_no):
+    return jsonify({'error': _dup_quote_message(dup, quote_no), 'code': 'dup_quote'}), 409
+
+
+@orders_bp.route('/api/orders/check_quote', methods=['GET'])
+def check_quote():
+    """Kiểm tra nhanh số báo giá (khi người dùng gõ tay) đã bị đơn khác dùng chưa."""
+    if 'user' not in session:
+        return jsonify({'error': 'Unauthorized'}), 401
+    if session.get('role') not in ('store', 'admin'):
+        return jsonify({'error': 'Forbidden'}), 403
+    q = (request.args.get('quote_no') or '').strip()
+    if not q:
+        return jsonify({'success': True, 'duplicate': False})
+    cur = get_orders_db().cursor()
+    dup = _find_dup_quote(cur, q, (request.args.get('request_id') or '').strip() or None)
+    cur.close()
+    if not dup:
+        return jsonify({'success': True, 'duplicate': False})
+    return jsonify({'success': True, 'duplicate': True, 'message': _dup_quote_message(dup, q)})
 
 
 @orders_bp.route('/api/orders/save', methods=['POST'])
@@ -621,9 +717,9 @@ def save_order():
         if request_id:
             # ---- SỬA yêu cầu có sẵn ----
             if role == 'admin':
-                cursor.execute('SELECT id, store_code, seq_no FROM bo_orders WHERE request_id = %s', (request_id,))
+                cursor.execute('SELECT id, store_code, seq_no, quote_no FROM bo_orders WHERE request_id = %s', (request_id,))
             else:
-                cursor.execute('SELECT id, store_code, seq_no FROM bo_orders WHERE request_id = %s AND store_code = %s',
+                cursor.execute('SELECT id, store_code, seq_no, quote_no FROM bo_orders WHERE request_id = %s AND store_code = %s',
                                (request_id, session['store_code']))
             existing = cursor.fetchall()
             if not existing:
@@ -632,6 +728,7 @@ def save_order():
                 return jsonify({'error': 'Không tìm thấy đơn (hoặc không thuộc cửa hàng của bạn).'}), 404
             store_code = existing[0]['store_code']
             seq_no = existing[0]['seq_no']
+            old_quote = next((r['quote_no'] for r in existing if r['quote_no']), None)
             existing_ids = {r['id'] for r in existing}
             keep_ids = {i for i, _ in items if i is not None}
             if not keep_ids <= existing_ids:
@@ -656,35 +753,65 @@ def save_order():
             seq_no = cursor.fetchone()['n']
             existing_ids = set()
             keep_ids = set()
+            old_quote = None
 
         # Xoá mặt hàng đã bị gỡ khỏi danh sách
         removed = list(existing_ids - keep_ids)
         if removed:
             cursor.execute('DELETE FROM bo_orders WHERE id = ANY(%s) AND request_id = %s', (removed, request_id))
 
+        # CHẶN TRÙNG SỐ BÁO GIÁ: chỉ kiểm khi tạo mới hoặc khi số báo giá bị ĐỔI (sửa đơn cũ không đổi
+        # số thì không bị chặn, kể cả dữ liệu cũ lỡ đã trùng). Khoá theo số báo giá để 2 người lưu cùng
+        # lúc không lọt cả hai.
+        new_quote = _norm_quote(header.get('quote_no'))
+        if new_quote and new_quote != _norm_quote(old_quote):
+            cursor.execute('SELECT pg_advisory_xact_lock(hashtext(%s))', ('bo_quote:' + new_quote,))
+            dup = _find_dup_quote(cursor, new_quote, request_id)
+            if dup:
+                db.rollback()
+                cursor.close()
+                return _dup_quote_response(dup, header.get('quote_no'))
+
+        # GHI GỘP: trước đây mỗi mặt hàng 1 câu INSERT/UPDATE riêng = N lần đi-về tới Supabase
+        # (đơn 37 mã => 37 lần, rất chậm). Nay: mọi UPDATE gửi chung 1 lần (execute_batch),
+        # mọi INSERT gửi chung 1 câu nhiều dòng (execute_values ... RETURNING id).
         actor = _current_actor_name()
-        item_ids = []
+        upd_cols = HEADER_TEXT_FIELDS + HEADER_DATE_FIELDS + HEADER_NUMBER_FIELDS + HEADER_BOOL_FIELDS \
+            + ITEM_TEXT_FIELDS + ITEM_DATE_FIELDS + ITEM_NUMBER_FIELDS
+        ins_cols = ['request_id', 'store_code', 'seq_no'] + HEADER_TEXT_FIELDS + HEADER_DATE_FIELDS \
+            + HEADER_NUMBER_FIELDS + HEADER_BOOL_FIELDS + ITEM_TEXT_FIELDS + ITEM_DATE_FIELDS + ITEM_NUMBER_FIELDS \
+            + ['created_by', 'created_at', 'updated_at']
+        upd_rows, ins_rows, order = [], [], []   # order: id của mặt hàng cũ, hoặc None = mặt hàng mới (theo thứ tự chèn)
         for item_id, values in items:
             row = {**header, **values, 'request_id': request_id, 'store_code': store_code,
                    'seq_no': seq_no, 'updated_at': now}
             if item_id is not None:
                 row['id'] = item_id
-                cols = HEADER_TEXT_FIELDS + HEADER_DATE_FIELDS + HEADER_NUMBER_FIELDS + HEADER_BOOL_FIELDS \
-                    + ITEM_TEXT_FIELDS + ITEM_DATE_FIELDS + ITEM_NUMBER_FIELDS
-                set_clause = ', '.join(f'{c} = %({c})s' for c in cols)
-                cursor.execute(
-                    f'UPDATE bo_orders SET {set_clause}, updated_at = %(updated_at)s '
-                    f'WHERE id = %(id)s AND request_id = %(request_id)s', row)
-                item_ids.append(item_id)
+                upd_rows.append(row)
             else:
                 row['created_by'] = actor
                 row['created_at'] = now
-                cols = ['request_id', 'store_code', 'seq_no'] + HEADER_TEXT_FIELDS + HEADER_DATE_FIELDS \
-                    + HEADER_NUMBER_FIELDS + HEADER_BOOL_FIELDS + ITEM_TEXT_FIELDS + ITEM_DATE_FIELDS + ITEM_NUMBER_FIELDS \
-                    + ['created_by', 'created_at', 'updated_at']
-                cursor.execute(
-                    f'INSERT INTO bo_orders ({", ".join(cols)}) VALUES ({", ".join(f"%({c})s" for c in cols)}) RETURNING id', row)
-                item_ids.append(cursor.fetchone()['id'])
+                ins_rows.append(row)
+            order.append(item_id)
+        if upd_rows:
+            set_clause = ', '.join(f'{c} = %({c})s' for c in upd_cols)
+            execute_batch(
+                cursor,
+                f'UPDATE bo_orders SET {set_clause}, updated_at = %(updated_at)s '
+                f'WHERE id = %(id)s AND request_id = %(request_id)s',
+                upd_rows, page_size=200)
+        new_ids = []
+        if ins_rows:
+            got = execute_values(
+                cursor,
+                f'INSERT INTO bo_orders ({", ".join(ins_cols)}) VALUES %s RETURNING id',
+                [tuple(r[c] for c in ins_cols) for r in ins_rows],
+                page_size=max(len(ins_rows), 1), fetch=True)
+            new_ids = [r['id'] for r in got]
+            if len(new_ids) != len(ins_rows):
+                raise RuntimeError('Số dòng thêm mới không khớp.')
+        it_new = iter(new_ids)
+        item_ids = [i if i is not None else next(it_new) for i in order]
         db.commit()
     except Exception as e:
         db.rollback()
@@ -790,6 +917,35 @@ def import_orders_excel():
     })
 
 
+_DEPOSIT_DATE_RE = re.compile(
+    r'Ngày\s*đặt\s*cọc\s*:?\s*Ngày\s*(\d{1,2})\s*tháng\s*(\d{1,2})\s*năm\s*(\d{4})', re.IGNORECASE)
+
+
+def _extract_deposit_date(raw):
+    """Đọc dòng "Ngày đặt cọc: Ngày 10 tháng 9 năm 2026; Vào lúc 11:07" trên Phiếu thu
+    đặt cọc -> 'YYYY-MM-DD'. Không tìm thấy / lỗi -> None (người dùng điền tay)."""
+    import io
+    texts = []
+    try:
+        import pdfplumber
+        with pdfplumber.open(io.BytesIO(raw)) as pdf:
+            texts = [(pg.extract_text() or '') for pg in pdf.pages]
+    except Exception:
+        try:
+            from pypdf import PdfReader
+            texts = [(pg.extract_text() or '') for pg in PdfReader(io.BytesIO(raw)).pages]
+        except Exception:
+            return None
+    for t in texts:
+        m = _DEPOSIT_DATE_RE.search(t)
+        if m:
+            try:
+                return datetime(int(m.group(3)), int(m.group(2)), int(m.group(1))).strftime('%Y-%m-%d')
+            except ValueError:
+                return None
+    return None
+
+
 @orders_bp.route('/api/orders/import_quote', methods=['POST'])
 def import_quote():
     """Đọc NHANH 1 file PDF "Phiếu thu đặt cọc/Báo giá" để trả về dữ liệu
@@ -815,12 +971,23 @@ def import_quote():
     if not file.filename.lower().endswith('.pdf'):
         return jsonify({'error': 'Chỉ hỗ trợ file PDF.'}), 400
 
+    import io
+    raw = file.read()
     try:
-        data = parse_quote_pdf(file.stream)
+        data = parse_quote_pdf(io.BytesIO(raw))
     except (ValueError, RuntimeError) as e:
         return jsonify({'error': str(e)}), 400
     except Exception as e:
         return jsonify({'error': f'Không đọc được file: {e}'}), 400
+
+    # CHẶN TRÙNG SỐ BÁO GIÁ: số này đã có ở đơn khác -> không cho nhập (không điền gì vào form).
+    # Đang sửa đơn nào thì gửi kèm request_id của đơn đó để không tự chặn chính nó.
+    if data.get('quote_no'):
+        oc = get_orders_db().cursor()
+        dup = _find_dup_quote(oc, data['quote_no'], (request.form.get('request_id') or '').strip() or None)
+        oc.close()
+        if dup:
+            return _dup_quote_response(dup, data['quote_no'])
 
     # Đối chiếu mã hàng với danh mục: giá ĐÃ TĂNG (nếu có) > giá cũ trong danh mục
     # > giữ giá đọc từ PDF. Tên lấy từ danh mục (đề xuất tăng giá > mã mới > tồn kho).
@@ -856,6 +1023,7 @@ def import_quote():
             'customer_name': data['customer_name'],
             'customer_phone': data['customer_phone'],
             'deposit_amount': data['deposit_amount'],
+            'deposit_date': _extract_deposit_date(raw),
             'order_value': data['order_value'],
             'items': data['items'],
         },
@@ -1071,6 +1239,36 @@ def part_stock():
         except Exception:
             pass
         return jsonify({'success': True, 'data': [], 'note': f'Lỗi tra cứu: {e}'})
+
+
+@orders_bp.route('/api/orders/stock_bulk', methods=['POST'])
+def part_stock_bulk():
+    """Tồn kho các chi nhánh của NHIỀU mã hàng chỉ trong 1 request / 1 truy vấn
+    (thay cho việc gọi /api/orders/stock từng mã - đơn 37 mã trước đây = 37 request
+    nối đuôi nhau nên rất chậm). Trả {mã gửi lên: [{store, qty}, ...]}."""
+    if 'user' not in session:
+        return jsonify({'error': 'Unauthorized'}), 401
+    raw = (request.json or {}).get('codes') or []
+    codes = list(dict.fromkeys(str(c).strip() for c in raw[:300] if str(c).strip()))
+    if not codes:
+        return jsonify({'success': True, 'data': {}})
+    norms = {c: _norm_code(c) for c in codes}
+    try:
+        cur = get_main_db().cursor()
+        cur.execute(f"SELECT {_n_sql('part_code')} AS n, store_code, SUM(quantity) AS qty FROM inventory_items "
+                    f"WHERE {_n_sql('part_code')} = ANY(%s) GROUP BY 1, 2 HAVING SUM(quantity) > 0 ORDER BY store_code",
+                    (list(set(norms.values())),))
+        by_norm = {}
+        for r in cur.fetchall():
+            by_norm.setdefault(r['n'], []).append({'store': r['store_code'], 'qty': float(r['qty'])})
+        cur.close()
+        return jsonify({'success': True, 'data': {c: by_norm.get(norms[c], []) for c in codes}})
+    except Exception as e:
+        try:
+            get_main_db().rollback()
+        except Exception:
+            pass
+        return jsonify({'success': True, 'data': {}, 'note': f'Lỗi tra cứu: {e}'})
 
 
 @orders_bp.route('/api/orders/parts/bulk', methods=['POST'])

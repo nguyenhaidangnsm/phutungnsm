@@ -426,6 +426,7 @@ def _get_pool():
 
 # Số ngày lưu trữ dữ liệu "Chi tiết PO" trước khi tự động dọn dẹp
 PO_DETAIL_RETENTION_DAYS = 120
+PO_DETAIL_MAX_FILES = 10   # số file Chi tiết PO tối đa cho MỘT lần import (cửa hàng + admin)
 
 # Số ngày lưu trữ "Lịch Sử Tải Lên" (bảng upload_log - ghi lại mỗi lượt tải
 # file Danh sách PO / Chi tiết PO / Chi tiết nhận hàng) trước khi tự động
@@ -2799,6 +2800,39 @@ def append_po_detail(cursor, store_code, po_detail_file, po_detail_df, upload_ti
     return inserted_count, skipped_count
 
 
+def append_po_detail_multi(cursor, store_code, po_detail_files, upload_time, append_fn=None):
+    """Nhập NHIỀU file Chi tiết PO (tối đa PO_DETAIL_MAX_FILES) trong 1 lần import.
+
+    Giữ nguyên cơ cấu cũ: mỗi file vẫn đi qua append_po_detail() (cùng cách đọc cột, cùng UNIQUE INDEX +
+    ON CONFLICT DO NOTHING). Các file được xử lý lần lượt trong CÙNG 1 transaction nên dòng trùng GIỮA các
+    file với nhau (và với dữ liệu cũ trong CSDL) đều bị bỏ qua; dòng trùng trong 1 file cũng bị bỏ qua.
+    Lỗi ở bất kỳ file nào (thiếu cột, file hỏng...) -> ném ValueError kèm tên file, caller rollback toàn bộ
+    nên không bao giờ ghi dở dang.
+
+    append_fn: hàm ghi 1 file, chữ ký (cursor, store_code, file, df, upload_time) -> (inserted, skipped).
+    Mặc định là append_po_detail; vùng admin truyền hàm riêng.
+    Trả (tổng ghi mới, tổng bỏ qua, [{'file', 'inserted', 'skipped'}, ...])."""
+    append_fn = append_fn or append_po_detail
+    files = [f for f in (po_detail_files or []) if f and getattr(f, 'filename', '')]
+    if len(files) > PO_DETAIL_MAX_FILES:
+        raise ValueError(f'Chỉ được chọn tối đa {PO_DETAIL_MAX_FILES} file Chi tiết PO cho một lần import '
+                         f'(bạn đã chọn {len(files)} file).')
+    total_ins = total_skip = 0
+    report = []
+    for f in files:
+        try:
+            df = read_any(f)
+            ins, skip = append_fn(cursor, store_code, f, df, upload_time)
+        except ValueError as e:
+            raise ValueError(f'File "{f.filename}": {e}')
+        finally:
+            df = None   # giải phóng RAM trước khi đọc file kế tiếp
+        total_ins += ins
+        total_skip += skip
+        report.append({'file': f.filename, 'inserted': ins, 'skipped': skip})
+    return total_ins, total_skip, report
+
+
 def load_store_dataframes(cursor, store_code):
     """Tải dữ liệu hiện có để tính toán bảng đối soát cho "không gian xem
     hàng nợ" của store_code (xem get_debt_view_group() - với đa số cửa
@@ -3383,7 +3417,9 @@ def upload_files():
         return jsonify({'error': 'Admin không trực tiếp tải file cửa hàng.'}), 400
 
     ds_po_file = request.files.get('ds_po_file')
-    po_detail_file = request.files.get('po_detail_file')
+    # Chi tiết PO: cho phép chọn NHIỀU file (tối đa PO_DETAIL_MAX_FILES) trong 1 lần import.
+    po_detail_files = [f for f in request.files.getlist('po_detail_file') if f and f.filename]
+    po_detail_file = po_detail_files[0] if po_detail_files else None
     receipt_file = request.files.get('receipt_file')
 
     # Cho phép tải lên MỘT hoặc MỘT VÀI file trong số 3 file, không bắt buộc
@@ -3393,6 +3429,9 @@ def upload_files():
     # cũ của đúng loại đó, các loại không được gửi lên sẽ giữ nguyên.
     if not ds_po_file and not po_detail_file and not receipt_file:
         return jsonify({'error': 'Vui lòng chọn ít nhất một file để tải lên.'}), 400
+    if len(po_detail_files) > PO_DETAIL_MAX_FILES:
+        return jsonify({'error': f'Chỉ được chọn tối đa {PO_DETAIL_MAX_FILES} file Chi tiết PO cho một lần import '
+                                 f'(bạn đã chọn {len(po_detail_files)} file).'}), 400
 
     try:
         upload_time = vn_now()
@@ -3416,9 +3455,10 @@ def upload_files():
         #    Số lượng) để tránh ghi lặp vào CSDL.
         po_detail_inserted = None
         po_detail_skipped = None
-        if po_detail_file:
-            po_detail_df = read_any(po_detail_file)
-            po_detail_inserted, po_detail_skipped = append_po_detail(cursor, store_code, po_detail_file, po_detail_df, upload_time)
+        po_detail_report = None
+        if po_detail_files:
+            po_detail_inserted, po_detail_skipped, po_detail_report = append_po_detail_multi(
+                cursor, store_code, po_detail_files, upload_time)
 
         # 4) Dọn dẹp dữ liệu Chi tiết PO đã quá 120 ngày (các dữ liệu khác giữ nguyên)
         cleanup_old_po_detail(cursor)
@@ -3435,7 +3475,7 @@ def upload_files():
         ''', (
             store_code, upload_time_str,
             ds_po_file.filename if ds_po_file else None,
-            po_detail_file.filename if po_detail_file else None,
+            ', '.join(f.filename for f in po_detail_files) if po_detail_files else None,
             receipt_file.filename if receipt_file else None,
         ))
 
@@ -3450,9 +3490,10 @@ def upload_files():
 
         # Thông báo cho cửa hàng biết số dòng "Chi tiết PO" đã được ghi mới
         # và số dòng bị bỏ qua vì đã tồn tại (trùng Mã PO + Mã phụ tùng + Số lượng).
-        if po_detail_file is not None:
+        if po_detail_files:
             response['po_detail_inserted'] = po_detail_inserted
             response['po_detail_skipped'] = po_detail_skipped
+            response['po_detail_files'] = po_detail_report
 
         # Nếu cửa hàng chưa từng có đủ "Danh sách PO" + "Chi tiết nhận hàng"
         # (ví dụ đây là lần tải đầu tiên và chỉ chọn mỗi file Chi tiết PO),
@@ -3464,6 +3505,13 @@ def upload_files():
                                     '"Chi tiết nhận hàng" ít nhất 1 lần.')
 
         return jsonify(response)
+    except ValueError as e:
+        # Lỗi dữ liệu file (thiếu cột, quá số file cho phép...): báo rõ cho người dùng, không phải lỗi server.
+        try:
+            get_db().rollback()
+        except Exception:
+            pass
+        return jsonify({'error': str(e)}), 400
     except Exception as e:
         # In đầy đủ traceback ra Render Logs để chẩn đoán mà không cần mò
         # DevTools của trình duyệt mỗi lần có lỗi.
