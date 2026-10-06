@@ -1681,6 +1681,10 @@ const PO_DETAIL_MAX_FILES = 10;
         } else if (st === 'pending') {
             info = `Đẩy bởi <b>${e(b.submitted_by)}</b> lúc ${e(b.submitted_at)}${note('Ghi chú', b.submit_note)}. ` + (isAdmin ? 'Duyệt tại menu Quản Trị Hệ Thống > Duyệt Đơn Hàng.' : 'Đang chờ admin lấy về duyệt - đơn đã khoá.');
             acts = isAdmin ? '' : _gdhBtn('btn-outline-danger', 'bi-arrow-counterclockwise', 'Thu hồi đơn', 'gdhRecall()');
+            if (b.rereview_open) {          // đơn đã duyệt xong, đang chờ admin duyệt lại: không thu hồi được
+                info = `Đã nhờ admin duyệt lại lúc ${e(b.rereview_at)}${note('Nội dung', b.rereview_note)}. Đang chờ admin lấy về duyệt.`;
+                acts = '';
+            }
         } else if (st === 'reviewing') {
             info = `<b>${e(b.claimed_by_name || b.claimed_by)}</b> đang duyệt từ ${e(b.claimed_at)}` + (isAdmin ? ' tại menu Duyệt Đơn Hàng.' : '. Đơn đang khoá.');
         } else {
@@ -1688,6 +1692,7 @@ const PO_DETAIL_MAX_FILES = 10;
             if (b.viewed_at) info += ` · Đã xem lúc ${e(b.viewed_at)}`;
             if (b.ordered_at) info += ` · Đã đặt lúc ${e(b.ordered_at)}${b.ordered_by ? ' (' + e(b.ordered_by) + ')' : ''}`;
             acts = _gdhBtn(st === 'approved' && !isAdmin ? 'btn-warning' : 'btn-outline-secondary', 'bi-eye', 'Xem kết quả duyệt', `gdhOpenCompare(${b.id})`);
+            if (!isAdmin && b.can_rereview) acts += _gdhBtn('btn-outline-warning', 'bi-arrow-repeat', 'Nhờ duyệt lại', `gdhRequestRereview(${b.id})`);
             if (!isAdmin) acts += _gdhBtn(st === 'ordered' ? 'btn-outline-success' : 'btn-success', 'bi-download', st === 'ordered' ? 'Tải lại file đặt hàng' : 'Tải đơn về', `gdhDownloadOrder(${b.id})`);
         }
         bar.dataset.st = (st === 'draft' && b.reject_reason) ? 'rejected' : st;
@@ -1858,6 +1863,25 @@ const PO_DETAIL_MAX_FILES = 10;
     function _gdhSubToOrders() {
         bootstrap.Modal.getOrCreateInstance(_gdhSubEl('Modal')).hide();
         gdhSwitchView('orders');
+    }
+    const _gdhLeft = min => { min = Math.max(0, Math.round(min || 0)); return min >= 60 ? Math.floor(min / 60) + ' giờ ' + (min % 60) + ' phút' : min + ' phút'; };
+    async function gdhRequestRereview(id) {          // cửa hàng nhờ admin duyệt lại đơn đã duyệt xong (trong 24 giờ, chưa tải đơn về)
+        id = id || _gdhBatchId;
+        if (!id) return;
+        const o = (_gdhOrdersCache || []).find(x => String(x.id) === String(id)) || (_gdhCmp && String(_gdhCmp.batch.id) === String(id) ? _gdhCmp.batch : null) || (_gdhBatchMeta && String(_gdhBatchMeta.id) === String(id) ? _gdhBatchMeta : null);
+        const left = o && o.rereview_left_min != null ? `Còn ${_gdhLeft(o.rereview_left_min)} (đến ${o.rereview_until}). ` : '';
+        const r = await nsPrompt('Nhờ admin duyệt lại đơn này?\n' + left + 'Đơn sẽ quay về "Chờ duyệt" cho admin xử lý lại và bạn không thu hồi hay tải đơn về được cho đến khi admin duyệt xong.\n\nGhi rõ mã nào / cần SL bao nhiêu (bắt buộc):', '');
+        if (r === null) return;
+        const note = r.trim();
+        if (!note) { alert('Cần ghi rõ mã nào / vì sao chưa hài lòng để admin duyệt lại.'); return; }
+        try {
+            await _gdhJson('/api/gom-don-hang/request-rereview', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({batch_id: id, note: note.slice(0, 500)})});
+            alert('Đã gửi nhờ admin duyệt lại. Đơn quay về "Chờ duyệt", bạn sẽ nhận thông báo khi admin duyệt xong.');
+            bootstrap.Modal.getInstance(document.getElementById('gdhCmpModal'))?.hide();
+        } catch (e) { alert(e.message); }
+        await _gdhAfterAct();
+        const m = document.getElementById('gdhCmpModal');
+        if (m && m.classList.contains('show')) gdhOpenCompare(id, true);
     }
     async function gdhRecall(id) {
         const _o = id ? (_gdhOrdersCache || []).find(x => String(x.id) === String(id)) : null;
@@ -2126,8 +2150,12 @@ const PO_DETAIL_MAX_FILES = 10;
         const oc = (_gdhOrdersCache.concat(typeof _ocGdhCache !== 'undefined' ? _ocGdhCache : [])).find(x => x.id === b.id);
         document.getElementById('gdhCmpTitle').innerHTML = `${e(oc ? _gdhOrderName(oc) : 'Đơn ' + b.store)} ${_gdhStBadge(b.status, b.status_label)}`;
         const isStore = CURRENT_ROLE === 'store';
-        const info = j.reviewed
-            ? `<div class="small text-muted mb-2">Duyệt bởi <b>${e(b.approved_by)}</b> lúc ${e(b.approved_at)}${b.review_note ? ` · Ghi chú chung: <i>${e(b.review_note)}</i>` : ''}</div>`
+        const reInfo = (isStore && b.rereview_open)
+            ? `<div class="alert alert-warning py-1 px-2 small"><i class="bi bi-arrow-repeat me-1"></i>Bạn đã nhờ admin duyệt lại${b.rereview_at ? ' lúc ' + e(b.rereview_at) : ''}: <i>“${e(b.rereview_note)}”</i>. Đơn đang chờ admin, chưa thu hồi hay tải về được. SL duyệt bên dưới là kết quả lần duyệt trước.</div>` : '';
+        const reHint = (isStore && b.can_rereview)
+            ? `<div class="alert alert-light border py-1 px-2 small"><i class="bi bi-arrow-repeat me-1"></i>Chưa hài lòng với SL duyệt? Bạn có thể <b>nhờ admin duyệt lại</b> trong ${e(_gdhLeft(b.rereview_left_min))} nữa (đến ${e(b.rereview_until)}), và trước khi tải đơn về.</div>` : '';
+        const info = reInfo ? reInfo : j.reviewed
+            ? `<div class="small text-muted mb-2">Duyệt bởi <b>${e(b.approved_by)}</b> lúc ${e(b.approved_at)}${b.review_note ? ` · Ghi chú chung: <i>${e(b.review_note)}</i>` : ''}</div>` + reHint
             : (isStore && b.status === 'pending')
                 ? `<div class="alert alert-info py-1 px-2 small">Admin chưa lấy đơn về duyệt nên bạn vẫn có thể bấm <b>Thu hồi để chỉnh sửa</b>.</div>`
                 : (isStore && b.status === 'reviewing')
@@ -2147,8 +2175,10 @@ const PO_DETAIL_MAX_FILES = 10;
         document.getElementById('gdhCmpBody').innerHTML = `<style>#gdhCmpModal .modal-content{font-family:var(--ns-font-main);font-variant-numeric:tabular-nums slashed-zero;}` +
             `#gdhCmpModal table{font-size:.95rem;}#gdhCmpModal th{font-weight:700;letter-spacing:.02em;color:#334155;}#gdhCmpModal td{color:#0f172a;}</style>` + _gdhTimeline(b) + info + table;
         const canDl = CURRENT_ROLE === 'store' && ['approved', 'viewed', 'ordered'].includes(b.status);
-        const canRecall = isStore && b.status === 'pending';
+        const canRecall = isStore && b.status === 'pending' && !b.rereview_open;
+        const canRereview = isStore && b.can_rereview;
         document.getElementById('gdhCmpFoot').innerHTML = (canRecall ? `<button type="button" class="btn btn-outline-danger me-auto" onclick="gdhRecallFromCmp(${b.id})"><i class="bi bi-arrow-counterclockwise me-1"></i>Thu hồi để chỉnh sửa</button>` : '') +
+            (canRereview ? `<button type="button" class="btn btn-outline-warning me-auto" onclick="gdhRequestRereview(${b.id})"><i class="bi bi-arrow-repeat me-1"></i>Nhờ duyệt lại</button>` : '') +
             `<button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Đóng</button>` +
             (canDl ? `<button type="button" class="btn ${b.status === 'ordered' ? 'btn-outline-success' : 'btn-success'}" onclick="gdhDownloadOrder(${b.id})"><i class="bi bi-download me-1"></i>${b.status === 'ordered' ? 'Tải lại file đặt hàng' : 'Tải đơn về (chuyển Đã đặt)'}</button>` : '');
     }
@@ -3357,19 +3387,20 @@ const PO_DETAIL_MAX_FILES = 10;
         const chip = (k, label, n) => `<button type="button" class="oc-chip ${_ocQuick === k ? 'on' : ''}" onclick="ocGdhQuick('${k}')">${label}${n === null ? '' : ` <b>${n}</b>`}</button>`;
         el.innerHTML = `<div class="d-flex flex-wrap align-items-center gap-2"><div class="flex-grow-1"><div class="fw-semibold"><i class="bi bi-pencil-square text-primary me-1"></i>${e(_ocGdhName())} · ${_ocGdh.codes.length} mã</div>` +
             `<div class="small text-muted">SL Duyệt khác SL gửi: <b>${st.diff}</b>/${st.total} mã${_ocGdhDraftTxt ? ' · ' + e(_ocGdhDraftTxt) : ''}</div></div>` +
-            `<button type="button" class="btn btn-outline-secondary btn-sm" onclick="ocGdhResetSuggest()" title="Đặt lại SL Duyệt của mọi mã về số hệ thống đề xuất"><i class="bi bi-arrow-counterclockwise me-1"></i>Về đề xuất</button>` +
+            `<button type="button" class="btn btn-outline-secondary btn-sm" onclick="ocGdhResetSuggest()" title="Đặt lại SL Duyệt của mọi mã về SL chi nhánh đặt"><i class="bi bi-arrow-counterclockwise me-1"></i>Về SL gửi</button>` +
             `<button type="button" class="btn btn-outline-secondary btn-sm" onclick="ocToggleMax()"><i class="bi ${isMax ? 'bi-fullscreen-exit' : 'bi-arrows-fullscreen'} me-1"></i>${isMax ? 'Thu nhỏ' : 'Phóng to'}</button>` +
             `<button type="button" class="btn btn-outline-secondary btn-sm" onclick="ocGdhRelease()"><i class="bi bi-box-arrow-up me-1"></i>Trả về hàng chờ</button>` +
             `<button type="button" class="btn btn-outline-danger btn-sm" onclick="ocGdhReject()" title="Đơn chưa ổn: từ chối duyệt và trả về chi nhánh kèm lý do"><i class="bi bi-x-circle me-1"></i>Từ chối</button>` +
             `<button type="button" class="btn btn-success btn-sm" onclick="ocGdhApprove()"><i class="bi bi-check2-circle me-1"></i>Duyệt xong</button></div>` +
-            `<div class="d-flex flex-wrap gap-1 mt-2 align-items-center"><span class="small text-muted me-1">Xem nhanh:</span>${chip('', 'Tất cả', null)}${chip('diff', 'SL duyệt ≠ SL gửi', st.diff)}${chip('locked', 'Bị khoá', st.locked)}${chip('short', 'Vẫn thiếu sau luân chuyển', st.short)}</div>` + _ocUrgPanel();
+            `<div class="d-flex flex-wrap gap-1 mt-2 align-items-center"><span class="small text-muted me-1">Xem nhanh:</span>${chip('', 'Tất cả', null)}${chip('diff', 'SL duyệt ≠ SL gửi', st.diff)}${chip('locked', 'Bị khoá', st.locked)}${chip('short', 'Vẫn thiếu sau luân chuyển', st.short)}</div>` +
+            (_ocGdh.rereview ? `<div class="alert alert-warning py-1 px-2 small mt-2 mb-0"><i class="bi bi-arrow-repeat me-1"></i><b>Cửa hàng nhờ duyệt lại</b>${_ocGdh.rereview.n > 1 ? ' (lần ' + _ocGdh.rereview.n + ')' : ''}${_ocGdh.rereview.at ? ' lúc ' + e(_ocGdh.rereview.at) : ''}: <i>“${e(_ocGdh.rereview.note)}”</i>. SL duyệt và ghi chú của lần duyệt trước đã nạp sẵn, bạn chỉ cần sửa mã nào cần đổi.</div>` : '') + _ocUrgPanel();
     }
     function ocGdhQuick(k) { _ocQuick = (_ocQuick === k) ? '' : k; renderOrderCheckTable(); _ocGdhRenderBar(); }
     async function ocGdhResetSuggest() {
         if (!_ocGdh) return;
         const n = _orderCheckData.filter(r => r._orig_suggest !== undefined && r._orig_suggest !== r.suggested_approve_qty).length;
-        if (!n) { alert('Chưa có mã nào bị sửa so với đề xuất của hệ thống.'); return; }
-        if (!await nsConfirm(`Đặt lại SL Duyệt của ${n} mã đã sửa về số hệ thống đề xuất? (Ghi chú giữ nguyên)`)) return;
+        if (!n) { alert('Chưa có mã nào bị sửa so với SL chi nhánh đặt.'); return; }
+        if (!await nsConfirm(`Đặt lại SL Duyệt của ${n} mã đã sửa về SL chi nhánh đặt? (Ghi chú giữ nguyên)`)) return;
         _orderCheckData.forEach(r => { if (r._orig_suggest !== undefined) r.suggested_approve_qty = r._orig_suggest; });
         renderOrderCheckTable(); saveOrderCheckSession(); _ocGdhDirty();
     }
@@ -3843,6 +3874,7 @@ const PO_DETAIL_MAX_FILES = 10;
         const when = e(String(o.submitted_at || '').slice(0, 16));
         const title = `${badges}<span class="ns-dot">·</span>${e(o.store)}<span class="ns-dot">·</span><span class="ns-when">${when}</span>` +
             (o.kind === 'urgent' ? ' <span class="ns-b ns-b-kh">Từ danh sách KH</span>' : '') +
+            (o.rereview_open ? ' <span class="ns-b ns-b-kh">Nhờ duyệt lại</span>' : '') +
             ((store && !list) ? '' : ((list || ['pending', 'reviewing'].includes(o.status)) ? ' ' + _gdhStBadge(o.status, o.status_label) : ''));
         const apAt = String(o.approved_at || '');
         const apTime = apAt.slice(0, 10) === String(o.submitted_at || '').slice(0, 10) ? apAt.slice(11) : apAt;
@@ -3854,6 +3886,7 @@ const PO_DETAIL_MAX_FILES = 10;
             if (list && o.ordered_at) parts.push(`Đặt ${e(o.ordered_at)}`); else if (list && o.viewed_at) parts.push(`Xem ${e(o.viewed_at)}`);
         }
         const notes = (o.submit_note ? `<div class="ns-note ns-note-n" title="${e(o.submit_note)}">“${e(o.submit_note)}”</div>` : '') +
+            (o.rereview_note && (o.rereview_open || o.status === 'pending' || o.status === 'reviewing') ? `<div class="ns-note ns-note-n" title="${e(o.rereview_note)}">${store ? 'Bạn nhờ duyệt lại' : 'Nhờ duyệt lại'}: “${e(o.rereview_note)}”</div>` : '') +
             (o.review_note ? `<div class="ns-note">${store ? 'Admin' : 'Ghi chú của admin'}: “${e(o.review_note)}”</div>` : '');
         let wait = '';
         if (open && o.waiting_min !== null && o.waiting_min !== undefined) {
@@ -3867,7 +3900,7 @@ const PO_DETAIL_MAX_FILES = 10;
             const dp = rs.total ? Math.round(rs.approved_parts / rs.total * 100) : 0;
             stats = (hasQ ? `<div class="ns-num"><s>${F(rs.sent_qty)}</s> → ${F(rs.approved_qty)}${pct > 0 ? `<em>−${pct}%</em>` : (pct < 0 ? `<em class="up">+${-pct}%</em>` : '')}</div>` : '') +
                 `<div class="ns-prog" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${dp}"><div style="width:${dp}%"></div></div>` +
-                `<div class="ns-meta"><span>Duyệt ${F(rs.approved_parts)}/${F(rs.total)} mã</span>${rs.zeroed ? `<span class="ns-zero">Về 0: ${F(rs.zeroed)}</span>` : ''}${rs.reduced ? `<span>Giảm SL ${F(rs.reduced)} mã</span>` : ''}${rs.increased ? `<span>Tăng SL ${rs.increased}</span>` : ''}</div>`;
+                `<div class="ns-meta"><span>${o.rereview_open ? 'Duyệt trước' : 'Duyệt'} ${F(rs.approved_parts)}/${F(rs.total)} mã</span>${o.rereview_open ? wait : ''}${rs.zeroed ? `<span class="ns-zero">Về 0: ${F(rs.zeroed)}</span>` : ''}${rs.reduced ? `<span>Giảm SL ${F(rs.reduced)} mã</span>` : ''}${rs.increased ? `<span>Tăng SL ${rs.increased}</span>` : ''}</div>`;
         } else if (sub) {
             stats = `<div class="ns-num">${F(sub.parts)} mã</div><div class="ns-meta"><span>SL ${F(sub.qty)}</span>${list && sub.amount != null ? `<span>${F(sub.amount)} đ</span>` : ''}${wait}</div>`;
         }
@@ -3882,10 +3915,11 @@ const PO_DETAIL_MAX_FILES = 10;
             else if (isAd && o.status === 'reviewing') acts += lockBtn(o);
             if (o.status !== 'pending' && (isAd || done)) acts += btn('', 'bi-eye', 'Xem kết quả', `gdhOpenCompare(${o.id})`);
             if (!isAd && (o.status === 'pending' || o.status === 'reviewing')) acts += btn('', 'bi-eye', 'Xem đơn', `gdhOpenCompare(${o.id})`);
+            if (!isAd && o.can_rereview) acts += `<button type="button" class="ns-btn" title="Còn ${e(_gdhLeft(o.rereview_left_min))} (đến ${e(o.rereview_until)}). Sau khi tải đơn về thì không nhờ được nữa" onclick="gdhRequestRereview(${o.id})"><i class="bi bi-arrow-repeat"></i> Nhờ duyệt lại</button>`;
             if (!isAd && done) acts += btn(o.status === 'ordered' ? '' : 'ns-ok', 'bi-download', o.status === 'ordered' ? 'Tải lại file đặt hàng' : 'Tải đơn về', `gdhDownloadOrder(${o.id})`);
             if (o.kind === 'urgent') menu += mi(`gdhUrgentDetail(${o.id})`, 'Thông tin khách');
             if (isAd && (o.status === 'pending' || (o.status === 'reviewing' && o.claimed_by_me))) menu += mi(`gdhReject(${o.id}, this)`, 'Từ chối', 'ns-danger');
-            if (!isAd && o.status === 'pending') menu += mi(`gdhRecall(${o.id})`, 'Thu hồi', 'ns-danger');
+            if (!isAd && o.status === 'pending' && !o.rereview_open) menu += mi(`gdhRecall(${o.id})`, 'Thu hồi', 'ns-danger');
         } else if (store) {
             acts = btn('', 'bi-eye', 'Xem kết quả', `gdhOpenCompare(${o.id})`) + btn('ns-ok', 'bi-download', 'Tải đơn về', `gdhDownloadOrder(${o.id})`);
         } else {
@@ -3988,7 +4022,20 @@ const PO_DETAIL_MAX_FILES = 10;
         _ocBusy(true, `Đang kiểm tra ${j.items.length} mã...`);
         await runOrderCheck();
         if (_orderCheckCurrentStore !== _ocGdh.store) { _ocBusy(false); return; }          // kiểm tra lỗi (đã báo ở trên): không dựng bảng của đơn khác
-        _orderCheckData.forEach(r => { r.note = ''; });                                  // bỏ ghi chú cũ theo mã: mỗi đơn có ghi chú riêng
+        // SL Duyệt MẶC ĐỊNH = SL chi nhánh đặt (qty_order); admin chỉ sửa ở mã nào cần đổi. Số hệ thống tự đề xuất (trừ tồn, khoá mã...) chỉ để tham khảo (_sys_suggest).
+        _orderCheckData.forEach(r => {
+            r.note = '';                                                                 // bỏ ghi chú cũ theo mã: mỗi đơn có ghi chú riêng
+            r._sys_suggest = r.suggested_approve_qty;
+            r.suggested_approve_qty = Math.round(Number(r.qty_order)) || 0;
+            r._orig_suggest = r.suggested_approve_qty;
+        });
+        _ocGdh.rereview = j.batch.rereview_open ? {note: j.batch.rereview_note, by: j.batch.rereview_by, at: j.batch.rereview_at, n: j.batch.rereview_count} : null;
+        _ocGdhSave();
+        if (j.prev_review) {                                                             // nhờ duyệt lại: nhớ SL admin đã duyệt lần trước để hiện cạnh SL Duyệt
+            const pm = new Map();
+            _orderCheckData.forEach(r => { pm.set(r.part_code, r); if (r.typed_code) pm.set(r.typed_code, r); });
+            Object.keys(j.prev_review).forEach(c => { const r = pm.get(c), q = j.prev_review[c] && j.prev_review[c].qty; if (r && q !== null && q !== undefined) r._prev_approved = Math.round(Number(q)) || 0; });
+        }
         if (j.draft && Object.keys(j.draft).length) {                                    // nạp lại phần đang duyệt dở đã lưu trên máy chủ
             _ocGdhApplyDraft(j.draft);
             _ocGdhDraftTxt = 'đã nạp nháp lưu lúc ' + (j.draft_saved_at || '');
@@ -4568,6 +4615,10 @@ const PO_DETAIL_MAX_FILES = 10;
                 <input type="number" step="1" min="0" class="form-control form-control-sm text-end order-check-approve-input"
                        style="width:84px; display:inline-block; font-weight:700;" data-part-code="${escapeHtmlAttr(row.part_code)}"
                        value="${row.suggested_approve_qty}" onfocus="this.select()">
+                ${(_ocGdh && _orderCheckCurrentStore === _ocGdh.store && row._prev_approved !== undefined)
+                    ? `<div class="oc-sub" title="SL admin đã duyệt ở lần duyệt trước (SL cửa hàng đặt ban đầu nằm ở cột SL Đặt)">Duyệt trước: <b>${escapeHtmlText(String(row._prev_approved))}</b></div>` : ''}
+                ${(_ocGdh && _orderCheckCurrentStore === _ocGdh.store && row._sys_suggest !== undefined && Number(row._sys_suggest) !== Number(row.qty_order))
+                    ? `<div class="oc-sub" title="Số hệ thống tự đề xuất (đã trừ tồn cửa hàng, mã khoá...). Chỉ để tham khảo">HT đề xuất: <b>${escapeHtmlText(String(row._sys_suggest))}</b></div>` : ''}
             </td>
             <td>
                 <input type="text" class="form-control form-control-sm order-check-note-input"

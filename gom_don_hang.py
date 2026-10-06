@@ -85,6 +85,7 @@ _MAX_DASH_PARTS = 5000
 # -> xuất Excel (mỗi loại đơn 1 file) lưu vào bảng gdh_archives rồi XOÁ đơn khỏi bảng chính.
 # 40 ngày = 1 tháng 10 ngày. Admin đổi được ở tab "File lưu trữ" (lưu ở app_settings.gdh_archive_days).
 ARCHIVE_STATUSES = ('approved', 'viewed', 'ordered')
+REREVIEW_HOURS = 24          # cửa hàng chỉ được nhờ duyệt lại trong vòng 24 giờ kể từ lúc admin duyệt xong
 ARCHIVE_DEFAULT_DAYS = 40
 _ARCHIVE_LOCK_KEY = 918273647            # khác các khoá advisory khác trong app.py
 _ARCHIVE_MIN_GAP_HOURS = 20              # job nền chỉ chạy thật tối đa ~1 lần/ngày
@@ -172,7 +173,10 @@ def _ensure_tables(db):
                              ('approved_by', 'TEXT'), ('approved_at', 'TIMESTAMP'), ('review_note', 'TEXT'),
                              ('viewed_by', 'TEXT'), ('viewed_at', 'TIMESTAMP'),
                              ('ordered_by', 'TEXT'), ('ordered_at', 'TIMESTAMP'),
-                             ('rejected_by', 'TEXT'), ('rejected_at', 'TIMESTAMP'), ('reject_reason', 'TEXT')):
+                             ('rejected_by', 'TEXT'), ('rejected_at', 'TIMESTAMP'), ('reject_reason', 'TEXT'),
+                             # Cửa hàng nhờ admin DUYỆT LẠI (trong REREVIEW_HOURS giờ kể từ lúc duyệt xong)
+                             ('rereview_open', 'BOOLEAN NOT NULL DEFAULT FALSE'), ('rereview_count', 'INTEGER NOT NULL DEFAULT 0'),
+                             ('rereview_at', 'TIMESTAMP'), ('rereview_by', 'TEXT'), ('rereview_note', 'TEXT')):
                 cur.execute(f'ALTER TABLE gdh_batches ADD COLUMN IF NOT EXISTS {col} {typ}')
             cur.execute("CREATE INDEX IF NOT EXISTS idx_gdh_batches_status ON gdh_batches (status) "
                         "WHERE owner = '' AND status <> 'draft'")
@@ -770,6 +774,19 @@ def _batch_json(b, extra=None):
         'ordered_by': b.get('ordered_by'), 'ordered_at': _fmt_dt(b.get('ordered_at')),
         'rejected_by': b.get('rejected_by'), 'rejected_at': _fmt_dt(b.get('rejected_at')), 'reject_reason': b.get('reject_reason') or '',
         'can_edit': _can_edit(b),
+    })
+    # Nhờ duyệt lại: còn được nhờ không (đơn Đã duyệt / Đã xem, trong 24 giờ kể từ approved_at; Đã đặt thì không)
+    ap = b.get('approved_at')
+    until = (ap + timedelta(hours=REREVIEW_HOURS)) if ap else None
+    left = (until - datetime.now(_VN_TZ).replace(tzinfo=None)).total_seconds() / 60 if until else None
+    can_re = bool(not b.get('owner') and st in ('approved', 'viewed') and left is not None and left > 0)
+    out.update({
+        'rereview_open': bool(b.get('rereview_open')) and st in ('pending', 'reviewing'),
+        'rereview_count': int(b.get('rereview_count') or 0),
+        'rereview_at': _fmt_dt(b.get('rereview_at')), 'rereview_by': b.get('rereview_by'),
+        'rereview_note': b.get('rereview_note') or '',
+        'can_rereview': can_re, 'rereview_until': _fmt_dt(until) if can_re else None,
+        'rereview_left_min': int(left) if can_re else None,
     })
     if extra:
         out.update(extra)
@@ -1583,6 +1600,8 @@ def gdh_recall():
         if err:
             return err
         st = batch.get('status') or 'draft'
+        if batch.get('rereview_open') and st in ('pending', 'reviewing'):
+            return jsonify({'error': 'Đơn này đã được duyệt và đang chờ admin duyệt lại nên không thu hồi được.'}), 409
         if (batch.get('kind') or 'regular') == 'urgent' and st == 'pending':
             # Đơn khẩn không có bản Nháp để quay về: thu hồi = xoá đơn + trả các dòng khách về trạng thái chưa gửi khẩn
             bid = batch['id']
@@ -1782,6 +1801,9 @@ def gdh_reject():
         st = batch.get('status') or 'draft'
         if st not in ('pending', 'reviewing'):
             return _bad_state(batch, 'Chờ duyệt hoặc Đang duyệt')
+        if batch.get('rereview_open'):
+            return jsonify({'error': 'Đơn này đã duyệt xong và cửa hàng chỉ nhờ duyệt lại SL, không từ chối về Nháp được. '
+                                     'Hãy duyệt lại (giữ nguyên SL cũ nếu không đồng ý, kèm ghi chú chung giải thích cho cửa hàng).'}), 409
         if st == 'reviewing' and (batch.get('claimed_by') or '') != me:
             return jsonify({'error': f"Đơn đang do {_display_name(batch.get('claimed_by')) or 'admin khác'} duyệt, bạn không từ chối thay được."}), 403
         bid = batch['id']
@@ -1867,6 +1889,9 @@ def _review_payload(cur, batch):
     draft = {r['part_code']: {'qty': _f(r['approved_qty']), 'note': r['note'] or ''} for r in drows}
     out = {'batch': _batch_json(batch), 'items': items, 'draft': draft,
            'draft_saved_at': _fmt_dt(max((r['updated_at'] for r in drows), default=None))}
+    if batch.get('rereview_open'):
+        # Cửa hàng nhờ duyệt lại: kèm SL + ghi chú admin đã duyệt ở lần trước (gdh_batch_review chỉ bị thay khi admin duyệt xong lần mới)
+        out['prev_review'] = {c: {'qty': q, 'note': n} for c, (q, n) in _review_map(cur, batch['id']).items()}
     if (batch.get('kind') or 'regular') == 'urgent':
         out['urgent_lines'] = _urgent_lines(cur, batch['id'])        # thông tin khách để admin xem ngay trong khung duyệt
     return out
@@ -1930,7 +1955,8 @@ def gdh_approve():
             except (TypeError, ValueError):
                 q = None
             given[code] = (q, str((it or {}).get('note') or '').strip()[:500])
-        cur.execute('''UPDATE gdh_batches SET status = 'approved', approved_by = %s, approved_at = (NOW() AT TIME ZONE \'Asia/Ho_Chi_Minh\'), review_note = %s
+        cur.execute('''UPDATE gdh_batches SET status = 'approved', approved_by = %s, approved_at = (NOW() AT TIME ZONE \'Asia/Ho_Chi_Minh\'), review_note = %s,
+                              rereview_open = FALSE
                        WHERE id = %s AND status = 'reviewing' AND claimed_by = %s''', (_actor_name(), note, batch['id'], me))
         if cur.rowcount != 1:
             db.rollback()
@@ -1942,11 +1968,12 @@ def gdh_approve():
                            [(batch['id'], c, q, n) for c, (q, n) in given.items()], page_size=1000)
         rows = compute_rows(cur, batch)
         n = _snapshot(cur, batch, 'approved', rows)
-        _log_event(cur, batch['id'], 'reviewing', 'approved', note or 'Admin duyệt xong')
+        was_re = bool(batch.get('rereview_open'))
+        _log_event(cur, batch['id'], 'reviewing', 'approved', ('Admin duyệt lại xong. ' if was_re else '') + (note or 'Admin duyệt xong'))
         try:                                    # thông báo chuông cho chi nhánh; lỗi thông báo không được làm hỏng việc duyệt
             cur.execute('SAVEPOINT gdh_notif')
-            create_notification(cur, batch['store_code'], 'Đơn gôm đã được duyệt',
-                                f"{_order_name(batch, [v['order_type'] for v in sent.values() if v['qty_final'] > 0])} đã được admin duyệt. "
+            create_notification(cur, batch['store_code'], 'Đơn gôm đã được duyệt lại' if was_re else 'Đơn gôm đã được duyệt',
+                                f"{_order_name(batch, [v['order_type'] for v in sent.values() if v['qty_final'] > 0])} đã được admin {'duyệt lại' if was_re else 'duyệt'}. "
                                 'Vào Gôm đơn hàng > Đơn đã đẩy để xem SL duyệt, ghi chú và tải đơn về.', 'info')
             cur.execute('RELEASE SAVEPOINT gdh_notif')
         except Exception:
@@ -1961,6 +1988,65 @@ def gdh_approve():
     finally:
         cur.close()
     return jsonify({'success': True, 'status': 'approved', 'saved': len(given), 'missing': len(sent_codes) - len(given)})
+
+
+@gom_don_hang_bp.route('/api/gom-don-hang/request-rereview', methods=['POST'])
+def gdh_request_rereview():
+    """Chi nhánh NHỜ ADMIN DUYỆT LẠI đơn đã duyệt xong mà SL duyệt chưa hài lòng: Đã duyệt / Đã xem -> Chờ duyệt.
+    Chỉ được trong REREVIEW_HOURS giờ kể từ lúc admin duyệt xong (approved_at) và khi chưa tải đơn về (Đã đặt thì không).
+    Bắt buộc ghi rõ nhờ duyệt lại điều gì. SL duyệt + ghi chú cũ được nạp sẵn vào nháp của admin để chỉ sửa những mã cần đổi.
+    Điều kiện 24 giờ kiểm ngay trong câu UPDATE (giờ Việt Nam) nên không bị lách khi bấm sát giờ hoặc 2 nơi cùng bấm."""
+    blk = _need_role('store')
+    if blk:
+        return blk
+    payload = request.get_json(silent=True) or {}
+    note = str(payload.get('note') or '').strip()[:500]
+    if not note:
+        return jsonify({'error': 'Cần ghi rõ mã nào / vì sao chưa hài lòng để admin duyệt lại.'}), 400
+    db, cur = _ctx()
+    try:
+        batch, err = _get_batch(cur, payload.get('batch_id'))
+        if err:
+            return err
+        st = batch.get('status') or 'draft'
+        if batch['owner']:
+            return jsonify({'error': 'Đây là đơn gôm riêng của admin, không nằm trong luồng duyệt.'}), 400
+        if st in ('pending', 'reviewing') and batch.get('rereview_open'):
+            return jsonify({'error': 'Đơn này đã được nhờ duyệt lại, đang chờ admin xử lý.', 'status': st}), 409
+        if st == 'ordered':
+            return jsonify({'error': 'Đơn đã tải về và chuyển sang "Đã đặt" nên không nhờ duyệt lại được.', 'status': st}), 409
+        if st not in ('approved', 'viewed'):
+            return _bad_state(batch, 'Đã duyệt')
+        cur.execute("""UPDATE gdh_batches SET status = 'pending', claimed_by = NULL, claimed_at = NULL,
+                              viewed_by = NULL, viewed_at = NULL,
+                              rereview_open = TRUE, rereview_count = COALESCE(rereview_count, 0) + 1,
+                              rereview_at = (NOW() AT TIME ZONE 'Asia/Ho_Chi_Minh'), rereview_by = %s, rereview_note = %s
+                       WHERE id = %s AND owner = '' AND status IN ('approved', 'viewed') AND approved_at IS NOT NULL
+                         AND (NOW() AT TIME ZONE 'Asia/Ho_Chi_Minh') <= approved_at + make_interval(hours => %s)""",
+                    (_actor_name(), note, batch['id'], REREVIEW_HOURS))
+        if cur.rowcount != 1:
+            db.rollback()
+            cur.execute('SELECT * FROM gdh_batches WHERE id = %s', (batch['id'],))
+            nb = cur.fetchone() or batch
+            if (nb.get('status') or '') in ('approved', 'viewed'):
+                return jsonify({'error': f'Đã quá {REREVIEW_HOURS} giờ kể từ lúc admin duyệt xong ({_fmt_dt(nb.get("approved_at"))}) nên không nhờ duyệt lại được.',
+                                'status': nb.get('status'), 'expired': True}), 409
+            return _bad_state(nb, 'Đã duyệt')
+        # nháp của admin = kết quả duyệt cũ, để chỉ sửa những mã cần đổi
+        cur.execute('DELETE FROM gdh_review_draft WHERE batch_id = %s', (batch['id'],))
+        cur.execute('INSERT INTO gdh_review_draft (batch_id, part_code, approved_qty, note) '
+                    'SELECT batch_id, part_code, approved_qty, note FROM gdh_batch_review WHERE batch_id = %s', (batch['id'],))
+        _log_event(cur, batch['id'], st, 'pending', 'Chi nhánh nhờ duyệt lại: ' + note)
+        db.commit()
+        audit_record('Nhờ duyệt lại đơn gôm', 'Gôm đơn hàng', target=f"đợt {batch['id']}",
+                     summary=f"Đợt {batch['id']} ({batch['store_code']}): {STATUS_LABELS.get(st, st)} -> Chờ duyệt (nhờ duyệt lại). Nội dung: {note}",
+                     after={'status': 'pending', 'rereview_note': note})
+    except Exception:
+        db.rollback()
+        raise
+    finally:
+        cur.close()
+    return jsonify({'success': True, 'status': 'pending'})
 
 
 @gom_don_hang_bp.route('/api/gom-don-hang/mark-viewed', methods=['POST'])
@@ -2035,7 +2121,7 @@ def gdh_orders():
             d_from, d_to = _parse_date(request.args.get('from')), _parse_date(request.args.get('to'))
         except ValueError:
             return jsonify({'error': 'Ngày không hợp lệ (định dạng YYYY-MM-DD).'}), 400
-        sql, params = ("SELECT *, EXTRACT(EPOCH FROM ((NOW() AT TIME ZONE \'Asia/Ho_Chi_Minh\') - submitted_at)) / 60 AS waiting_min "
+        sql, params = ("SELECT *, EXTRACT(EPOCH FROM ((NOW() AT TIME ZONE \'Asia/Ho_Chi_Minh\') - (CASE WHEN rereview_open THEN rereview_at ELSE submitted_at END))) / 60 AS waiting_min "
                        "FROM gdh_batches WHERE owner = '' AND status = ANY(%s)"), [sts]
         if store:
             sql += ' AND store_code = %s'; params.append(store)
@@ -2064,7 +2150,7 @@ def gdh_orders():
                            GROUP BY batch_id, order_type''', (ids,))
             for r in cur.fetchall():
                 types.setdefault(r['batch_id'], {})[r['order_type']] = {'parts': int(r['parts']), 'qty': float(r['qty'])}
-            done_ids = [b['id'] for b in batches if b['status'] in ('approved', 'viewed', 'ordered')]
+            done_ids = [b['id'] for b in batches if b['status'] in ('approved', 'viewed', 'ordered') or b.get('rereview_open')]
             if done_ids:
                 cur.execute('''SELECT s.batch_id, COUNT(*) AS total,
                                       COUNT(*) FILTER (WHERE r.approved_qty > 0) AS approved_parts,
@@ -2107,7 +2193,7 @@ def gdh_orders():
                 arch_files = int(cur.fetchone()['n'])
             except Exception:
                 db.rollback()
-        pcsql, pcparams = ("SELECT MAX(id) AS last_id, MAX(EXTRACT(EPOCH FROM ((NOW() AT TIME ZONE \'Asia/Ho_Chi_Minh\') - submitted_at)) / 60) AS oldest_min "
+        pcsql, pcparams = ("SELECT MAX(id) AS last_id, MAX(EXTRACT(EPOCH FROM ((NOW() AT TIME ZONE \'Asia/Ho_Chi_Minh\') - (CASE WHEN rereview_open THEN rereview_at ELSE submitted_at END))) / 60) AS oldest_min "
                            "FROM gdh_batches WHERE owner = '' AND status = 'pending'"), []
         if store:
             pcsql += ' AND store_code = %s'; pcparams.append(store)
@@ -2491,6 +2577,9 @@ def gdh_export():
         if err:
             return err
         is_store_hvn = session.get('role') == 'store' and request.args.get('kind') == 'hvn'
+        if is_store_hvn and batch.get('rereview_open') and (batch.get('status') or 'draft') in ('pending', 'reviewing'):
+            return jsonify({'error': 'Đơn đang chờ admin duyệt lại theo yêu cầu của bạn nên chưa tải file đặt hàng được. '
+                                     'Hãy chờ admin duyệt xong rồi tải để đặt đúng SL mới.'}), 409
         if is_store_hvn and (batch.get('status') or 'draft') not in ('approved', 'viewed', 'ordered'):
             return jsonify({'error': 'Đơn chưa được admin duyệt xong nên chưa tải file đặt hàng được. '
                                      'Hãy bấm \"Đẩy đơn cho admin\" và chờ duyệt.'}), 409
@@ -2621,7 +2710,13 @@ def _archive_files_for_batch(cur, b):
         merged = {}
         for c, v in its:
             k = v['order_code'] or c
-            merged[k] = merged.get(k, 0) + (v['order_qty'] if v['order_qty'] is not None else v['qty_final'])
+            if rev:                    # đơn đã duyệt: Quantity Requested = SL admin duyệt (giống file cửa hàng tải về); mã không có SL duyệt > 0 thì bỏ
+                q = rev.get(c, (None, ''))[0]
+                if q is None or q <= 0:
+                    continue
+            else:
+                q = v['order_qty'] if v['order_qty'] is not None else v['qty_final']
+            merged[k] = merged.get(k, 0) + q
         hvn = [{'Line#': i, 'Order Number': '', 'Part#': p, 'Quantity Requested': q} for i, (p, q) in enumerate(merged.items(), 1)]
         hist = [{'Lúc': _fmt_dt(e['at']), 'Người thao tác': e['actor'], 'Từ': STATUS_LABELS.get(e['from_status'], e['from_status']),
                  'Sang': STATUS_LABELS.get(e['to_status'], e['to_status']), 'Ghi chú': e['note']} for e in events]
