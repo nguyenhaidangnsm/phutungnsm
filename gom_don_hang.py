@@ -1419,14 +1419,89 @@ def _snap_relevant(r):
     return bool(r['qty_final'] > 0 and r['order_type'] in ORDER_TYPES)
 
 
+def _order_key(r):
+    """Khoá của 1 dòng trong đơn ĐẨY / DUYỆT: mã CHA nếu mã có quy cách (mã con -> mã cha), không thì chính mã hàng.
+    Admin chỉ thấy và duyệt theo mã cha; mã con không bao giờ xuất hiện trong đơn đã đẩy."""
+    return str(r.get('bundle_parent') or r['part_code'] or '').strip()
+
+
+def _parent_names(cur, batch_id, keys):
+    """{BKEY: tên hàng} của các mã cha (để hiện đúng tên mã cha thay vì tên mã con).
+    Thứ tự tra: dòng của đợt -> tồn kho hệ thống."""
+    names = {}
+    ks = list({_bkey(k) for k in keys if k})
+    if not ks:
+        return names
+    cur.execute('''SELECT DISTINCT ON (UPPER(TRIM(part_code))) UPPER(TRIM(part_code)) AS k, part_name
+                   FROM gdh_lines
+                   WHERE batch_id = %s AND UPPER(TRIM(part_code)) = ANY(%s) AND COALESCE(TRIM(part_name), '') <> ''
+                   ORDER BY UPPER(TRIM(part_code))''', (batch_id, ks))
+    for x in cur.fetchall():
+        names[x['k']] = x['part_name']
+    miss = [k for k in ks if k not in names]
+    if miss:
+        cur.execute('''SELECT DISTINCT ON (UPPER(TRIM(part_code))) UPPER(TRIM(part_code)) AS k, part_name
+                       FROM inventory_items
+                       WHERE UPPER(TRIM(part_code)) = ANY(%s) AND COALESCE(TRIM(part_name), '') <> ''
+                       ORDER BY UPPER(TRIM(part_code))''', (miss,))
+        for x in cur.fetchall():
+            names[x['k']] = x['part_name']
+    return names
+
+
+def _merge_rows_by_order_key(rows, parent_names=None):
+    """Gộp các dòng gôm (mức MÃ CON) thành các dòng ĐƠN theo MÃ CHA: nhiều mã con cùng 1 mã cha -> 1 dòng mang mã cha.
+    SL cuối / SL đặt / đề xuất / cộng-trừ / thành tiền được CỘNG lại (SL của mã có mã cha vốn đã tính bằng đơn vị mã cha).
+    Mã không có mã cha giữ nguyên. Một đơn đẩy chỉ có 1 loại đơn nên không lo lẫn loại.
+    rows = các dòng đã qua _snap_relevant. Kết quả có cùng khoá như dòng compute_rows (part_code = MÃ CHA nếu có)."""
+    parent_names = parent_names or {}
+    groups = {}
+    for r in rows:
+        key = _order_key(r)
+        child = bool(r.get('bundle_parent'))
+        note = (r.get('note') or '').strip()
+        if child and note and _bkey(r['part_code']) != _bkey(key):
+            note = f"{r['part_code']}: {note}"            # giữ dấu vết mã con nào ghi chú
+        g = groups.get(_bkey(key))
+        if g is None:
+            g = groups[_bkey(key)] = {
+                'part_code': key, 'part_name': r['part_name'], 'unit': r['unit'], 'adj': 0.0,
+                'order_type': r['order_type'] or '', 'notes': [], 'suggest': 0, 'qty_final': 0,
+                'order_code': r['order_code'], 'order_qty': 0, 'ord_cost': None, 'amount': None, 'has_parent': False}
+        g['has_parent'] = g['has_parent'] or child
+        g['adj'] += float(r['adj'] or 0.0)
+        g['suggest'] += r['suggest'] or 0
+        g['qty_final'] += r['qty_final'] or 0
+        g['order_qty'] += r['order_qty'] if r['order_qty'] is not None else (r['qty_final'] or 0)
+        if r.get('ord_cost') is not None and g['ord_cost'] is None:
+            g['ord_cost'] = r['ord_cost']
+        if r.get('amount') is not None:
+            g['amount'] = (g['amount'] or 0.0) + r['amount']
+        if not g['order_type']:
+            g['order_type'] = r['order_type'] or ''
+        if note and note not in g['notes']:
+            g['notes'].append(note)
+    out = []
+    for k, g in groups.items():
+        if g['has_parent']:
+            g['part_name'] = parent_names.get(k) or g['part_name']      # tên của MÃ CHA (không có thì giữ tên mã con)
+            g['order_code'] = g['part_code']                             # mã đặt luôn là mã cha
+        g['note'] = ' | '.join(g.pop('notes'))
+        g.pop('has_parent')
+        out.append(g)
+    return out
+
+
 def _snapshot(cur, batch, stage, rows=None):
-    """Chụp các mã vào đơn (SL cuối > 0 và đã có loại đơn) vào gdh_batch_snap."""
+    """Chụp các mã vào đơn (SL cuối > 0 và đã có loại đơn) vào gdh_batch_snap.
+    Mã có MÃ CHA được chụp theo MÃ CHA (nhiều mã con cùng cha gộp thành 1 dòng):
+    admin duyệt / so sánh / lưu trữ đều theo mã cha, không bao giờ thấy mã con."""
     rows = rows if rows is not None else compute_rows(cur, batch)
     cur.execute('DELETE FROM gdh_batch_snap WHERE batch_id = %s AND stage = %s', (batch['id'], stage))
+    rel = [r for r in rows if _snap_relevant(r)]
+    names = _parent_names(cur, batch['id'], [r['bundle_parent'] for r in rel if r.get('bundle_parent')]) if rel else {}
     data = []
-    for r in rows:
-        if not _snap_relevant(r):
-            continue
+    for r in _merge_rows_by_order_key(rel, names):
         data.append((batch['id'], stage, r['part_code'], r['part_name'], r['unit'], r['adj'] or 0.0, r['order_type'] or '',
                      r['note'] or '', r['suggest'], r['qty_final'], r['order_code'], r['order_qty'], r['ord_cost'], r['amount']))
     if data:
@@ -1575,7 +1650,7 @@ def gdh_submit():
         remaining = {t: sum(1 for r in rows if r['order_type'] == t and r['qty_final'] > 0) for t in ORDER_TYPES if t != ot}
         print(f"[gdh] submit {ot}: phiên {old_id} -> đơn {new_id}, {len(codes)} mã, {(time.perf_counter() - _t0) * 1000:.0f} ms")
         audit_record('Đẩy đơn gôm cho admin duyệt', 'Gôm đơn hàng', target=f"đợt {new_id}",
-                     summary=f"Phiên gôm {old_id} ({batch['store_code']}): đẩy {len(codes)} mã loại {ot} thành đơn {new_id}, xoá các mã này khỏi phiên gôm",
+                     summary=f"Phiên gôm {old_id} ({batch['store_code']}): đẩy {len(codes)} dòng ({n} mã đặt theo mã cha) loại {ot} thành đơn {new_id}, xoá các dòng này khỏi phiên gôm",
                      after={'status': 'pending', 'order_type': ot, 'note': note}, extra={'so_dong_luu': n, 'phien_gom': old_id})
     except Exception:
         db.rollback()
@@ -1583,7 +1658,7 @@ def gdh_submit():
     finally:
         cur.close()
     return jsonify({'success': True, 'status': 'pending', 'batch_id': new_id, 'draft_id': old_id, 'order_type': ot,
-                    'to_order': len(codes), 'qty': sum(r['qty_final'] for r in pick),
+                    'to_order': n, 'qty': sum(r['qty_final'] for r in pick),       # n = số dòng THEO MÃ CHA admin nhận
                     'amount': sum(r['amount'] or 0.0 for r in pick), 'released_zero_qty': released, 'remaining': remaining})
 
 
@@ -2479,7 +2554,8 @@ def gdh_submit_preview():
             return _bad_state(batch, 'Nháp')
         rows = compute_rows(cur, batch)
         t = _totals(rows)
-        by_type = {k: {'parts': v['parts'], 'qty': v['qty'], 'amount': v['amount'],
+        by_type = {k: {'parts': len({_bkey(_order_key(r)) for r in rows if r['order_type'] == k and r['qty_final'] > 0}),   # đếm theo MÃ CHA
+                       'qty': v['qty'], 'amount': v['amount'],
                        'no_cost': sum(1 for r in rows if r['order_type'] == k and r['qty_final'] > 0 and r['amount'] is None)}
                    for k, v in t['by_type'].items()}
         dups_by_type = {}        # không còn cảnh báo/chặn đơn trùng loại: cho đẩy nhiều đơn cùng loại từ 1 phiên gôm
@@ -2584,8 +2660,12 @@ def gdh_export():
         rows = compute_rows(cur, batch, with_extra=True)
         review = {}
         if request.args.get('kind') == 'hvn' and not batch['owner'] and (batch.get('status') or 'draft') in ('approved', 'viewed', 'ordered'):
-            review = _review_map(cur, batch['id'], [r['part_code'] for r in rows if r['qty_final'] > 0])
+            review = _review_map(cur, batch['id'])            # khoá theo MÃ CHA (giống ảnh chụp lúc đẩy)
             review['__has__'] = True
+        order_items = []
+        if request.args.get('kind') == 'hvn':             # dòng đơn theo MÃ CHA (mã con cùng cha gộp 1 dòng) - dùng cho file đặt hàng và bảng kết quả duyệt
+            rel = [r for r in rows if _snap_relevant(r)]
+            order_items = _merge_rows_by_order_key(rel, _parent_names(cur, batch['id'], [r['bundle_parent'] for r in rel if r.get('bundle_parent')]))
         if is_store_hvn and (batch.get('status') or 'draft') in ('approved', 'viewed') \
                 and any(r['order_type'] in ORDER_TYPES and r['qty_final'] > 0 for r in rows):
             # Cửa hàng bấm "Tải đơn về" -> Đã đặt (đồng thời coi như đã xem nếu chưa mở bảng so sánh)
@@ -2614,10 +2694,10 @@ def gdh_export():
         has_review = bool(review.get('__has__'))
         for t in ([only] if only in ORDER_TYPES else ORDER_TYPES):
             merged = {}
-            for r in rows:
-                if r['order_type'] == t and r['qty_final'] > 0:
+            for r in order_items:
+                if r['order_type'] == t:
                     if has_review:
-                        # Đơn đã duyệt: Quantity Requested = SL admin duyệt (cùng đơn vị với SL đặt / mã đặt);
+                        # Đơn đã duyệt: Quantity Requested = SL admin duyệt THEO MÃ CHA (cùng đơn vị với SL đặt / mã đặt);
                         # chỉ lấy mã có SL duyệt > 0 (mã admin không nhập SL duyệt coi như không duyệt).
                         q = review.get(r['part_code'], (None, ''))[0]
                         if q is None or q <= 0:
@@ -2634,7 +2714,7 @@ def gdh_export():
         if review.get('__has__'):                       # đơn đã duyệt: kèm SL gửi / SL đặt / SL duyệt / ghi chú của admin
             lst = []
             for t in ([only] if only in ORDER_TYPES else ORDER_TYPES):
-                for r in sorted((x for x in rows if x['order_type'] == t and x['qty_final'] > 0), key=lambda x: x['part_code']):
+                for r in sorted((x for x in order_items if x['order_type'] == t), key=lambda x: x['part_code']):
                     aq, nt = review.get(r['part_code'], (None, ''))
                     lst.append({'STT': len(lst) + 1, 'Loại đơn': t, 'Mã hàng': r['part_code'], 'Tên hàng': r['part_name'],
                                 'Mã đặt': r['order_code'], 'SL gửi (SL cuối)': r['qty_final'], 'SL đặt': r['order_qty'],
