@@ -116,7 +116,7 @@ def _ensure_tables(db):
                     forecast_weeks INTEGER NOT NULL DEFAULT 3,
                     filenames TEXT,
                     uploaded_by TEXT,
-                    uploaded_at TIMESTAMP NOT NULL DEFAULT NOW()
+                    uploaded_at TIMESTAMP NOT NULL DEFAULT (NOW() AT TIME ZONE \'Asia/Ho_Chi_Minh\')
                 )''')
             # Nâng cấp bảng cũ: thêm owner, bỏ ràng buộc UNIQUE (store_code, period_from, period_to) cũ,
             # thay bằng unique có owner (dữ liệu cũ có owner = '' nên vẫn là không gian chung của chi nhánh).
@@ -212,7 +212,7 @@ def _ensure_tables(db):
                 CREATE TABLE IF NOT EXISTS gdh_batch_events (
                     id SERIAL PRIMARY KEY,
                     batch_id INTEGER NOT NULL REFERENCES gdh_batches(id) ON DELETE CASCADE,
-                    at TIMESTAMP NOT NULL DEFAULT NOW(),
+                    at TIMESTAMP NOT NULL DEFAULT (NOW() AT TIME ZONE \'Asia/Ho_Chi_Minh\'),
                     actor TEXT, from_status VARCHAR(20), to_status VARCHAR(20), note TEXT
                 )''')
             cur.execute('CREATE INDEX IF NOT EXISTS idx_gdh_events_batch ON gdh_batch_events (batch_id, id)')
@@ -223,7 +223,7 @@ def _ensure_tables(db):
                     part_code VARCHAR(100) NOT NULL,
                     approved_qty NUMERIC,
                     note TEXT NOT NULL DEFAULT '',
-                    updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
+                    updated_at TIMESTAMP NOT NULL DEFAULT (NOW() AT TIME ZONE \'Asia/Ho_Chi_Minh\'),
                     PRIMARY KEY (batch_id, part_code)
                 )''')
             # File Excel lưu trữ của đơn đã xoá (mỗi đơn x loại đơn 1 dòng). Thư mục khi tải về: <chi nhánh>/<loại đơn>/<file>.
@@ -236,7 +236,7 @@ def _ensure_tables(db):
                     submitted_at TIMESTAMP, approved_at TIMESTAMP, ordered_at TIMESTAMP,
                     parts INTEGER, qty NUMERIC, amount NUMERIC,
                     filename TEXT NOT NULL, file_data BYTEA NOT NULL,
-                    archived_at TIMESTAMP NOT NULL DEFAULT NOW(),
+                    archived_at TIMESTAMP NOT NULL DEFAULT (NOW() AT TIME ZONE \'Asia/Ho_Chi_Minh\'),
                     downloaded_at TIMESTAMP, downloaded_by TEXT
                 )''')
             cur.execute('CREATE INDEX IF NOT EXISTS idx_gdh_archives_sto ON gdh_archives (store_code, order_type, archived_at DESC)')
@@ -273,9 +273,14 @@ def _ensure_tables(db):
                     order_name TEXT, period_from DATE, period_to DATE,
                     parts INTEGER, qty NUMERIC,
                     submitted_by TEXT, submitted_at TIMESTAMP,
-                    rejected_by TEXT, rejected_at TIMESTAMP NOT NULL DEFAULT NOW(), reason TEXT
+                    rejected_by TEXT, rejected_at TIMESTAMP NOT NULL DEFAULT (NOW() AT TIME ZONE \'Asia/Ho_Chi_Minh\'), reason TEXT
                 )''')
             cur.execute('CREATE INDEX IF NOT EXISTS idx_gdh_rejections_sto ON gdh_rejections (store_code, rejected_at DESC)')
+            # GIỜ VIỆT NAM: các cột TIMESTAMP (không múi giờ) lưu đúng giờ Việt Nam bất kể múi giờ cấu hình của Postgres
+            # (thường là UTC -> trước đây NOW() ghi lệch -7 giờ). Bảng cũ vẫn giữ DEFAULT NOW() cũ nên đặt lại ở đây.
+            for _t, _c in (('gdh_batches', 'uploaded_at'), ('gdh_batch_events', 'at'), ('gdh_review_draft', 'updated_at'),
+                           ('gdh_archives', 'archived_at'), ('gdh_rejections', 'rejected_at')):
+                cur.execute(f"ALTER TABLE {_t} ALTER COLUMN {_c} SET DEFAULT (NOW() AT TIME ZONE 'Asia/Ho_Chi_Minh')")
             db.commit()
         finally:
             cur.close()
@@ -658,6 +663,36 @@ def _actor_name():
     return session.get('full_name') or session.get('user')
 
 
+_NAME_CACHE = {}          # username -> (họ tên, thời điểm lấy)
+_NAME_CACHE_TTL = 60      # giây
+
+
+def _display_name(username):
+    """Họ tên nhân viên (cột users.full_name) của 1 tên đăng nhập; chưa đặt họ tên / không tra được thì dùng lại
+    chính tên đăng nhập. CHỈ để HIỂN THỊ - các cột như claimed_by vẫn lưu tên đăng nhập để so sánh quyền."""
+    import time
+    u = str(username or '')
+    if not u:
+        return ''
+    hit = _NAME_CACHE.get(u)
+    if hit and time.time() - hit[1] < _NAME_CACHE_TTL:
+        return hit[0]
+    name = u
+    try:
+        cur = get_db().cursor()
+        try:
+            cur.execute('SELECT full_name FROM users WHERE username = %s', (u,))
+            row = cur.fetchone()
+            if row and (row['full_name'] or '').strip():
+                name = row['full_name'].strip()
+        finally:
+            cur.close()
+    except Exception:
+        pass
+    _NAME_CACHE[u] = (name, time.time())
+    return name
+
+
 def _resolve_store(cur, store_arg, allow_all=False):
     """(store_code, None) hoặc (None, (response, code)). User cửa hàng luôn bị khoá vào chi nhánh của mình.
     allow_all: admin được để trống = tất cả chi nhánh (trả về '')."""
@@ -727,7 +762,8 @@ def _batch_json(b, extra=None):
     out.update({
         'status': st, 'status_label': STATUS_LABELS.get(st, st),
         'submitted_by': b.get('submitted_by'), 'submitted_at': _fmt_dt(b.get('submitted_at')), 'submit_note': b.get('submit_note') or '',
-        'claimed_by': b.get('claimed_by'), 'claimed_at': _fmt_dt(b.get('claimed_at')),
+        'claimed_by': b.get('claimed_by'), 'claimed_by_name': _display_name(b.get('claimed_by')),
+        'claimed_at': _fmt_dt(b.get('claimed_at')),
         'claimed_by_me': bool(b.get('claimed_by')) and b.get('claimed_by') == str(session.get('user') or ''),
         'approved_by': b.get('approved_by'), 'approved_at': _fmt_dt(b.get('approved_at')), 'review_note': b.get('review_note') or '',
         'viewed_by': b.get('viewed_by'), 'viewed_at': _fmt_dt(b.get('viewed_at')),
@@ -776,7 +812,7 @@ def _edit_block(b):
         return None
     st = b.get('status') or 'draft'
     if st == 'reviewing':
-        who = b.get('claimed_by') or 'admin'
+        who = _display_name(b.get('claimed_by')) or 'admin'
         msg = f'Đơn đang được {who} duyệt nên đã khoá, không sửa được.'
     elif st == 'pending':
         msg = 'Đơn đã đẩy cho admin (Chờ duyệt) nên đã khoá. Muốn sửa, hãy Thu hồi đơn trước.'
@@ -805,11 +841,11 @@ def _merge_lines_back(cur, src_id, dst_id):
         INSERT INTO gdh_lines (batch_id, part_code, part_name, unit, opening, purchase, out_qty, sold, closing, unit_cost,
                                adj_qty, order_type, note, updated_by, updated_at)
         SELECT %s, part_code, part_name, unit, opening, purchase, out_qty, sold, closing, unit_cost,
-               adj_qty, order_type, note, %s, NOW()
+               adj_qty, order_type, note, %s, (NOW() AT TIME ZONE \'Asia/Ho_Chi_Minh\')
         FROM gdh_lines WHERE batch_id = %s AND order_type IS NOT NULL
         ON CONFLICT (batch_id, part_code) DO UPDATE SET
             adj_qty = EXCLUDED.adj_qty, order_type = EXCLUDED.order_type, note = EXCLUDED.note,
-            updated_by = EXCLUDED.updated_by, updated_at = NOW()''', (dst_id, _actor_name(), src_id))
+            updated_by = EXCLUDED.updated_by, updated_at = (NOW() AT TIME ZONE \'Asia/Ho_Chi_Minh\')''', (dst_id, _actor_name(), src_id))
     return cur.rowcount
 
 
@@ -881,9 +917,9 @@ def gdh_import():
             return err
         cur.execute('''
             INSERT INTO gdh_batches (store_code, owner, period_from, period_to, filenames, uploaded_by, uploaded_at)
-            VALUES (%s,%s,%s,%s,%s,%s,NOW())
+            VALUES (%s,%s,%s,%s,%s,%s,(NOW() AT TIME ZONE \'Asia/Ho_Chi_Minh\'))
             ON CONFLICT (store_code, owner, period_from, period_to) WHERE status = 'draft' DO UPDATE SET
-                filenames = EXCLUDED.filenames, uploaded_by = EXCLUDED.uploaded_by, uploaded_at = NOW()
+                filenames = EXCLUDED.filenames, uploaded_by = EXCLUDED.uploaded_by, uploaded_at = (NOW() AT TIME ZONE \'Asia/Ho_Chi_Minh\')
             RETURNING id''', (store, _owner_for(request.form.get('space')), pf, pt, f.filename, _actor_name()))
         bid = cur.fetchone()['id']
         data = [(bid, code, r['name'], r['unit'], r['opening'], r['purchase'], r['out_qty'], r['sold'],
@@ -1003,7 +1039,7 @@ def gdh_save():
         if vals:
             execute_values(cur, f'''
                 UPDATE gdh_lines l SET adj_qty = v.adj, order_type = NULLIF(v.ot, ''),
-                       note = NULLIF(v.note, ''), updated_by = v.actor, updated_at = NOW()
+                       note = NULLIF(v.note, ''), updated_by = v.actor, updated_at = (NOW() AT TIME ZONE \'Asia/Ho_Chi_Minh\')
                 FROM (VALUES %s) AS v(part_code, adj, ot, note, actor)
                 WHERE l.batch_id = {bid} AND l.part_code = v.part_code''',
                            vals, template='(%s, %s::numeric, %s, %s, %s)')
@@ -1181,7 +1217,7 @@ def gdh_add_codes():
         if data:
             execute_values(cur, '''
                 INSERT INTO gdh_lines (batch_id, part_code, part_name, unit, opening, purchase, out_qty, sold, closing, updated_by, updated_at)
-                SELECT v.b, v.c, v.n, v.u, 0, 0, 0, NULL, 0, v.a, NOW()
+                SELECT v.b, v.c, v.n, v.u, 0, 0, 0, NULL, 0, v.a, (NOW() AT TIME ZONE \'Asia/Ho_Chi_Minh\')
                 FROM (VALUES %s) AS v(b, c, n, u, a)
                 ON CONFLICT (batch_id, part_code) DO NOTHING''', data, template='(%s::int, %s, %s, %s, %s)')
         db.commit()
@@ -1218,7 +1254,7 @@ def gdh_assign_type():
         rows = compute_rows(cur, batch)
         codes = [r['part_code'] for r in rows if r['qty_final'] > 0 and (overwrite or not r['order_type'])]
         if codes:
-            cur.execute('''UPDATE gdh_lines SET order_type = %s, updated_by = %s, updated_at = NOW()
+            cur.execute('''UPDATE gdh_lines SET order_type = %s, updated_by = %s, updated_at = (NOW() AT TIME ZONE \'Asia/Ho_Chi_Minh\')
                            WHERE batch_id = %s AND part_code = ANY(%s)''', (ot, _actor_name(), batch['id'], codes))
         db.commit()
         audit_record('Gán loại đơn hàng loạt', 'Gôm đơn hàng', target=f"đợt {batch['id']}",
@@ -1261,7 +1297,7 @@ def gdh_unassign_type():
             cur.execute('SELECT COUNT(*) AS n FROM gdh_lines WHERE ' + where, args)
             n = cur.fetchone()['n']
         else:
-            cur.execute('UPDATE gdh_lines SET order_type = NULL, updated_by = %s, updated_at = NOW() WHERE ' + where,
+            cur.execute('UPDATE gdh_lines SET order_type = NULL, updated_by = %s, updated_at = (NOW() AT TIME ZONE \'Asia/Ho_Chi_Minh\') WHERE ' + where,
                         [_actor_name()] + args)
             n = cur.rowcount
             db.commit()
@@ -1339,9 +1375,9 @@ def gdh_bundle_import():
                        [(c, p, q) for c, (p, q) in mp.items()], page_size=1000)
         cur.execute('''
             INSERT INTO gdh_bundle_meta (id, filename, uploaded_by, uploaded_at, total, warnings)
-            VALUES (1, %s, %s, NOW(), %s, %s)
+            VALUES (1, %s, %s, (NOW() AT TIME ZONE \'Asia/Ho_Chi_Minh\'), %s, %s)
             ON CONFLICT (id) DO UPDATE SET filename = EXCLUDED.filename, uploaded_by = EXCLUDED.uploaded_by,
-                uploaded_at = NOW(), total = EXCLUDED.total, warnings = EXCLUDED.warnings''',
+                uploaded_at = (NOW() AT TIME ZONE \'Asia/Ho_Chi_Minh\'), total = EXCLUDED.total, warnings = EXCLUDED.warnings''',
                     (f.filename, _actor_name(), len(mp), '\n'.join(warns[:50])))
         db.commit()
     except Exception:
@@ -1492,7 +1528,7 @@ def gdh_submit():
         cur.execute('''INSERT INTO gdh_batches (store_code, owner, period_from, period_to, forecast_weeks, filenames, uploaded_by, uploaded_at,
                                               kind, status, submitted_by, submitted_at, submit_note)
                        SELECT store_code, owner, period_from, period_to, forecast_weeks, filenames, uploaded_by, uploaded_at,
-                              'regular', 'pending', %s, NOW(), %s
+                              'regular', 'pending', %s, (NOW() AT TIME ZONE \'Asia/Ho_Chi_Minh\'), %s
                        FROM gdh_batches WHERE id = %s RETURNING id, submitted_at''', (_actor_name(), note, old_id))
         nb = cur.fetchone()
         new_id = int(nb['id'])
@@ -1512,7 +1548,7 @@ def gdh_submit():
         n = _snapshot(cur, {'id': new_id}, 'submitted', pick)
         # 4) xoá các mã đã đẩy khỏi phiên gôm; mã loại này nhưng SL cuối = 0 (không vào đơn) thì chỉ bỏ gán loại
         cur.execute('DELETE FROM gdh_lines WHERE batch_id = %s AND part_code = ANY(%s)', (old_id, codes))
-        cur.execute('UPDATE gdh_lines SET order_type = NULL, updated_by = %s, updated_at = NOW() WHERE batch_id = %s AND order_type = %s',
+        cur.execute('UPDATE gdh_lines SET order_type = NULL, updated_by = %s, updated_at = (NOW() AT TIME ZONE \'Asia/Ho_Chi_Minh\') WHERE batch_id = %s AND order_type = %s',
                     (_actor_name(), old_id, ot))
         released = cur.rowcount
         cur.execute('UPDATE gdh_batches SET rejected_by = NULL, rejected_at = NULL, reject_reason = NULL WHERE id = %s', (old_id,))
@@ -1561,7 +1597,7 @@ def gdh_recall():
                          after={'status': 'deleted'})
             return jsonify({'success': True, 'status': 'deleted', 'urgent': True})
         if st == 'reviewing':
-            return jsonify({'error': f"Admin {batch.get('claimed_by') or ''} đang duyệt đơn này nên không thu hồi được. "
+            return jsonify({'error': f"Admin {_display_name(batch.get('claimed_by'))} đang duyệt đơn này nên không thu hồi được. "
                                      'Hãy nhờ admin trả đơn về hàng chờ.'}), 409
         if st != 'pending':
             return _bad_state(batch, 'Chờ duyệt')
@@ -1611,7 +1647,7 @@ def gdh_claim():
             return err
         if batch['owner']:
             return jsonify({'error': 'Đây là đơn gôm riêng của admin, không nằm trong luồng duyệt.'}), 400
-        cur.execute('''UPDATE gdh_batches SET status = 'reviewing', claimed_by = %s, claimed_at = NOW()
+        cur.execute('''UPDATE gdh_batches SET status = 'reviewing', claimed_by = %s, claimed_at = (NOW() AT TIME ZONE \'Asia/Ho_Chi_Minh\')
                        WHERE id = %s AND owner = '' AND status = 'pending' ''', (str(session.get('user') or ''), batch['id']))
         if cur.rowcount != 1:
             db.rollback()
@@ -1668,7 +1704,7 @@ def gdh_release():
 def _rejection_log(cur, batch, parts, qty, name, reason):
     cur.execute('''INSERT INTO gdh_rejections (batch_id, store_code, kind, order_name, period_from, period_to, parts, qty,
                                                submitted_by, submitted_at, rejected_by, rejected_at, reason)
-                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,NOW(),%s)''',
+                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,(NOW() AT TIME ZONE \'Asia/Ho_Chi_Minh\'),%s)''',
                 (batch['id'], batch['store_code'], batch.get('kind') or 'regular', name, batch['period_from'], batch['period_to'],
                  parts, qty, batch.get('submitted_by'), batch.get('submitted_at'), _actor_name(), reason))
 
@@ -1747,7 +1783,7 @@ def gdh_reject():
         if st not in ('pending', 'reviewing'):
             return _bad_state(batch, 'Chờ duyệt hoặc Đang duyệt')
         if st == 'reviewing' and (batch.get('claimed_by') or '') != me:
-            return jsonify({'error': f"Đơn đang do {batch.get('claimed_by') or 'admin khác'} duyệt, bạn không từ chối thay được."}), 403
+            return jsonify({'error': f"Đơn đang do {_display_name(batch.get('claimed_by')) or 'admin khác'} duyệt, bạn không từ chối thay được."}), 403
         bid = batch['id']
         if (batch.get('kind') or 'regular') == 'urgent':
             cur.execute('SELECT COUNT(*) AS n, COALESCE(SUM(order_qty), 0) AS q FROM gdh_urgent_lines WHERE batch_id = %s', (bid,))
@@ -1776,7 +1812,7 @@ def gdh_reject():
             if cur.rowcount != 1:
                 db.rollback()
                 return _bad_state(batch, 'Chờ duyệt hoặc Đang duyệt')
-            cur.execute("UPDATE gdh_batches SET rejected_by = %s, rejected_at = NOW(), reject_reason = %s WHERE id = %s",
+            cur.execute("UPDATE gdh_batches SET rejected_by = %s, rejected_at = (NOW() AT TIME ZONE \'Asia/Ho_Chi_Minh\'), reject_reason = %s WHERE id = %s",
                         (_actor_name(), reason, draft['id']))
             _rejection_log(cur, batch, tot['parts'], tot['qty'],
                            _order_name(batch, [t for t in ORDER_TYPES if tot['by_type'][t]['parts'] > 0]), reason)
@@ -1789,7 +1825,7 @@ def gdh_reject():
         try:
             cur.execute("""UPDATE gdh_batches SET status = 'draft', submitted_by = NULL, submitted_at = NULL, submit_note = NULL,
                                   claimed_by = NULL, claimed_at = NULL,
-                                  rejected_by = %s, rejected_at = NOW(), reject_reason = %s
+                                  rejected_by = %s, rejected_at = (NOW() AT TIME ZONE \'Asia/Ho_Chi_Minh\'), reject_reason = %s
                            WHERE id = %s AND owner = '' AND status = %s AND (status = 'pending' OR claimed_by = %s)""",
                         (_actor_name(), reason, bid, st, me))
         except psycopg2.IntegrityError:          # vừa có đơn Nháp cùng kỳ được tạo xen vào
@@ -1851,7 +1887,7 @@ def gdh_review_lines():
         if batch['owner'] or (batch.get('status') or 'draft') != 'reviewing':
             return _bad_state(batch, 'Đang duyệt')
         if (batch.get('claimed_by') or '') != str(session.get('user') or ''):
-            return jsonify({'error': f"Đơn đang do {batch.get('claimed_by') or 'admin khác'} duyệt."}), 403
+            return jsonify({'error': f"Đơn đang do {_display_name(batch.get('claimed_by')) or 'admin khác'} duyệt."}), 403
         payload = _review_payload(cur, batch)
     finally:
         cur.close()
@@ -1880,7 +1916,7 @@ def gdh_approve():
         if (batch.get('status') or 'draft') != 'reviewing':
             return _bad_state(batch, 'Đang duyệt')
         if (batch.get('claimed_by') or '') != me:
-            return jsonify({'error': f"Đơn đang do {batch.get('claimed_by') or 'admin khác'} duyệt, bạn không duyệt xong thay được."}), 403
+            return jsonify({'error': f"Đơn đang do {_display_name(batch.get('claimed_by')) or 'admin khác'} duyệt, bạn không duyệt xong thay được."}), 403
         sent = _snap_load(cur, batch['id'], 'submitted')
         sent_codes = {c for c, v in sent.items() if v['qty_final'] > 0 and v['order_type'] in ORDER_TYPES}
         given = {}
@@ -1894,7 +1930,7 @@ def gdh_approve():
             except (TypeError, ValueError):
                 q = None
             given[code] = (q, str((it or {}).get('note') or '').strip()[:500])
-        cur.execute('''UPDATE gdh_batches SET status = 'approved', approved_by = %s, approved_at = NOW(), review_note = %s
+        cur.execute('''UPDATE gdh_batches SET status = 'approved', approved_by = %s, approved_at = (NOW() AT TIME ZONE \'Asia/Ho_Chi_Minh\'), review_note = %s
                        WHERE id = %s AND status = 'reviewing' AND claimed_by = %s''', (_actor_name(), note, batch['id'], me))
         if cur.rowcount != 1:
             db.rollback()
@@ -1939,7 +1975,7 @@ def gdh_mark_viewed():
         batch, err = _get_batch(cur, payload.get('batch_id'))
         if err:
             return err
-        cur.execute('''UPDATE gdh_batches SET status = 'viewed', viewed_by = %s, viewed_at = NOW()
+        cur.execute('''UPDATE gdh_batches SET status = 'viewed', viewed_by = %s, viewed_at = (NOW() AT TIME ZONE \'Asia/Ho_Chi_Minh\')
                        WHERE id = %s AND status = 'approved' ''', (_actor_name(), batch['id']))
         changed = cur.rowcount == 1
         if changed:
@@ -1999,7 +2035,7 @@ def gdh_orders():
             d_from, d_to = _parse_date(request.args.get('from')), _parse_date(request.args.get('to'))
         except ValueError:
             return jsonify({'error': 'Ngày không hợp lệ (định dạng YYYY-MM-DD).'}), 400
-        sql, params = ("SELECT *, EXTRACT(EPOCH FROM (NOW() - submitted_at)) / 60 AS waiting_min "
+        sql, params = ("SELECT *, EXTRACT(EPOCH FROM ((NOW() AT TIME ZONE \'Asia/Ho_Chi_Minh\') - submitted_at)) / 60 AS waiting_min "
                        "FROM gdh_batches WHERE owner = '' AND status = ANY(%s)"), [sts]
         if store:
             sql += ' AND store_code = %s'; params.append(store)
@@ -2071,7 +2107,7 @@ def gdh_orders():
                 arch_files = int(cur.fetchone()['n'])
             except Exception:
                 db.rollback()
-        pcsql, pcparams = ("SELECT MAX(id) AS last_id, MAX(EXTRACT(EPOCH FROM (NOW() - submitted_at)) / 60) AS oldest_min "
+        pcsql, pcparams = ("SELECT MAX(id) AS last_id, MAX(EXTRACT(EPOCH FROM ((NOW() AT TIME ZONE \'Asia/Ho_Chi_Minh\') - submitted_at)) / 60) AS oldest_min "
                            "FROM gdh_batches WHERE owner = '' AND status = 'pending'"), []
         if store:
             pcsql += ' AND store_code = %s'; pcparams.append(store)
@@ -2255,12 +2291,12 @@ def gdh_urgent_create():
         actor = _actor_name()
         cur.execute('''INSERT INTO gdh_batches (store_code, owner, period_from, period_to, forecast_weeks, filenames, uploaded_by,
                                                 kind, status, submitted_by, submitted_at, submit_note)
-                       VALUES (%s, '', %s, %s, %s, %s, %s, 'urgent', 'pending', %s, NOW(), %s) RETURNING id''',
+                       VALUES (%s, '', %s, %s, %s, %s, %s, 'urgent', 'pending', %s, (NOW() AT TIME ZONE \'Asia/Ho_Chi_Minh\'), %s) RETURNING id''',
                     (store, today, today, DEFAULT_FORECAST_WEEKS, 'Đơn khẩn từ danh sách khách hàng', actor, actor, note))
         bid = cur.fetchone()['id']
         execute_values(cur, '''INSERT INTO gdh_lines (batch_id, part_code, part_name, adj_qty, order_type, updated_by, updated_at)
                                VALUES %s''', [(bid, a['code'], a['name'], a['qty'], 'Khẩn', actor) for a in agg.values()],
-                       template='(%s, %s, %s, %s, %s, %s, NOW())', page_size=500)
+                       template='(%s, %s, %s, %s, %s, %s, (NOW() AT TIME ZONE \'Asia/Ho_Chi_Minh\'))', page_size=500)
         execute_values(cur, '''INSERT INTO gdh_urgent_lines (batch_id, bo_order_id, request_id, seq_no, part_code, part_name, qty,
                                                             order_code, order_qty, customer_request_date, customer_name,
                                                             quote_no, vehicle_type, frame_number) VALUES %s''',
@@ -2467,8 +2503,8 @@ def gdh_export():
                 and any(r['order_type'] in ORDER_TYPES and r['qty_final'] > 0 for r in rows):
             # Cửa hàng bấm "Tải đơn về" -> Đã đặt (đồng thời coi như đã xem nếu chưa mở bảng so sánh)
             try:
-                cur.execute('''UPDATE gdh_batches SET status = 'ordered', ordered_by = %s, ordered_at = NOW(),
-                                      viewed_by = COALESCE(viewed_by, %s), viewed_at = COALESCE(viewed_at, NOW())
+                cur.execute('''UPDATE gdh_batches SET status = 'ordered', ordered_by = %s, ordered_at = (NOW() AT TIME ZONE \'Asia/Ho_Chi_Minh\'),
+                                      viewed_by = COALESCE(viewed_by, %s), viewed_at = COALESCE(viewed_at, (NOW() AT TIME ZONE \'Asia/Ho_Chi_Minh\'))
                                WHERE id = %s AND status IN ('approved', 'viewed')''',
                             (_actor_name(), _actor_name(), batch['id']))
                 if cur.rowcount == 1:
@@ -2560,7 +2596,7 @@ def _archive_files_for_batch(cur, b):
     items = [(c, v) for c, v in sorted(snap.items()) if v['qty_final'] > 0 and v['order_type'] in ORDER_TYPES]
     types = [t for t in ORDER_TYPES if any(v['order_type'] == t for _, v in items)] or ['Khác']
     oname = _order_name(b, types if types != ['Khác'] else [])
-    stamp = b.get('approved_at') or b.get('submitted_at') or datetime.now()
+    stamp = b.get('approved_at') or b.get('submitted_at') or datetime.now(_VN_TZ).replace(tzinfo=None)
     out = []
     for t in types:
         its = [(c, v) for c, v in items if v['order_type'] == t]
@@ -2572,7 +2608,7 @@ def _archive_files_for_batch(cur, b):
             ('Kỳ số bán', f"{b['period_from']:%d/%m/%Y} - {b['period_to']:%d/%m/%Y}"),
             ('Trạng thái lúc lưu trữ', STATUS_LABELS.get(b.get('status'), b.get('status'))),
             ('Đẩy bởi', b.get('submitted_by')), ('Đẩy lúc', _fmt_dt(b.get('submitted_at'))), ('Ghi chú của chi nhánh', b.get('submit_note') or ''),
-            ('Admin lấy về duyệt', b.get('claimed_by')), ('Lấy về lúc', _fmt_dt(b.get('claimed_at'))),
+            ('Admin lấy về duyệt', _display_name(b.get('claimed_by'))), ('Lấy về lúc', _fmt_dt(b.get('claimed_at'))),
             ('Duyệt bởi', b.get('approved_by')), ('Duyệt lúc', _fmt_dt(b.get('approved_at'))), ('Ghi chú của admin', b.get('review_note') or ''),
             ('Chi nhánh xem lúc', _fmt_dt(b.get('viewed_at'))), ('Đặt (tải file) bởi', b.get('ordered_by')), ('Đặt lúc', _fmt_dt(b.get('ordered_at'))),
             ('Số mã', len(its)), ('Tổng SL gửi', qty), ('Tổng SL duyệt', approved_qty), ('Giá trị theo giá vốn (đ)', amount),
@@ -2641,7 +2677,7 @@ def run_gdh_archive_job(force=False, days=None):
             while n_batch + len(errors) < 500:
                 cur.execute('''SELECT * FROM gdh_batches
                                WHERE owner = '' AND status = ANY(%s) AND id <> ALL(%s)
-                                 AND COALESCE(approved_at, submitted_at) < NOW() - make_interval(days => %s)
+                                 AND COALESCE(approved_at, submitted_at) < (NOW() AT TIME ZONE \'Asia/Ho_Chi_Minh\') - make_interval(days => %s)
                                ORDER BY id LIMIT 25''', (list(ARCHIVE_STATUSES), skip, d))
                 batches = cur.fetchall()
                 if not batches:
@@ -2760,7 +2796,7 @@ def gdh_archives():
         if lock:
             lsql = ' AND store_code = %s'; lparams.append(lock)
         cur.execute('''SELECT COUNT(*) AS live,
-                              COUNT(*) FILTER (WHERE COALESCE(approved_at, submitted_at) < NOW() - make_interval(days => %s)) AS due
+                              COUNT(*) FILTER (WHERE COALESCE(approved_at, submitted_at) < (NOW() AT TIME ZONE \'Asia/Ho_Chi_Minh\') - make_interval(days => %s)) AS due
                        FROM gdh_batches WHERE owner = '' AND status = ANY(%s)''' + lsql, lparams)
         lv = cur.fetchone()
         last = _get_app_setting(cur, 'gdh_archive_last_run')
@@ -2784,10 +2820,10 @@ def gdh_archive_file(aid):
         if not r or (lock and r['store_code'] != lock):          # file của chi nhánh khác -> coi như không tồn tại
             return jsonify({'error': 'Không tìm thấy file lưu trữ.'}), 404
         if request.args.get('mark') == '1' and lock:               # chi nhánh: đánh dấu cờ riêng của chi nhánh
-            cur.execute('UPDATE gdh_archives SET store_downloaded_at = NOW(), store_downloaded_by = %s WHERE id = %s', (_actor_name(), aid))
+            cur.execute('UPDATE gdh_archives SET store_downloaded_at = (NOW() AT TIME ZONE \'Asia/Ho_Chi_Minh\'), store_downloaded_by = %s WHERE id = %s', (_actor_name(), aid))
             db.commit()
         elif request.args.get('mark') == '1':
-            cur.execute('UPDATE gdh_archives SET downloaded_at = NOW(), downloaded_by = %s WHERE id = %s', (_actor_name(), aid))
+            cur.execute('UPDATE gdh_archives SET downloaded_at = (NOW() AT TIME ZONE \'Asia/Ho_Chi_Minh\'), downloaded_by = %s WHERE id = %s', (_actor_name(), aid))
             db.commit()
         data = bytes(r['file_data'])
     finally:
@@ -2819,9 +2855,9 @@ def gdh_archive_zip():
             for r in rows:
                 z.writestr(f"{r['store_code']}/{r['order_type']}/{r['filename']}", bytes(r['file_data']))
         if lock:
-            cur.execute('UPDATE gdh_archives SET store_downloaded_at = NOW(), store_downloaded_by = %s WHERE id = ANY(%s) AND store_code = %s', (_actor_name(), [r['id'] for r in rows], lock))
+            cur.execute('UPDATE gdh_archives SET store_downloaded_at = (NOW() AT TIME ZONE \'Asia/Ho_Chi_Minh\'), store_downloaded_by = %s WHERE id = ANY(%s) AND store_code = %s', (_actor_name(), [r['id'] for r in rows], lock))
         else:
-            cur.execute('UPDATE gdh_archives SET downloaded_at = NOW(), downloaded_by = %s WHERE id = ANY(%s)', (_actor_name(), [r['id'] for r in rows]))
+            cur.execute('UPDATE gdh_archives SET downloaded_at = (NOW() AT TIME ZONE \'Asia/Ho_Chi_Minh\'), downloaded_by = %s WHERE id = ANY(%s)', (_actor_name(), [r['id'] for r in rows]))
         db.commit()
     finally:
         cur.close()
@@ -2839,10 +2875,10 @@ def gdh_archive_mark():
     db, cur = _ctx()
     try:
         if ids and lock:
-            cur.execute('UPDATE gdh_archives SET store_downloaded_at = NOW(), store_downloaded_by = %s WHERE id = ANY(%s) AND store_code = %s', (_actor_name(), ids, lock))
+            cur.execute('UPDATE gdh_archives SET store_downloaded_at = (NOW() AT TIME ZONE \'Asia/Ho_Chi_Minh\'), store_downloaded_by = %s WHERE id = ANY(%s) AND store_code = %s', (_actor_name(), ids, lock))
             db.commit()
         elif ids:
-            cur.execute('UPDATE gdh_archives SET downloaded_at = NOW(), downloaded_by = %s WHERE id = ANY(%s)', (_actor_name(), ids))
+            cur.execute('UPDATE gdh_archives SET downloaded_at = (NOW() AT TIME ZONE \'Asia/Ho_Chi_Minh\'), downloaded_by = %s WHERE id = ANY(%s)', (_actor_name(), ids))
             db.commit()
     finally:
         cur.close()

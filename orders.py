@@ -527,11 +527,16 @@ def list_orders():
     cursor.execute(f'SELECT COUNT(DISTINCT request_id) AS c FROM bo_orders {where_clause}', params)
     total = cursor.fetchone()['c']
 
-    # Bước 1: chọn các yêu cầu của trang này (mới nhất = STT lớn nhất lên trên).
+    # Sắp xếp theo lựa chọn của người dùng (admin + chi nhánh): ngày yêu cầu / ngày đặt cọc GIẢM DẦN (mới nhất
+    # lên trên, yêu cầu chưa có ngày xuống cuối). Không chọn thì giữ cách cũ. Chỉ nhận cột trong danh sách cho phép.
+    sort_by = (request.args.get('sort_by') or '').strip()
+    sort_first = f'MAX({sort_by}) DESC NULLS LAST, ' if sort_by in ('customer_request_date', 'deposit_date') else ''
+
+    # Bước 1: chọn các yêu cầu của trang này (mặc định: mới nhất = STT lớn nhất lên trên).
     cursor.execute(
         f'''SELECT request_id FROM bo_orders {where_clause}
             GROUP BY request_id
-            ORDER BY MAX(store_code) ASC, MAX(seq_no) DESC NULLS LAST, request_id DESC
+            ORDER BY {sort_first}MAX(store_code) ASC, MAX(seq_no) DESC NULLS LAST, request_id DESC
             LIMIT %s OFFSET %s''',
         params + [page_size, (page - 1) * page_size]
     )

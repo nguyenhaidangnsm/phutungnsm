@@ -1682,7 +1682,7 @@ const PO_DETAIL_MAX_FILES = 10;
             info = `Đẩy bởi <b>${e(b.submitted_by)}</b> lúc ${e(b.submitted_at)}${note('Ghi chú', b.submit_note)}. ` + (isAdmin ? 'Duyệt tại menu Quản Trị Hệ Thống > Duyệt Đơn Hàng.' : 'Đang chờ admin lấy về duyệt - đơn đã khoá.');
             acts = isAdmin ? '' : _gdhBtn('btn-outline-danger', 'bi-arrow-counterclockwise', 'Thu hồi đơn', 'gdhRecall()');
         } else if (st === 'reviewing') {
-            info = `<b>${e(b.claimed_by)}</b> đang duyệt từ ${e(b.claimed_at)}` + (isAdmin ? ' tại menu Duyệt Đơn Hàng.' : '. Đơn đang khoá.');
+            info = `<b>${e(b.claimed_by_name || b.claimed_by)}</b> đang duyệt từ ${e(b.claimed_at)}` + (isAdmin ? ' tại menu Duyệt Đơn Hàng.' : '. Đơn đang khoá.');
         } else {
             info = `Duyệt bởi <b>${e(b.approved_by)}</b> lúc ${e(b.approved_at)}${note('Ghi chú của admin', b.review_note)}`;
             if (b.viewed_at) info += ` · Đã xem lúc ${e(b.viewed_at)}`;
@@ -2131,7 +2131,7 @@ const PO_DETAIL_MAX_FILES = 10;
             : (isStore && b.status === 'pending')
                 ? `<div class="alert alert-info py-1 px-2 small">Admin chưa lấy đơn về duyệt nên bạn vẫn có thể bấm <b>Thu hồi để chỉnh sửa</b>.</div>`
                 : (isStore && b.status === 'reviewing')
-                    ? `<div class="alert alert-warning py-1 px-2 small"><i class="bi bi-lock-fill me-1"></i>Admin${b.claimed_by ? ' <b>' + e(b.claimed_by) + '</b>' : ''} đã lấy đơn về duyệt${b.claimed_at ? ' từ ' + e(b.claimed_at) : ''} nên không thể thu hồi hay chỉnh sửa nữa.</div>`
+                    ? `<div class="alert alert-warning py-1 px-2 small"><i class="bi bi-lock-fill me-1"></i>Admin${b.claimed_by ? ' <b>' + e(b.claimed_by_name || b.claimed_by) + '</b>' : ''} đã lấy đơn về duyệt${b.claimed_at ? ' từ ' + e(b.claimed_at) : ''} nên không thể thu hồi hay chỉnh sửa nữa.</div>`
                     : `<div class="alert alert-info py-1 px-2 small">Đơn chưa duyệt xong: SL duyệt và ghi chú sẽ hiện sau khi admin duyệt xong.</div>`;
         const sentTotal = j.rows.reduce((s, r) => s + (r.sent_qty || 0), 0);
         const rows = j.rows.map(r => {
@@ -3847,7 +3847,7 @@ const PO_DETAIL_MAX_FILES = 10;
         const apAt = String(o.approved_at || '');
         const apTime = apAt.slice(0, 10) === String(o.submitted_at || '').slice(0, 10) ? apAt.slice(11) : apAt;
         const parts = [];
-        if (o.status === 'reviewing') parts.push(`${e(o.claimed_by)} đang duyệt từ ${e(o.claimed_at)}`);
+        if (o.status === 'reviewing') parts.push(`${e(o.claimed_by_name || o.claimed_by)} đang duyệt từ ${e(o.claimed_at)}`);
         else {
             if (!store) parts.push(`Đẩy bởi ${e(o.submitted_by)}${o.status === 'pending' ? ' lúc ' + e(o.submitted_at) : ''}`);
             if (o.approved_by) parts.push(`Duyệt bởi ${e(o.approved_by)} lúc ${e(apTime)}`);
@@ -3873,7 +3873,7 @@ const PO_DETAIL_MAX_FILES = 10;
         }
         const btn = (cls, icon, text, fn) => `<button type="button" class="ns-btn ${cls}" onclick="${fn}"><i class="bi ${icon}"></i> ${text}</button>`;
         let acts = '', menu = '';
-        const lockBtn = o => `<button type="button" class="ns-btn" disabled style="opacity:.8;cursor:not-allowed" title="Chỉ ${e(o.claimed_by || 'admin đó')} trả đơn về hàng chờ thì mới lấy được"><i class="bi bi-lock-fill"></i> ${e(o.claimed_by || 'Admin khác')} đang duyệt</button>`;
+        const lockBtn = o => `<button type="button" class="ns-btn" disabled style="opacity:.8;cursor:not-allowed" title="Chỉ ${e(o.claimed_by_name || o.claimed_by || 'admin đó')} trả đơn về hàng chờ thì mới lấy được"><i class="bi bi-lock-fill"></i> ${e(o.claimed_by_name || o.claimed_by || 'Admin khác')} đang duyệt</button>`;
         const mi = (fn, text, cls) => `<button type="button" role="menuitem"${cls ? ' class="' + cls + '"' : ''} onclick="${fn}">${text}</button>`;
         if (list) {
             const done = ['approved', 'viewed', 'ordered'].includes(o.status);

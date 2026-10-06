@@ -380,6 +380,8 @@ input.qe.late { color:#b91c1c; font-weight:800; } input.qe.bad { border-color:#d
         </div>
         <button type="button" class="btn btn-outline-secondary d-none" id="fClear" title="Xoá lọc thời gian"><i class="bi bi-x-lg"></i></button>
       </div>
+      <div><div class="lb">Sắp xếp</div>
+        <select id="fSort" class="form-select" style="width:auto"><option value="">Mặc định (STT mới nhất)</option><option value="customer_request_date">Ngày yêu cầu giảm dần</option><option value="deposit_date">Ngày đặt cọc giảm dần</option></select></div>
       {% if role == 'admin' %}
       <select id="fStore" class="form-select" style="width:auto"><option value="">Tất cả chi nhánh</option>{% for s in store_list %}<option value="{{ s }}">{{ s }}</option>{% endfor %}</select>
       <button class="btn btn-outline-primary ms-auto" data-bs-toggle="modal" data-bs-target="#importModal"><i class="bi bi-file-earmark-excel"></i> Nhập từ Excel</button>
@@ -620,6 +622,7 @@ async function loadOrders(opts = {}) {
   const silent = !!opts.silent, q = new URLSearchParams(), s = $('fSearch').value.trim(), fs = $('fStore');
   if (s) q.set('search', s); if (curStatus) q.set('status', curStatus); if (fs && fs.value) q.set('store_code', fs.value);
   const dr = dateRange(); if (dr.from) q.set('date_from', dr.from); if (dr.to) q.set('date_to', dr.to); if (dr.from || dr.to) q.set('date_by', $('fDateBy').value);
+  if ($('fSort').value) q.set('sort_by', $('fSort').value);
   q.set('page', currentPage); q.set('page_size', PAGE_SIZE);
   if (!silent) setMsg('Đang tải...', 'text-muted');
   try {
@@ -966,11 +969,13 @@ document.addEventListener('keydown', e => {   // Ctrl+; (hoặc Cmd+;) tại b�
   el.dispatchEvent(new Event('input', { bubbles: true })); el.dispatchEvent(new Event('change', { bubbles: true }));
 });
 document.addEventListener('DOMContentLoaded', () => {
+  try { const sv = localStorage.getItem('orders_sort_by'); if (sv && [...$('fSort').options].some(o => o.value === sv)) $('fSort').value = sv; } catch (e) {}   // nhớ lựa chọn lần trước (phải đặt TRƯỚC lần tải đầu tiên)
   renderChips(); loadOrders();
   $('chips').addEventListener('click', e => { const b = e.target.closest('[data-st]'); if (b) { curStatus = b.dataset.st; currentPage = 1; renderChips(); loadOrders(); } });
   $('fSearch').addEventListener('keyup', e => { if (e.key === 'Enter') { currentPage = 1; loadOrders(); } });
   if ($('fStore')) $('fStore').addEventListener('change', () => { currentPage = 1; loadOrders(); });
   ['fDateBy', 'fRange', 'fFrom', 'fTo'].forEach(id => $(id).addEventListener('change', onDateFilter));
+  $('fSort').addEventListener('change', () => { try { localStorage.setItem('orders_sort_by', $('fSort').value); } catch (e) {} currentPage = 1; loadOrders(); });
   $('fClear').addEventListener('click', () => { $('fRange').value = ''; $('fFrom').value = ''; $('fTo').value = ''; onDateFilter(); });
   $('ordersTable').addEventListener('change', e => { if (e.target.classList.contains('pillsel')) quickStatus(e.target); else if (e.target.classList.contains('qe')) quickEdit(e.target); });
   $('ordersTable').addEventListener('input', e => { const el = e.target; if (el.classList.contains('qe') && el.dataset.t === 'date') el.value = maskDate(el.value); });
