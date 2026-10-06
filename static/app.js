@@ -5744,14 +5744,26 @@ async function saveLocationRow(btn, partCode) {
         loadPriceAdjustmentList();
     }
 
+    // Chống "kết quả cũ về sau ghi đè kết quả mới": mỗi lần tải ghi nhận 1
+    // số thứ tự + huỷ request trước đó; chỉ request MỚI NHẤT mới được phép
+    // vẽ lại bảng/badge (trước đây gõ ~5 ký tự thì request của chuỗi ngắn
+    // hơn - nhiều dòng, chậm hơn - có thể về sau và hiện kết quả sai).
+    let priceAdjListSeq = 0;
+    let priceAdjListAbort = null;
+
     async function loadPriceAdjustmentList() {
         const tbody = document.getElementById('price-adj-body');
         if (!tbody) return;
         const q = (document.getElementById('price-adj-search') || {}).value || '';
+        const mySeq = ++priceAdjListSeq;
+        if (priceAdjListAbort) priceAdjListAbort.abort();
+        const controller = new AbortController();
+        priceAdjListAbort = controller;
         try {
             const params = new URLSearchParams({ status: priceAdjStatusFilter, q: q, limit: 500 });
-            const res = await fetch('/api/price-adjustment/list?' + params.toString());
+            const res = await fetch('/api/price-adjustment/list?' + params.toString(), { signal: controller.signal });
             const result = await res.json();
+            if (mySeq !== priceAdjListSeq) return;
             if (!res.ok || !result.success) {
                 tbody.innerHTML = `<tr><td colspan="9" class="text-center py-4 text-danger">Lỗi: ${escapeHtmlAttr(result.error || 'Không tải được dữ liệu.')}</td></tr>`;
                 return;
@@ -5763,6 +5775,8 @@ async function saveLocationRow(btn, partCode) {
             if (countAdjEl) countAdjEl.innerText = result.total_adjusted.toLocaleString();
             if (countNotAdjEl) countNotAdjEl.innerText = result.total_not_adjusted.toLocaleString();
         } catch (e) {
+            if (e && e.name === 'AbortError') return;
+            if (mySeq !== priceAdjListSeq) return;
             tbody.innerHTML = `<tr><td colspan="9" class="text-center py-4 text-danger">Lỗi kết nối server.</td></tr>`;
         }
     }
@@ -7516,7 +7530,9 @@ if (storeLocationForm) {
         const searchEl = document.getElementById('transfer-received-search');
         const search = searchEl ? searchEl.value.trim() : '';
         const statusValue = getStatusMultiSelectValues('transfer-received-status-filter');
-        const received = (window._lastReceivedRequests || []).filter(r => transferMatchesSearch(r, search) && transferMatchesStatusFilter(r, statusValue));
+        const storeEl = document.getElementById('transfer-received-store-filter');
+        const storeValue = storeEl ? storeEl.value : '';
+        const received = (window._lastReceivedRequests || []).filter(r => transferMatchesSearch(r, search) && transferMatchesStatusFilter(r, statusValue) && (!storeValue || r.from_store === storeValue));
 
         receivedBody.innerHTML = received.length ? received.map(r => `
             <tr class="transfer-row-clickable" onclick="handleTransferRowClick(event, ${r.id}, 'received')">
@@ -7537,7 +7553,7 @@ if (storeLocationForm) {
                     ` : ''}
                 </td>
             </tr>
-        `).join('') : `<tr><td colspan="9" class="text-center py-4 text-muted">${(search || statusValue.length) ? 'Không tìm thấy phiếu phù hợp.' : 'Chưa có phiếu nào gửi đến.'}</td></tr>`;
+        `).join('') : `<tr><td colspan="9" class="text-center py-4 text-muted">${(search || statusValue.length || storeValue) ? 'Không tìm thấy phiếu phù hợp.' : 'Chưa có phiếu nào gửi đến.'}</td></tr>`;
 
         const pendingCount = (window._lastReceivedRequests || []).filter(r => r.status === 'pending').length;
         // Cập nhật cả badge trên nút tab GỐC (đã ẩn) lẫn 2 badge hiển thị
