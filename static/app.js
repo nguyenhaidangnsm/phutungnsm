@@ -1870,7 +1870,8 @@ const PO_DETAIL_MAX_FILES = 10;
         if (!id) return;
         const o = (_gdhOrdersCache || []).find(x => String(x.id) === String(id)) || (_gdhCmp && String(_gdhCmp.batch.id) === String(id) ? _gdhCmp.batch : null) || (_gdhBatchMeta && String(_gdhBatchMeta.id) === String(id) ? _gdhBatchMeta : null);
         const left = o && o.rereview_left_min != null ? `Còn ${_gdhLeft(o.rereview_left_min)} (đến ${o.rereview_until}). ` : '';
-        const r = await nsPrompt('Nhờ admin duyệt lại đơn này?\n' + left + 'Đơn sẽ quay về "Chờ duyệt" cho admin xử lý lại và bạn không thu hồi hay tải đơn về được cho đến khi admin duyệt xong.\n\nGhi rõ mã nào / cần SL bao nhiêu (bắt buộc):', '');
+        const ordered = o && o.status === 'ordered' ? 'Đơn này bạn ĐÃ TẢI file đặt hàng: nếu đã đặt theo file cũ, hãy dùng SL mới sau khi admin duyệt lại.\n' : '';
+        const r = await nsPrompt('Nhờ admin duyệt lại đơn này?\n' + left + ordered + 'Đơn sẽ quay về "Chờ duyệt" cho admin xử lý lại và bạn không thu hồi hay tải đơn về được cho đến khi admin duyệt xong.\n\nGhi rõ mã nào / cần SL bao nhiêu (bắt buộc):', '');
         if (r === null) return;
         const note = r.trim();
         if (!note) { alert('Cần ghi rõ mã nào / vì sao chưa hài lòng để admin duyệt lại.'); return; }
@@ -2153,7 +2154,7 @@ const PO_DETAIL_MAX_FILES = 10;
         const reInfo = (isStore && b.rereview_open)
             ? `<div class="alert alert-warning py-1 px-2 small"><i class="bi bi-arrow-repeat me-1"></i>Bạn đã nhờ admin duyệt lại${b.rereview_at ? ' lúc ' + e(b.rereview_at) : ''}: <i>“${e(b.rereview_note)}”</i>. Đơn đang chờ admin, chưa thu hồi hay tải về được. SL duyệt bên dưới là kết quả lần duyệt trước.</div>` : '';
         const reHint = (isStore && b.can_rereview)
-            ? `<div class="alert alert-light border py-1 px-2 small"><i class="bi bi-arrow-repeat me-1"></i>Chưa hài lòng với SL duyệt? Bạn có thể <b>nhờ admin duyệt lại</b> trong ${e(_gdhLeft(b.rereview_left_min))} nữa (đến ${e(b.rereview_until)}), và trước khi tải đơn về.</div>` : '';
+            ? `<div class="alert alert-light border py-1 px-2 small"><i class="bi bi-arrow-repeat me-1"></i>Chưa hài lòng với SL duyệt? Bạn có thể <b>nhờ admin duyệt lại</b> trong ${e(_gdhLeft(b.rereview_left_min))} nữa (đến ${e(b.rereview_until)}).</div>` : '';
         const info = reInfo ? reInfo : j.reviewed
             ? `<div class="small text-muted mb-2">Duyệt bởi <b>${e(b.approved_by)}</b> lúc ${e(b.approved_at)}${b.review_note ? ` · Ghi chú chung: <i>${e(b.review_note)}</i>` : ''}</div>` + reHint
             : (isStore && b.status === 'pending')
@@ -3915,7 +3916,7 @@ const PO_DETAIL_MAX_FILES = 10;
             else if (isAd && o.status === 'reviewing') acts += lockBtn(o);
             if (o.status !== 'pending' && (isAd || done)) acts += btn('', 'bi-eye', 'Xem kết quả', `gdhOpenCompare(${o.id})`);
             if (!isAd && (o.status === 'pending' || o.status === 'reviewing')) acts += btn('', 'bi-eye', 'Xem đơn', `gdhOpenCompare(${o.id})`);
-            if (!isAd && o.can_rereview) acts += `<button type="button" class="ns-btn" title="Còn ${e(_gdhLeft(o.rereview_left_min))} (đến ${e(o.rereview_until)}). Sau khi tải đơn về thì không nhờ được nữa" onclick="gdhRequestRereview(${o.id})"><i class="bi bi-arrow-repeat"></i> Nhờ duyệt lại</button>`;
+            if (!isAd && o.can_rereview) acts += `<button type="button" class="ns-btn" title="Còn ${e(_gdhLeft(o.rereview_left_min))} (đến ${e(o.rereview_until)})" onclick="gdhRequestRereview(${o.id})"><i class="bi bi-arrow-repeat"></i> Nhờ duyệt lại</button>`;
             if (!isAd && done) acts += btn(o.status === 'ordered' ? '' : 'ns-ok', 'bi-download', o.status === 'ordered' ? 'Tải lại file đặt hàng' : 'Tải đơn về', `gdhDownloadOrder(${o.id})`);
             if (o.kind === 'urgent') menu += mi(`gdhUrgentDetail(${o.id})`, 'Thông tin khách');
             if (isAd && (o.status === 'pending' || (o.status === 'reviewing' && o.claimed_by_me))) menu += mi(`gdhReject(${o.id}, this)`, 'Từ chối', 'ns-danger');

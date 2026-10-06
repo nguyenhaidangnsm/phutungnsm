@@ -775,11 +775,11 @@ def _batch_json(b, extra=None):
         'rejected_by': b.get('rejected_by'), 'rejected_at': _fmt_dt(b.get('rejected_at')), 'reject_reason': b.get('reject_reason') or '',
         'can_edit': _can_edit(b),
     })
-    # Nhờ duyệt lại: còn được nhờ không (đơn Đã duyệt / Đã xem, trong 24 giờ kể từ approved_at; Đã đặt thì không)
+    # Nhờ duyệt lại: còn được nhờ không (đơn Đã duyệt / Đã xem / Đã đặt, trong 24 giờ kể từ approved_at)
     ap = b.get('approved_at')
     until = (ap + timedelta(hours=REREVIEW_HOURS)) if ap else None
     left = (until - datetime.now(_VN_TZ).replace(tzinfo=None)).total_seconds() / 60 if until else None
-    can_re = bool(not b.get('owner') and st in ('approved', 'viewed') and left is not None and left > 0)
+    can_re = bool(not b.get('owner') and st in ('approved', 'viewed', 'ordered') and left is not None and left > 0)
     out.update({
         'rereview_open': bool(b.get('rereview_open')) and st in ('pending', 'reviewing'),
         'rereview_count': int(b.get('rereview_count') or 0),
@@ -1993,7 +1993,7 @@ def gdh_approve():
 @gom_don_hang_bp.route('/api/gom-don-hang/request-rereview', methods=['POST'])
 def gdh_request_rereview():
     """Chi nhánh NHỜ ADMIN DUYỆT LẠI đơn đã duyệt xong mà SL duyệt chưa hài lòng: Đã duyệt / Đã xem -> Chờ duyệt.
-    Chỉ được trong REREVIEW_HOURS giờ kể từ lúc admin duyệt xong (approved_at) và khi chưa tải đơn về (Đã đặt thì không).
+    Chỉ được trong REREVIEW_HOURS giờ kể từ lúc admin duyệt xong (approved_at); đã tải file đặt hàng (Đã đặt) vẫn nhờ được trong hạn đó.
     Bắt buộc ghi rõ nhờ duyệt lại điều gì. SL duyệt + ghi chú cũ được nạp sẵn vào nháp của admin để chỉ sửa những mã cần đổi.
     Điều kiện 24 giờ kiểm ngay trong câu UPDATE (giờ Việt Nam) nên không bị lách khi bấm sát giờ hoặc 2 nơi cùng bấm."""
     blk = _need_role('store')
@@ -2013,22 +2013,20 @@ def gdh_request_rereview():
             return jsonify({'error': 'Đây là đơn gôm riêng của admin, không nằm trong luồng duyệt.'}), 400
         if st in ('pending', 'reviewing') and batch.get('rereview_open'):
             return jsonify({'error': 'Đơn này đã được nhờ duyệt lại, đang chờ admin xử lý.', 'status': st}), 409
-        if st == 'ordered':
-            return jsonify({'error': 'Đơn đã tải về và chuyển sang "Đã đặt" nên không nhờ duyệt lại được.', 'status': st}), 409
-        if st not in ('approved', 'viewed'):
+        if st not in ('approved', 'viewed', 'ordered'):
             return _bad_state(batch, 'Đã duyệt')
         cur.execute("""UPDATE gdh_batches SET status = 'pending', claimed_by = NULL, claimed_at = NULL,
-                              viewed_by = NULL, viewed_at = NULL,
+                              viewed_by = NULL, viewed_at = NULL, ordered_by = NULL, ordered_at = NULL,
                               rereview_open = TRUE, rereview_count = COALESCE(rereview_count, 0) + 1,
                               rereview_at = (NOW() AT TIME ZONE 'Asia/Ho_Chi_Minh'), rereview_by = %s, rereview_note = %s
-                       WHERE id = %s AND owner = '' AND status IN ('approved', 'viewed') AND approved_at IS NOT NULL
+                       WHERE id = %s AND owner = '' AND status IN ('approved', 'viewed', 'ordered') AND approved_at IS NOT NULL
                          AND (NOW() AT TIME ZONE 'Asia/Ho_Chi_Minh') <= approved_at + make_interval(hours => %s)""",
                     (_actor_name(), note, batch['id'], REREVIEW_HOURS))
         if cur.rowcount != 1:
             db.rollback()
             cur.execute('SELECT * FROM gdh_batches WHERE id = %s', (batch['id'],))
             nb = cur.fetchone() or batch
-            if (nb.get('status') or '') in ('approved', 'viewed'):
+            if (nb.get('status') or '') in ('approved', 'viewed', 'ordered'):
                 return jsonify({'error': f'Đã quá {REREVIEW_HOURS} giờ kể từ lúc admin duyệt xong ({_fmt_dt(nb.get("approved_at"))}) nên không nhờ duyệt lại được.',
                                 'status': nb.get('status'), 'expired': True}), 409
             return _bad_state(nb, 'Đã duyệt')
