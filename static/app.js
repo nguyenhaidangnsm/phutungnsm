@@ -559,7 +559,7 @@ const PO_DETAIL_MAX_FILES = 10;
     async function loadInventory() {
     try {
         const [res, hlRes, dmgRes] = await Promise.all([
-            fetch('/api/inventory'),
+            fetch('/api/inventory', { cache: 'no-store' }),
             fetch('/api/transfer/highlights'),
             fetch('/api/damaged/summary'),
         ]);

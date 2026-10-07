@@ -108,6 +108,16 @@ _GIA_TANG_RATE = 0.05  # Mức % tăng giá MẶC ĐỊNH áp dụng ở Bước
                         # ở Bước 2, không phải Thuế người dùng gõ ở Bước 1.
 
 
+def _thue_to_percent(value):
+    """Đổi tỉ lệ thập phân trong DB (0.14) sang số % hiển thị (14).
+    Phải làm tròn vì float: 0.14 * 100 = 14.000000000000002 (lỗi số thực)
+    -> UI hiện "14.000000000000002%". 4 chữ số thập phân là đủ cho mức %
+    nhập tay (VD 12.5, 8.25)."""
+    if value is None:
+        return None
+    return round(float(value) * 100, 4)
+
+
 def _round_to_thousand(value):
     """Làm tròn đến hàng nghìn (VD: 1607550 -> 1608000), khớp với quy ước
     'GIÁ BÁN (ĐÃ VAT) LÀM TRÒN' luôn là số tròn 1,000đ trong file Excel mẫu
@@ -533,12 +543,12 @@ def price_adjustment_lookup():
 
     thue_suggest = None
     if last_proposal and last_proposal['thue'] is not None:
-        thue_suggest = float(last_proposal['thue']) * 100  # trả về dạng % (8 nghĩa là 8%) cho khớp ô nhập trên giao diện
+        thue_suggest = _thue_to_percent(last_proposal['thue'])  # trả về dạng % (8 nghĩa là 8%) cho khớp ô nhập trên giao diện
     else:
         cursor.execute('SELECT thue FROM price_adjustment_new_codes WHERE part_code = %s', (part_code,))
         row = cursor.fetchone()
         if row and row['thue'] is not None:
-            thue_suggest = float(row['thue']) * 100
+            thue_suggest = _thue_to_percent(row['thue'])
 
     cursor.close()
 
@@ -556,7 +566,7 @@ def price_adjustment_lookup():
     if last_proposal:
         result['last_proposal'] = {
             'part_name': last_proposal['part_name'],
-            'thue': float(last_proposal['thue']) * 100 if last_proposal['thue'] is not None else None,
+            'thue': _thue_to_percent(last_proposal['thue']),
             'gia_de_xuat_hvn': float(last_proposal['gia_de_xuat_hvn']) if last_proposal['gia_de_xuat_hvn'] is not None else None,
             'gia_ban': float(last_proposal['gia_ban']) if last_proposal['gia_ban'] is not None else None,
             'store_code': last_proposal['store_code'],
@@ -645,7 +655,7 @@ def price_adjustment_export():
             i,
             r['part_code'],
             r['part_name'] or '',
-            float(r['thue']) * 100 if r['thue'] is not None else None,
+            _thue_to_percent(r['thue']),
             float(r['gia_de_xuat_hvn']) if r['gia_de_xuat_hvn'] is not None else None,
             float(r['gia_ban']) if r['gia_ban'] is not None else None,
             r['created_by'] or '',
@@ -782,7 +792,7 @@ def price_adjustment_list():
             'proposal_id': r['proposal_id'],
             'part_name': r['part_name'],
             'is_adjusted': r['created_at'] is not None,
-            'thue': float(r['thue']) * 100 if r['thue'] is not None else None,
+            'thue': _thue_to_percent(r['thue']),
             'gia_de_xuat_hvn': float(r['gia_de_xuat_hvn']) if r['gia_de_xuat_hvn'] is not None else None,
             'gia_ban': float(r['gia_ban']) if r['gia_ban'] is not None else None,
             'store_code': r['store_code'],

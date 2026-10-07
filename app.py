@@ -150,7 +150,7 @@ def override_url_for():
 # import liên quan). Dùng threading.Lock để an toàn khi nhiều request cùng
 # lúc trong lúc cache đang được dựng lại.
 _inventory_cache_lock = threading.Lock()
-_inventory_cache = {'body': None, 'version': 0}
+_inventory_cache = {'body': None, 'version': 0, 'sig': None}
 
 
 # "Đời" (epoch) của dữ liệu tồn kho/giá/xuất bán - tăng lên mỗi khi
@@ -3566,6 +3566,7 @@ def upload_inventory():
         ''', (inventory_file.filename, _current_actor_name(), upload_time, distinct_parts, skipped_rows))
 
         db.commit()
+        invalidate_inventory_cache()   # xoá cache NGAY khi dữ liệu mới đã commit, không đợi bước rà soát tồn thấp bên dưới
 
         # Tồn kho vừa đổi -> rà soát lại ngay các mã TX sắp hết hàng thay vì
         # đợi lượt kiểm tra nền hằng ngày (xem dashboard.py). Import trong
@@ -4936,6 +4937,48 @@ def update_price():
         cursor.close()
 
 
+def _inventory_db_signature(cursor):
+    """"Chữ ký" của dữ liệu thật trong DB mà /api/inventory phụ thuộc.
+    Cache RAM chỉ được dùng khi chữ ký này KHÔNG ĐỔI. Nhờ vậy:
+      - chạy nhiều worker gunicorn vẫn đúng (trước đây invalidate_inventory_cache()
+        chỉ xoá cache của worker đang xử lý upload, các worker khác tiếp tục
+        trả tồn kho cũ -> lúc thấy mới, lúc thấy cũ);
+      - không còn lỗi đua (race): request đọc dữ liệu cũ xong mới ghi vào cache
+        sau khi admin đã upload + invalidate -> cache cũ nằm lại tới lần import sau.
+    Trả về None nếu không lấy được chữ ký (khi đó KHÔNG dùng/ghi cache)."""
+    try:
+        cursor.execute('''
+            SELECT
+              (SELECT upload_time FROM inventory_meta WHERE id = 1)      AS inv_t,
+              (SELECT total_parts FROM inventory_meta WHERE id = 1)      AS inv_n,
+              (SELECT filename    FROM inventory_meta WHERE id = 1)      AS inv_f,
+              (SELECT upload_time FROM price_meta WHERE id = 1)          AS price_t,
+              (SELECT upload_time FROM sales_export_meta WHERE id = 1)   AS sales_t,
+              (SELECT COUNT(*) FROM part_prices)                         AS pp_c,
+              (SELECT MAX(updated_at) FROM part_prices)                  AS pp_v,
+              (SELECT COUNT(*) FROM price_adjustment_proposals)          AS pr_c,
+              (SELECT MAX(id) FROM price_adjustment_proposals)           AS pr_id,
+              (SELECT MAX(created_at) FROM price_adjustment_proposals)   AS pr_v,
+              (SELECT COALESCE(SUM(gia_ban), 0) FROM price_adjustment_proposals) AS pr_sum
+        ''')
+        row = cursor.fetchone()
+        return (_inventory_epoch,) + tuple(str(v) for v in row.values())
+    except Exception:
+        try:
+            cursor.connection.rollback()
+        except Exception:
+            pass
+        return None
+
+
+def _inventory_json_response(body):
+    """Trả body tồn kho kèm header cấm trình duyệt/proxy tự giữ bản cũ."""
+    resp = app.response_class(body, mimetype='application/json')
+    resp.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
+    resp.headers['Pragma'] = 'no-cache'
+    return resp
+
+
 @app.route('/api/inventory', methods=['GET'])
 def get_inventory():
     """Trả về tồn kho hệ thống dạng pivot (1 dòng/mã hàng, 6 cột theo cửa
@@ -4947,13 +4990,19 @@ def get_inventory():
     if 'user' not in session:
         return jsonify({'error': 'Unauthorized'}), 401
 
-    with _inventory_cache_lock:
-        cached_body = _inventory_cache['body']
-    if cached_body is not None:
-        return app.response_class(cached_body, mimetype='application/json')
-
     db = get_db()
     cursor = db.cursor()
+
+    # Chữ ký được đọc TRƯỚC khi dựng dữ liệu: nếu admin upload xen giữa chừng,
+    # cache vừa dựng sẽ mang chữ ký cũ và request sau tự bỏ đi dựng lại.
+    cache_sig = _inventory_db_signature(cursor)
+    with _inventory_cache_lock:
+        cached_body = _inventory_cache['body']
+        cached_sig = _inventory_cache.get('sig')
+    if cached_body is not None and cache_sig is not None and cached_sig == cache_sig:
+        cursor.close()
+        return _inventory_json_response(cached_body)
+
     cursor.execute('SELECT part_code, part_name, unit, store_code, quantity, is_pi2 FROM inventory_items')
     items = cursor.fetchall()
 
@@ -5085,9 +5134,11 @@ def get_inventory():
     # request tiếp theo (từ user khác, hoặc F5 lại) khỏi phải tính + serialize
     # lại từ đầu, cho tới khi có import mới (xem invalidate_inventory_cache()).
     body = dumps_json(payload).encode('utf-8')
-    with _inventory_cache_lock:
-        _inventory_cache['body'] = body
-    return app.response_class(body, mimetype='application/json')
+    if cache_sig is not None:
+        with _inventory_cache_lock:
+            _inventory_cache['body'] = body
+            _inventory_cache['sig'] = cache_sig
+    return _inventory_json_response(body)
 
 
 @app.route('/api/locations', methods=['GET'])
