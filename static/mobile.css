@@ -1,0 +1,360 @@
+/* =====================================================================
+   mobile.css - GIAO DIỆN "APP ĐIỆN THOẠI" cho Nam Sương (điện thoại ≤ 767.98px)
+   ---------------------------------------------------------------------
+   * Nạp SAU app.css và SAU các <style> trong từng trang (đặt cuối <head>).
+   * Mọi quy tắc đều nằm trong @media (max-width: 767.98px) -> MÁY TÍNH và
+     máy tính bảng ngang KHÔNG bị ảnh hưởng.
+   * Chỉ đổi giao diện (bố cục, cỡ, khoảng cách). KHÔNG đổi id / class /
+     cấu trúc mà JS đang dùng, không đổi logic.
+   * Phần "vỏ app" của index.html (thanh trên, thanh tab dưới, menu kéo lên)
+     chỉ bật khi mobile.js chạy xong và gắn class html.nsm-ready; nếu JS lỗi
+     thì tự quay về giao diện cũ.
+   ===================================================================== */
+
+/* Các phần tử do mobile.js tạo: ẩn trên máy tính */
+.nsm-tabbar, .nsm-scrim, .nsm-title, .nsm-profile, .nsm-acct { display: none; }
+
+@media (max-width: 767.98px) {
+
+/* ---------- 0) NỀN TẢNG: cảm giác app, không giật/zoom ngoài ý muốn ---------- */
+:root {
+    --nsm-bar: 56px;                          /* chiều cao thanh trên */
+    --nsm-tab: 60px;                          /* chiều cao thanh tab dưới */
+    --nsm-sat: env(safe-area-inset-top, 0px);
+    --nsm-sab: env(safe-area-inset-bottom, 0px);
+    --nsm-blue: #0d6efd;
+}
+html { -webkit-text-size-adjust: 100%; touch-action: manipulation; }
+body {
+    -webkit-tap-highlight-color: transparent;
+    overscroll-behavior-y: contain;           /* không kéo-để-tải-lại trang khi đang thao tác */
+}
+button, .btn, a, [role="button"], .nav-link, .ns-sidebar-item { -webkit-touch-callout: none; }
+.btn, .nav-link, .ns-sidebar-item, .dropdown-item, .nsm-tab { user-select: none; -webkit-user-select: none; }
+.btn:active, .nsm-tab:active, .ns-sidebar-item:active { transform: scale(.97); }
+.btn { border-radius: 12px; }
+.btn-sm { border-radius: 10px; }
+
+/* ---------- 1) Ô NHẬP LIỆU: đủ lớn để chạm, 16px để iPhone không tự phóng to ---------- */
+.form-control:not(.form-control-sm):not(.form-control-plaintext),
+.form-select:not(.form-select-sm) {
+    font-size: 16px; min-height: 46px; border-radius: 12px;
+}
+.form-control-sm, .form-select-sm { border-radius: 9px; }
+textarea.form-control { min-height: 84px; }
+.input-group > .form-control, .input-group > .form-select, .input-group > .btn, .input-group-text { min-height: 46px; }
+.form-label { font-size: .8rem; font-weight: 700; color: #475569; margin-bottom: .25rem; }
+.form-check-input { width: 1.25em; height: 1.25em; }
+.dropdown-menu { max-width: calc(100vw - 16px); max-height: 60vh; overflow-y: auto; border-radius: 14px; }
+.dropdown-item { padding-top: .65rem; padding-bottom: .65rem; }
+
+/* ---------- 2) THẺ, THÔNG SỐ ---------- */
+.card, .card-custom {
+    border-radius: 16px;
+    box-shadow: 0 1px 3px rgba(15,23,42,.06), 0 6px 16px rgba(15,23,42,.05);
+}
+.card-custom { border-top-width: 3px; }
+.card-body { padding: .9rem; }
+
+/* Tab con (pill) -> hàng chip vuốt ngang, không xuống dòng */
+.nav-pills:not(#mainTab) {
+    flex-wrap: nowrap !important; overflow-x: auto; overflow-y: hidden;
+    -webkit-overflow-scrolling: touch; scrollbar-width: none;
+    scroll-snap-type: x proximity; gap: .4rem !important; padding: 2px 2px 8px;
+}
+.nav-pills:not(#mainTab)::-webkit-scrollbar { display: none; }
+.nav-pills:not(#mainTab) .nav-item { flex: 0 0 auto; scroll-snap-align: start; }
+.nav-pills:not(#mainTab) .nav-link {
+    white-space: nowrap; border-radius: 999px; box-shadow: none;
+    border: 1px solid #e2e8f0; padding: 8px 15px; min-height: 40px;
+}
+.nav-tabs { flex-wrap: nowrap; overflow-x: auto; overflow-y: hidden; scrollbar-width: none; }
+.nav-tabs::-webkit-scrollbar { display: none; }
+.nav-tabs .nav-link { white-space: nowrap; }
+
+/* Bảng: vuốt ngang mượt, không kéo lan ra trang */
+.table-responsive, .bo-wrap, .al-table-box { -webkit-overflow-scrolling: touch; overscroll-behavior-x: contain; }
+
+/* ---------- 3) CỬA SỔ (modal) -> TỜ GIẤY KÉO LÊN TỪ ĐÁY như app điện thoại ---------- */
+.modal-dialog:not(.modal-fullscreen) {
+    margin: 0 !important; max-width: none !important; width: 100% !important;
+    min-height: 100% !important; height: auto !important;
+    display: flex; align-items: flex-end;
+}
+.modal-dialog:not(.modal-fullscreen) .modal-content {
+    width: 100%; max-height: 92vh; max-height: 92dvh;
+    border: 0; border-radius: 22px 22px 0 0;
+    box-shadow: 0 -10px 40px rgba(15,23,42,.28);
+}
+.modal-dialog.modal-xl:not(.modal-fullscreen) .modal-content { height: 92vh; height: 92dvh; }
+.modal-dialog:not(.modal-dialog-scrollable):not(.modal-fullscreen) .modal-content { overflow-y: auto; -webkit-overflow-scrolling: touch; }
+.modal-content::before {                       /* vạch kéo ở đỉnh tờ giấy */
+    content: ""; position: absolute; top: 6px; left: 50%; width: 38px; height: 4px;
+    margin-left: -19px; border-radius: 3px; background: rgba(100,116,139,.4);
+    z-index: 6; pointer-events: none;
+}
+.modal-header { padding: 1rem .9rem .6rem; }
+.modal-footer { padding: .6rem .9rem calc(.6rem + var(--nsm-sab)); gap: .5rem; }
+.modal-footer > .btn { flex: 1 1 auto; min-height: 46px; }
+.modal-body { padding: .9rem; }
+.modal-title { font-size: 1.02rem; }
+.modal.fade .modal-dialog { transform: translateY(100%); transition: transform .3s cubic-bezier(.2,.8,.2,1); }
+.modal.show .modal-dialog { transform: none; }
+.modal-static .modal-dialog { transform: scale(1.02) !important; }
+/* Modal kéo-giãn kiểu máy tính: bỏ tay cầm, không cho kích thước cố định phá bố cục */
+#quick-lookup-modal-resize-handle, #bodyKitDetailModal-resize-handle { display: none !important; }
+.modal-dialog.resizable-dialog { width: 100% !important; max-width: none !important; margin: 0 !important; }
+.modal-dialog.resizable-dialog .modal-content {
+    min-width: 0 !important; max-width: 100% !important; resize: none !important;
+    height: 100vh !important; height: 100dvh !important; max-height: 100dvh !important; border-radius: 0 !important;
+}
+.modal-dialog.resizable-dialog .modal-header { padding-top: calc(.6rem + var(--nsm-sat)); }
+.modal-dialog.resizable-dialog .modal-content::before { display: none; }
+.modal-dialog.modal-fullscreen .modal-header { padding-top: calc(.6rem + var(--nsm-sat)); }
+.modal-dialog.modal-fullscreen .modal-footer { padding-bottom: calc(.6rem + var(--nsm-sab)); }
+
+/* ---------- 4) KHUNG PHÓNG TO (Gôm đơn / Duyệt đơn): tránh tai thỏ + thanh vuốt ---------- */
+#gdh-pane.gdh-max #gdhGomView > .card {
+    padding-top: calc(.6rem + var(--nsm-sat)) !important;
+    padding-bottom: calc(.6rem + var(--nsm-sab)) !important;
+}
+#order-check-pane.oc-max #orderCheckResultCard {
+    padding-top: calc(.6rem + var(--nsm-sat)) !important;
+    padding-bottom: calc(.6rem + var(--nsm-sab)) !important;
+}
+
+/* =====================================================================
+   5) VỎ APP CỦA index.html  (chỉ khi html.nsm-ready do mobile.js bật)
+   ===================================================================== */
+html.nsm-ready {
+    --ns-sb-collapsed: 0px;
+    --ns-topbar-h: calc(var(--nsm-bar) + var(--nsm-sat)) !important;
+}
+html.nsm-ready body { background: #f1f5f9; overflow-x: clip; }
+html.nsm-ready.nsm-lock { overflow: hidden; }
+
+/* 5a) THANH TRÊN (app bar) */
+html.nsm-ready .ns-header-shell {
+    height: var(--ns-topbar-h); border: 0; border-radius: 0;
+    border-bottom: 1px solid #e2e8f0; box-shadow: 0 1px 10px rgba(15,23,42,.07);
+    background: rgba(255,255,255,.96);
+    -webkit-backdrop-filter: saturate(1.4) blur(10px); backdrop-filter: saturate(1.4) blur(10px);
+}
+html.nsm-ready .ns-topbar-corner {
+    top: var(--nsm-sat); left: 0; width: 50px; height: var(--nsm-bar);
+    padding: 0 0 0 12px; background: transparent; z-index: 1036;
+}
+html.nsm-ready .ns-topbar-corner-logo { width: 32px; max-height: 32px; }
+html.nsm-ready .brand-banner {
+    left: 0; right: 0; top: 0; height: var(--ns-topbar-h);
+    padding: var(--nsm-sat) 10px 0 52px !important;
+    display: flex !important; flex-wrap: nowrap !important; align-items: center;
+    gap: 6px !important; margin: 0;
+}
+html.nsm-ready .brand-banner > .nsm-hide { display: none !important; }
+html.nsm-ready .nsm-title { display: flex; flex-direction: column; min-width: 0; flex: 1 1 auto; line-height: 1.15; }
+html.nsm-ready .nsm-title b {
+    font-size: 1rem; font-weight: 800; color: #0f172a;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+html.nsm-ready .nsm-title small {
+    font-size: .68rem; color: #64748b; font-weight: 600;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+html.nsm-ready .brand-banner > .d-flex.ms-auto { flex: 0 0 auto; flex-wrap: nowrap !important; gap: .35rem !important; margin-left: auto !important; }
+/* nút trong thanh trên: tròn 40px, chỉ icon */
+html.nsm-ready .brand-banner .badge.rounded-pill.text-truncate,
+html.nsm-ready .brand-banner a[href="/logout"],
+html.nsm-ready .brand-banner button[onclick*="openSelfPassModal"] { display: none !important; }
+html.nsm-ready .brand-banner #notif-bell-btn,
+html.nsm-ready .brand-banner #impersonate-store-btn {
+    width: 40px; height: 40px; min-height: 40px; padding: 0; border-radius: 50%;
+    display: inline-flex; align-items: center; justify-content: center; font-size: 1.1rem;
+}
+html.nsm-ready .brand-banner #impersonate-store-btn::after { display: none; }
+html.nsm-ready .brand-banner #impersonate-store-btn span { display: none !important; }
+html.nsm-ready .brand-banner #impersonate-store-btn i { margin: 0 !important; }
+html.nsm-ready .brand-banner .btn-warning { min-height: 36px; padding: .2rem .65rem; font-size: .78rem; border-radius: 18px; }
+/* chuông thông báo -> tờ thả xuống toàn chiều ngang */
+html.nsm-ready #notif-dropdown {
+    position: fixed !important; inset: calc(var(--ns-topbar-h) + 6px) 8px auto 8px !important;
+    width: auto !important; max-width: none !important; margin: 0 !important;
+    transform: none !important; border-radius: 16px; overflow: hidden;
+}
+html.nsm-ready #notif-list { max-height: calc(100vh - var(--ns-topbar-h) - var(--nsm-tab) - var(--nsm-sab) - 90px) !important; }
+
+/* 5b) NỘI DUNG */
+html.nsm-ready .app-container {
+    margin-left: 0; width: 100%; max-width: 100%;
+    padding: calc(var(--ns-topbar-h) + 10px) 12px calc(var(--nsm-tab) + var(--nsm-sab) + 22px) !important;
+}
+html.nsm-ready .site-footer { padding-bottom: calc(1.2rem + var(--nsm-tab) + var(--nsm-sab)); }
+html.nsm-ready .table-responsive { max-height: calc(100vh - var(--ns-topbar-h) - var(--nsm-tab) - var(--nsm-sab) - 150px); max-height: calc(100dvh - var(--ns-topbar-h) - var(--nsm-tab) - var(--nsm-sab) - 150px); }
+/* nút nổi + thông báo nhỏ: nằm TRÊN thanh tab */
+html.nsm-ready .quick-lookup-fab { bottom: calc(var(--nsm-tab) + var(--nsm-sab) + 14px); right: 14px; }
+html.nsm-ready #toast-container { bottom: calc(var(--nsm-tab) + var(--nsm-sab)) !important; left: 0; right: 0; padding: .75rem !important; }
+html.nsm-ready #toast-container .toast { width: 100%; max-width: none; border-radius: 14px; }
+
+/* 5c) THANH TAB DƯỚI */
+html.nsm-ready .nsm-tabbar {
+    display: flex; position: fixed; left: 0; right: 0; bottom: 0; z-index: 1045;
+    height: calc(var(--nsm-tab) + var(--nsm-sab)); padding-bottom: var(--nsm-sab);
+    background: rgba(255,255,255,.97);
+    -webkit-backdrop-filter: saturate(1.4) blur(12px); backdrop-filter: saturate(1.4) blur(12px);
+    border-top: 1px solid #e2e8f0; box-shadow: 0 -4px 18px rgba(15,23,42,.07);
+}
+html.nsm-ready.nsm-kb .nsm-tabbar { display: none; }      /* đang gõ phím: ẩn thanh tab cho rộng chỗ */
+html.nsm-ready .nsm-tab {
+    flex: 1 1 0; min-width: 0; position: relative; border: 0; background: none;
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px;
+    color: #64748b; font-size: .66rem; font-weight: 700; padding: 4px 2px; line-height: 1.1;
+}
+html.nsm-ready .nsm-tab i { font-size: 1.4rem; line-height: 1; }
+html.nsm-ready .nsm-tab span.t { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+html.nsm-ready .nsm-tab.on { color: var(--nsm-blue); }
+html.nsm-ready .nsm-tab.on::before {
+    content: ""; position: absolute; top: 0; left: 50%; width: 30px; margin-left: -15px; height: 3px;
+    border-radius: 0 0 4px 4px; background: var(--nsm-blue);
+}
+html.nsm-ready .nsm-tab .dot {
+    position: absolute; top: 7px; left: calc(50% + 8px); width: 10px; height: 10px;
+    border-radius: 50%; background: #ef4444; border: 2px solid #fff; display: none;
+}
+html.nsm-ready .nsm-tab.has-dot .dot { display: block; }
+
+/* 5d) MENU KÉO LÊN TỪ ĐÁY (chính là #mega-nav cũ, đổi cách hiển thị) */
+html.nsm-ready .nsm-scrim {
+    display: block; position: fixed; inset: 0; z-index: 1070; background: rgba(15,23,42,.5);
+    opacity: 0; pointer-events: none; transition: opacity .25s ease;
+}
+html.nsm-ready .nsm-scrim.on { opacity: 1; pointer-events: auto; }
+html.nsm-ready .ns-sidebar {
+    top: auto; left: 0; right: 0; bottom: 0; width: 100% !important;
+    max-height: 86vh; max-height: 86dvh; border: 0; border-radius: 24px 24px 0 0;
+    padding: 8px 14px calc(18px + var(--nsm-sab));
+    background: #fff; z-index: 1075; overscroll-behavior: contain;
+    box-shadow: 0 -14px 44px rgba(15,23,42,.3);
+    transform: translateY(105%); visibility: hidden;
+    transition: transform .3s cubic-bezier(.2,.8,.2,1), visibility 0s linear .3s;
+}
+html.nsm-ready .ns-sidebar.nsm-open { transform: none; visibility: visible; transition: transform .3s cubic-bezier(.2,.8,.2,1), visibility 0s; }
+html.nsm-ready .ns-sidebar::before {
+    content: ""; display: block; width: 40px; height: 4px; border-radius: 3px;
+    background: #cbd5e1; margin: 2px auto 10px;
+}
+html.nsm-ready .nsm-profile { display: flex; align-items: center; gap: 12px; padding: 4px 2px 12px; }
+html.nsm-ready .nsm-avatar {
+    width: 46px; height: 46px; border-radius: 50%; flex: none; display: grid; place-items: center;
+    background: linear-gradient(135deg,#0d6efd,#4f9bff); color: #fff; font-weight: 800; font-size: 1.15rem;
+}
+html.nsm-ready .nsm-profile > div:nth-child(2) { min-width: 0; flex: 1; line-height: 1.25; }
+html.nsm-ready .nsm-profile b { display: block; font-size: .98rem; color: #0f172a; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+html.nsm-ready .nsm-profile small { color: #64748b; font-weight: 600; }
+html.nsm-ready .nsm-x {
+    flex: none; width: 38px; height: 38px; border: 0; border-radius: 50%;
+    background: #f1f5f9; color: #475569; display: grid; place-items: center; font-size: 1rem;
+}
+html.nsm-ready .ns-sidebar-group { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 8px; margin-bottom: 4px; }
+html.nsm-ready .ns-sidebar-group.nsm-pair { display: inline-grid; grid-template-columns: 1fr; width: calc((100% - 16px) / 3); margin-right: 8px; vertical-align: top; }
+html.nsm-ready .ns-sidebar-group-title {
+    grid-column: 1 / -1; height: auto; width: auto; margin: 12px 2px 0; padding: 0;
+    border: 0; font-size: .68rem; letter-spacing: .05em; color: #94a3b8;
+}
+html.nsm-ready .ns-sidebar-item {
+    flex-direction: column; justify-content: flex-start; gap: 7px; width: auto; margin: 0;
+    padding: 13px 6px 10px; min-height: 86px; text-align: center; white-space: normal;
+    background: #f8fafc; border: 1px solid #eef2f7; border-radius: 16px;
+    font-size: .74rem; line-height: 1.2; color: #334155;
+}
+html.nsm-ready .ns-sidebar-icon { flex: none; width: auto; font-size: 1.55rem; color: var(--nsm-blue); }
+html.nsm-ready .ns-sidebar-badge-dot { top: -6px; right: -12px; }
+html.nsm-ready .ns-label { opacity: 1; max-width: none; overflow: visible; }
+html.nsm-ready .ns-sidebar-item.mega-active { background: #e8f1ff; border-color: #b6d4fe; color: var(--nsm-blue); }
+html.nsm-ready .ns-sidebar-item.nsm-danger { background: #fff5f5; border-color: #fecaca; color: #b91c1c; }
+html.nsm-ready .ns-sidebar-item.nsm-danger .ns-sidebar-icon { color: #dc2626; }
+
+/* Màn hình rất nhỏ (iPhone SE, 320-359px) */
+@media (max-width: 359.98px) {
+    html.nsm-ready .nsm-tab { font-size: .6rem; }
+    html.nsm-ready .nsm-tab i { font-size: 1.25rem; }
+    html.nsm-ready .ns-sidebar-group { grid-template-columns: repeat(2, minmax(0,1fr)); }
+    html.nsm-ready .ns-sidebar-group.nsm-pair { width: calc((100% - 8px) / 2); margin-right: 8px; }
+    html.nsm-ready .nsm-pair ~ .nsm-pair { margin-right: 0; }
+}
+/* Điện thoại xoay ngang: thanh gọn lại */
+@media (max-height: 480px) {
+    :root { --nsm-bar: 46px; --nsm-tab: 46px; }
+    html.nsm-ready .nsm-tab { flex-direction: row; gap: 6px; font-size: .74rem; }
+    html.nsm-ready .nsm-tab i { font-size: 1.15rem; }
+    html.nsm-ready .nsm-tab.on::before { width: 24px; margin-left: -12px; }
+    html.nsm-ready .ns-sidebar { max-height: 94vh; }
+}
+
+/* =====================================================================
+   6) CÁC TRANG PHỤ: thanh trên riêng của từng trang -> kiểu app bar
+   ===================================================================== */
+/* orders.html + stocktake.html: .ns-topbar */
+.ns-topbar {
+    position: sticky; top: 0; z-index: 1030; flex-wrap: nowrap !important;
+    padding: calc(8px + var(--nsm-sat)) 12px 8px !important; gap: .5rem !important;
+    border-bottom-width: 1px !important; box-shadow: 0 1px 10px rgba(15,23,42,.07) !important;
+}
+.ns-topbar .brand-logo { max-height: 32px; }
+.ns-topbar .ns-title { font-size: .98rem !important; }
+.ns-topbar .ns-subtitle { display: none !important; }
+.ns-topbar > div:first-child { min-width: 0; flex: 1 1 auto; }
+.ns-topbar > div:last-child:not(:first-child) { flex: 0 0 auto; }
+.ns-topbar .btn {                               /* nút chỉ còn icon, tròn 40px */
+    font-size: 0 !important; width: 40px; height: 40px; min-height: 40px !important;
+    padding: 0 !important; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center;
+}
+.ns-topbar .btn .bi, .ns-topbar .btn i { font-size: 1.15rem; margin: 0 !important; }
+body.embed .ns-topbar { display: none !important; }
+
+.container-main, .app-container { padding-bottom: calc(24px + var(--nsm-sab)); }
+
+/* audit_log.html */
+.al-top { padding-top: var(--nsm-sat); }
+.al-top-inner { flex-wrap: nowrap !important; gap: 8px !important; padding: 8px 12px !important; }
+.al-title { gap: 10px !important; }
+.al-title .ico { width: 36px !important; height: 36px !important; font-size: 1.1rem !important; }
+.al-title h1 { font-size: 1rem !important; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.al-actions { flex-wrap: nowrap !important; gap: 6px !important; }
+.al-actions .lbl { display: none !important; }
+.al-actions .btn { width: 40px; min-height: 40px; padding: 0 !important; display: inline-flex; align-items: center; justify-content: center; border-radius: 50%; }
+.al-wrap { padding-bottom: calc(40px + var(--nsm-sab)) !important; }
+.toast-wrap { right: 12px; left: 12px; bottom: calc(14px + var(--nsm-sab)); }
+
+/* warehouse3d.html: toàn màn hình như app bản đồ */
+#app { height: 100vh; height: 100dvh; }
+#topbar { padding: calc(8px + var(--nsm-sat)) 12px 8px !important; position: relative; z-index: 20; }
+#topbar > .d-flex { gap: .4rem !important; }
+#topbar a.btn { font-size: 0; width: 40px; height: 40px; padding: 0; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; }
+#topbar a.btn .bi { font-size: 1.15rem; margin: 0; }
+#topbar .text-muted.small.ms-2 { display: none; }
+#search-part-form { order: 9; flex: 1 1 100% !important; max-width: none !important; margin: 0 !important; }
+#search-part-form .form-control { min-height: 44px; border-radius: 12px 0 0 12px; }
+#search-part-form .btn { min-height: 44px; min-width: 48px; border-radius: 0 12px 12px 0; }
+#canvas-container { height: 42vh; height: 42dvh; flex: 0 0 42vh; flex: 0 0 42dvh; }
+.canvas-hint { font-size: 11px; max-width: calc(100% - 20px); }
+#sidebar {
+    border-radius: 20px 20px 0 0; margin-top: -16px; position: relative; z-index: 6;
+    box-shadow: 0 -10px 28px rgba(15,23,42,.14); padding-bottom: calc(18px + var(--nsm-sab));
+}
+#toast-container { top: calc(10px + var(--nsm-sat)); right: 12px; left: 12px; }
+.cell-btn { min-height: 34px; }
+
+/* =====================================================================
+   7) ĐĂNG NHẬP: toàn màn hình như màn hình mở app
+   ===================================================================== */
+.login-card {
+    max-width: none; min-height: 100vh; min-height: 100dvh; border-radius: 0; box-shadow: none;
+    border-top-width: 0; display: flex; flex-direction: column; justify-content: center;
+    padding: calc(24px + var(--nsm-sat)) 24px calc(24px + var(--nsm-sab));
+}
+body:has(> .login-card) { padding: 0; background: #fff; align-items: stretch; }
+.login-card .brand-logo { max-height: 72px; }
+.login-card .btn-nam-suong { min-height: 50px; font-size: 1rem; border-radius: 14px; }
+.login-card .input-group-text, .login-card .form-control { min-height: 50px; }
+
+}   /* /@media (max-width: 767.98px) */

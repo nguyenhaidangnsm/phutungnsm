@@ -1310,6 +1310,9 @@
         #gdh-pane.gdh-max #gdhGomView > .card > .gdh-scroll { flex:1 1 0; height:auto !important; min-height:0; overscroll-behavior:contain; }
         #gdh-pane.gdh-max .gdh-bar, #gdh-pane.gdh-max .gdh-top > :not(.gdh-settings), #gdh-pane.gdh-max #gdhTopBtn { display:none !important; }
         #gdh-pane.gdh-max .gdh-top { display:block !important; }
+        /* Khi khung Gôm đơn / Duyệt đơn đang phóng to (z-index 1060), hộp thoại Bootstrap (mặc định 1055) bị che phía sau -> nâng hộp thoại + lớp nền lên trên, chỉ áp dụng lúc đang phóng to. Toast (1100) vẫn nằm trên cùng. */
+        body:has(#gdh-pane.gdh-max) .modal-backdrop, body:has(#order-check-pane.oc-max) .modal-backdrop { z-index:1070; }
+        body:has(#gdh-pane.gdh-max) .modal, body:has(#order-check-pane.oc-max) .modal { z-index:1075; }
         #gdh-pane .gdh-chips { display:flex; flex-wrap:wrap; gap:3px; min-width:150px; max-width:210px; }
         #gdh-pane .gdh-chip { display:inline-block; font-size:.72rem; line-height:1; padding:3px 6px; border-radius:999px; background:var(--c-eef2f7); color:var(--c-334155); white-space:nowrap; }
         #gdh-pane .gdh-chip b { color:var(--c-0f172a); }
@@ -1470,3 +1473,65 @@
 .ov-mini>i{font-size:1.4rem}.ov-mini-t{font-weight:600;font-size:.82rem;color:var(--c-475569);margin-bottom:2px}
 @media(max-width:575.98px){.ov-hero{padding:16px}.ov-hero-num{font-size:2.6rem}.ov-flow{grid-template-columns:repeat(3,1fr)}.ov-kpis{grid-template-columns:repeat(2,1fr)}}
 @media(prefers-reduced-motion:reduce){.ov-track i,.ov-stack i{transition:none}}
+
+/* =====================================================================
+   MOBILE REFRESH - chỉ áp dụng khi màn hình <= 767.98px (điện thoại).
+   Đặt CUỐI file để ghi đè nhẹ; CHỈ đổi kích thước/khoảng cách/cỡ chữ,
+   KHÔNG đổi id/class/cấu trúc mà JS đang dùng, KHÔNG ảnh hưởng máy tính.
+   Cố ý loại trừ khu vực Gôm đơn hàng (#gdh-pane, .gdh-table) vì khu vực
+   đó có bề rộng cột cố định riêng.
+   ===================================================================== */
+@media (max-width: 767.98px) {
+
+    /* 1) HEADER: trước đây chữ + 5 nút xuống 2-3 dòng, header cố định
+          chiếm gần 1/4 màn hình. Thu gọn đệm, cỡ chữ, nút để vừa 1-2 dòng. */
+    .brand-banner { padding: .4rem .55rem .4rem .45rem; }
+    .brand-banner.gap-3 { gap: .35rem !important; }
+    .brand-banner h4.fs-6 { font-size: .86rem !important; line-height: 1.25; }
+    .brand-banner .badge[style*="font-size: 0.7rem"] { font-size: .62rem !important; padding: .25rem .45rem !important; }
+    .brand-banner .d-flex.ms-auto { gap: .3rem !important; flex-wrap: wrap; justify-content: flex-end; }
+    .brand-banner .d-flex > .btn:not(.btn-close),
+    .brand-banner .d-flex > .dropdown > .btn:not(.btn-close) {
+        min-height: 32px; padding: .2rem .5rem; font-size: .78rem; line-height: 1.2;
+    }
+    /* chip tên người dùng: không cho chiếm hết bề ngang, cắt bằng dấu ... */
+    .brand-banner .badge.text-truncate { max-width: 42vw !important; font-size: .74rem; padding: .35rem .55rem !important; }
+
+    /* Logo ở ô góc: trước đây rộng 70px tràn ra khỏi ô 54px đè lên chữ tiêu đề */
+    .ns-topbar-corner { padding-left: 6px; }
+    .ns-topbar-corner-logo { width: 42px; }
+
+    /* 2) NỘI DUNG: khoảng đệm đều hai bên, thẻ gọn hơn */
+    .app-container { padding-bottom: .5rem; }
+    .card-custom { border-radius: 12px; }
+    .stat-card h3 { font-size: 1.2rem; }
+    .stat-icon { width: 36px; height: 36px; font-size: 1.1rem; border-radius: 8px; }
+
+    /* 3) TAB CON dạng pill: gọn hơn, vẫn cuộn ngang như cũ */
+    .nav-pills .nav-link { padding: 8px 12px; font-size: .85rem; }
+
+    /* 4) BẢNG (trừ bảng Gôm đơn hàng và .table-sm): chữ + đệm gọn để thấy
+          nhiều cột hơn; khung cuộn dọc không cao quá màn hình điện thoại
+          (vẫn giữ nguyên cơ chế tiêu đề dính của .table-responsive). */
+    .table:not(.table-sm):not(.gdh-table) { font-size: .82rem; }
+    .table:not(.table-sm):not(.gdh-table) > :not(caption) > * > * { padding: .4rem .45rem; }
+    .table:not(.table-sm):not(.gdh-table) thead th { font-size: .68rem; letter-spacing: .01em; }
+    .table-responsive { max-height: min(550px, 72vh); }
+    .part-code { font-size: .82rem; padding: 2px 7px; }
+
+    /* 5) CỬA SỔ (modal): lề đều, đệm gọn */
+    .modal-dialog:not(.modal-fullscreen) { margin: .5rem; }
+    .modal-header, .modal-footer { padding: .6rem .85rem; }
+    .modal-body { padding: .85rem; }
+    .modal-title { font-size: 1rem; }
+}
+
+/* 6) iPhone/iPad: ô nhập có cỡ chữ < 16px khiến Safari TỰ PHÓNG TO trang khi
+      chạm vào ô, làm bố cục bị lệch/kéo ngang. Đặt đúng 16px cho ô nhập cỡ
+      thường (không đụng ô .form-control-sm trong bảng để khỏi giãn dòng). */
+@supports (-webkit-touch-callout: none) {
+    @media (max-width: 767.98px) {
+        .form-control:not(.form-control-sm),
+        .form-select:not(.form-select-sm) { font-size: 16px; }
+    }
+}

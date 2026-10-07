@@ -2,7 +2,7 @@
 <html lang="vi">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
     <meta name="theme-color" content="#0d6efd">
     <link rel="icon" type="image/png" href="{{ url_for('static', filename='logo.png') }}">
     <title>Cổng Thông Tin & Tra Cứu Phụ Tùng - Nam Sương Motor</title>
@@ -64,9 +64,14 @@
     }
     </style>
     <script src="/static/ns-dialog.js"></script>
-</head>
 <link rel="manifest" href="/static/manifest.json">
-<meta name="theme-color" content="#0d6efd">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Nam Sương">
+<link rel="apple-touch-icon" href="{{ url_for('static', filename='logo.png') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='mobile.css') }}?v=1">
+</head>
 <!-- Toast container cho thông báo -->
 <div class="toast-container position-fixed bottom-0 end-0 p-3" style="z-index: 1100;" id="toast-container"></div>
 <body>
@@ -3545,6 +3550,7 @@
     const NS_LOGO_URL = "{{ url_for('static', filename='logo.png') }}";
 </script>
 <script src="{{ url_for('static', filename='app.js') }}"></script>
+<script src="{{ url_for('static', filename='mobile.js') }}?v=1"></script>
 <div id="imgLightboxOverlay" onclick="closeImageLightbox(event)">
     <span class="lightbox-close" onclick="closeImageLightbox(event)">&times;</span>
     <img id="imgLightboxImg" src="" alt="">
