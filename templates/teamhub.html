@@ -14,12 +14,12 @@
 <link rel="icon" href="/static/logo-mark.png">
 <link rel="preload" href="/static/fonts/SVN-MonaSans-SemiBoldWide.woff" as="font" type="font/woff" crossorigin>
 <style>
-:root{--bg:#0d0f13;--card:#16191f;--line:#252a33;--text:#eef0f4;--mute:#8d95a5;--acc:#ff4d3f;--accbg:rgba(255,77,63,.13);--red:#e5484d;--r:16px;--onacc:#fff;--dtxt:#ff7a7f;--tbg:#2a3350;color-scheme:dark}
+:root{--f-main:system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,"Noto Sans",sans-serif;--f-brand:"SVN-MonaSans",var(--f-main);--bg:#0d0f13;--card:#16191f;--line:#252a33;--text:#eef0f4;--mute:#8d95a5;--acc:#ff4d3f;--accbg:rgba(255,77,63,.13);--red:#e5484d;--r:16px;--onacc:#fff;--dtxt:#ff7a7f;--tbg:#2a3350;color-scheme:dark}
 :root[data-theme="light"]{--bg:#f3f4f7;--card:#fff;--line:#dde0e7;--text:#15181f;--mute:#5d6676;--acc:#d92b1f;--accbg:rgba(217,43,31,.09);--red:#d92d33;--onacc:#fff;--dtxt:#c8232a;--tbg:#1f2637;color-scheme:light}
 *{box-sizing:border-box;margin:0}
 html,body{height:100%}
 @font-face{font-family:"SVN-MonaSans";src:url("/static/fonts/SVN-MonaSans-SemiBoldWide.woff") format("woff"),url("/static/fonts/SVN-MonaSans-SemiBoldWide.otf") format("opentype");font-weight:100 900;font-style:normal;font-display:swap}
-body{background:var(--bg);color:var(--text);font:14px/1.5 "SVN-MonaSans",system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif;font-synthesis:none;-webkit-font-smoothing:antialiased}
+body{background:var(--bg);color:var(--text);font:14px/1.5 var(--f-main);font-synthesis:none;-webkit-font-smoothing:antialiased}
 button,input,select{font:inherit;color:inherit}
 button{background:none;border:0;cursor:pointer}
 :focus-visible{outline:2px solid var(--acc);outline-offset:2px}
@@ -234,6 +234,83 @@ body{font-size:15px}
 .egrid button:hover{background:var(--accbg)}
 .egrid.stk{grid-template-columns:repeat(auto-fill,minmax(72px,1fr))}
 .egrid.stk button{font-size:44px;padding:8px 0}
+
+/* ===== v4: font + khung chat cố định trên điện thoại ===== */
+/* Font SVN-MonaSans chỉ dùng cho chữ quan trọng: logo, tiêu đề, menu, nút, nhãn, tên người */
+.logo,h2,.side .nv,.tabs button,.home-pill,.chip,.btn,.tag,.name,.who-n,.seg button,.etabs button,.lnk,.dsep{font-family:var(--f-brand)}
+/* Nội dung (bài viết, tin nhắn, bình luận, ô nhập, giờ giấc) dùng font hệ thống cho dễ đọc */
+input,select,textarea,.post-text,.m,.cmt,.meta,.stats,.fct{font-family:var(--f-main)}
+@media(max-width:899px){
+  html.inconv,html.inconv body{overflow:hidden;overscroll-behavior:none;height:var(--app-h,100dvh)}
+  html.inconv .top,html.inconv .tabs,html.inconv #toast{display:none}
+  html.inconv main{padding:0}
+  /* Khung chat: ghim kín màn hình, cao đúng bằng vùng nhìn thấy (đã trừ bàn phím) */
+  html.inconv #v-chat{position:fixed;left:0;right:0;top:var(--app-t,0px);height:var(--app-h,100dvh);padding:0;z-index:7;background:var(--bg);display:block}
+  html.inconv .chat,html.inconv .cwin{height:100%;min-height:0}
+  html.inconv .cwin{padding:calc(8px + env(safe-area-inset-top,0px)) 12px calc(8px + env(safe-area-inset-bottom,0px))}
+  html.inconv.kb .cwin{padding-bottom:8px}
+  html.inconv .chead,html.inconv #cwin .cmtin,html.inconv .pickline,html.inconv .epanel{flex:none}
+  html.inconv .msgs{flex:1 1 auto;min-height:0}
+  html.inconv #cwin .cmtin{padding:10px 0 0;gap:8px}
+  html.inconv #cwin .cmtin input{padding:12px 16px;min-width:0}
+  html.inconv #cwin .btn{padding:12px 18px}
+  html.inconv #cwin .icon-btn{width:44px;height:44px}
+}
+
+/* ===== v5: giao diện điện thoại mới ===== */
+@media(max-width:899px){
+  body{font-size:15px}
+  /* Thanh trên: gọn, mờ kính */
+  .top{padding:calc(8px + env(safe-area-inset-top,0px)) 14px 8px;background:color-mix(in srgb,var(--bg) 86%,transparent);-webkit-backdrop-filter:blur(14px);backdrop-filter:blur(14px)}
+  .logo{font-size:17px;gap:8px}.logo-img{height:30px}
+  .home-pill{padding:7px 12px;font-size:13px}
+  .icon-btn{background:transparent}
+  .top .icon-btn{background:var(--card);border:1px solid var(--line)}
+  .view{padding:14px 12px}
+  h2{font-size:22px;margin:2px 2px 14px}
+  /* Bảng tin: bài viết tràn mép, ngăn cách bằng dải nền */
+  #v-feed .card{margin:0 -12px 8px;border-radius:0;border-width:1px 0;padding:14px 14px 6px}
+  #v-feed .composer{padding:12px 14px;margin-bottom:8px}
+  .composer input{background:var(--bg);padding:12px 16px}
+  .chips{margin:0 -12px;padding:0 12px 12px}
+  .chip{padding:8px 15px;font-size:14px;background:transparent}
+  .av{width:42px;height:42px}
+  .name{font-size:15px}
+  .tag{font-size:11.5px;padding:2px 8px}
+  .post-text{font-size:16px;line-height:1.55;margin:12px 0}
+  .post-img{border-radius:10px}
+  .stats{padding-bottom:8px}
+  .acts{padding:2px 0 0}
+  .acts button{flex:1;justify-content:center;padding:11px 4px;font-size:14px;border-radius:10px}
+  /* Thanh tab dưới: biểu tượng có viên thuốc báo tab đang chọn */
+  main{padding-bottom:calc(72px + env(safe-area-inset-bottom,0px))}
+  .tabs{background:color-mix(in srgb,var(--card) 92%,transparent);-webkit-backdrop-filter:blur(14px);backdrop-filter:blur(14px)}
+  .tabs button{padding:8px 0 6px;font-size:11px;gap:3px}
+  .tabs button span{width:54px;height:30px;border-radius:15px;transition:background .15s}
+  .tabs button.on span{background:var(--accbg)}
+  .tabs button span .ic{width:22px;height:22px}
+  /* Danh sách chat */
+  #v-chat .clist h2{margin-bottom:10px}
+  .citem{padding:12px 4px;border-radius:0;border-bottom:1px solid var(--line)}
+  .citem.on,.citem:hover{background:transparent}
+  .citem .name{font-size:16px}
+  .citem .last{font-size:14px;max-width:62vw}
+  .av{flex:none}
+  /* Tin nhắn */
+  .m{max-width:84%;font-size:16px}
+  .dsep{font-size:11.5px}
+  /* Trong cuộc trò chuyện */
+  html.inconv .cwin{padding:0 12px calc(8px + env(safe-area-inset-bottom,0px));background:var(--bg)}
+  html.inconv.kb .cwin{padding-bottom:8px}
+  html.inconv .chead{margin:0 -12px;padding:calc(8px + env(safe-area-inset-top,0px)) 12px 10px;background:var(--card);border-bottom:1px solid var(--line)}
+  html.inconv .chead .name{font-size:17px}
+  html.inconv .msgs{padding:12px 2px}
+  /* Ô nhập: một viên thuốc liền, nút Gửi nằm trong */
+  html.inconv #cwin .cmtin{background:var(--card);border:1px solid var(--line);border-radius:28px;padding:5px;gap:0;align-items:center}
+  html.inconv #cwin .cmtin input#msgin{border:0;background:transparent;padding:10px 6px;font-size:16px;border-radius:0}
+  html.inconv #cwin .icon-btn{width:40px;height:40px;background:transparent;color:var(--mute);border:0}
+  html.inconv #cwin .btn{height:40px;padding:0 18px;border-radius:20px;box-shadow:none}
+}
 </style>
     <script src="/static/ns-dialog.js"></script>
 </head>
@@ -298,6 +375,15 @@ body{font-size:15px}
 </nav>
 
 <script>
+/* Khung chat cố định: --app-h = chiều cao vùng nhìn thấy thật (trừ bàn phím), --app-t = độ lệch trên (iOS) */
+(function(){var vv=window.visualViewport,r=document.documentElement,max=0;
+function fit(){var h=vv?vv.height:innerHeight,t=vv?vv.offsetTop:0;max=Math.max(max,h);
+r.style.setProperty('--app-h',Math.round(h)+'px');r.style.setProperty('--app-t',Math.round(t)+'px');
+r.classList.toggle('kb',max-h>150)}
+fit();if(vv){vv.addEventListener('resize',fit);vv.addEventListener('scroll',fit)}
+addEventListener('resize',fit);addEventListener('orientationchange',function(){max=0;setTimeout(fit,250)})})();
+</script>
+<script>
 const $=s=>document.querySelector(s),$$=s=>[...document.querySelectorAll(s)];
 const ic=(n,c='')=>`<svg class="ic ${c}"><use href="#i-${n}"/></svg>`;
 const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
@@ -341,6 +427,7 @@ let ME,CATS=[],cat='Tất cả',view='feed',posts=[],more=false,cur=null,lastMsg
 
 /* ---------- điều hướng ---------- */
 function go(v){
+  document.documentElement.classList.remove('inconv');
   view=v;document.querySelector('.app').classList.toggle('chatmode',v==='chat');
   $$('.view').forEach(e=>e.classList.toggle('on',e.id==='v-'+v));
   $$('[data-v]').forEach(b=>{if(b.classList.contains('nv')||b.closest('.tabs'))b.classList.toggle('on',b.dataset.v===v)});
@@ -535,14 +622,15 @@ document.addEventListener('drop',e=>{
 });
 const openChat=safe(async id=>{
   cur=id;lastMsg=0;lastDay='';CF=null;const c=convos.find(x=>x.id===id)||{name:'Trò chuyện'};
-  $('#chat').classList.add('open');
+  $('#chat').classList.add('open');document.documentElement.classList.add('inconv');
   $('#cwin').innerHTML=`<div class="chead"><button class="back" id="back" aria-label="Quay lại">${ic('chev-left')}</button>${av(c.name,'s')}<div class="name">${esc(c.name)}</div></div><div class="msgs" id="msgs"></div><div class="pickline" id="cpick" hidden></div><div class="epanel" id="epanel" hidden></div><div class="cmtin"><label class="icon-btn" style="display:grid;place-items:center;cursor:pointer;flex:none" title="Đính kèm ảnh hoặc tệp" aria-label="Đính kèm ảnh hoặc tệp"><svg class="ic "><use href="#i-clip"/></svg><input type="file" id="cfile" hidden></label><button type="button" class="icon-btn" id="emobtn" title="Biểu tượng cảm xúc và sticker" aria-label="Biểu tượng cảm xúc và sticker" style="flex:none"><svg class="ic "><use href="#i-smile"/></svg></button><input id="msgin" placeholder="Nhập tin nhắn..." maxlength="2000"><button class="btn" id="msgsend">Gửi</button></div>`;
-  $('#back').onclick=()=>{cur=null;$('#chat').classList.remove('open');loadConvos()};
+  $('#back').onclick=()=>{cur=null;$('#chat').classList.remove('open');document.documentElement.classList.remove('inconv');loadConvos()};
   $('#msgsend').onclick=sendMsg;
   $('#cfile').onchange=()=>{CF=$('#cfile').files[0]||null;showCPick()};
   $('#cpick').onclick=e=>{if(e.target.id==='cpx'){CF=null;$('#cfile').value='';showCPick()}};
   $('#msgin').addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.isComposing)sendMsg()});
   $('#emobtn').onclick=toggleEmo;
+  $('#msgin').addEventListener('focus',()=>setTimeout(()=>{const b=$('#msgs');if(b)b.scrollTop=b.scrollHeight},300));
   $('#epanel').onclick=emoClick;
   await pullMsgs();renderConvos();
 });
