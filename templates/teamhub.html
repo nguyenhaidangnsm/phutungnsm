@@ -311,6 +311,13 @@ input,select,textarea,.post-text,.m,.cmt,.meta,.stats,.fct{font-family:var(--f-m
   html.inconv #cwin .icon-btn{width:40px;height:40px;background:transparent;color:var(--mute);border:0}
   html.inconv #cwin .btn{height:40px;padding:0 18px;border-radius:20px;box-shadow:none}
 }
+/* ===== lightbox xem ảnh ===== */
+.zoomable{cursor:zoom-in}
+#lb{position:fixed;inset:0;z-index:1000;display:none;align-items:center;justify-content:center;background:rgba(0,0,0,.92);touch-action:none}
+#lb.on{display:flex}
+#lb img{max-width:100%;max-height:100%;object-fit:contain;user-select:none;-webkit-user-drag:none}
+#lb .lb-x{position:absolute;top:calc(10px + env(safe-area-inset-top,0px));right:14px;width:46px;height:46px;border-radius:50%;border:0;background:rgba(255,255,255,.18);color:#fff;font-size:26px;line-height:1;display:grid;place-items:center;cursor:pointer}
+#lb .lb-o{position:absolute;left:50%;transform:translateX(-50%);bottom:calc(18px + env(safe-area-inset-bottom,0px));padding:9px 16px;border-radius:20px;background:rgba(255,255,255,.18);color:#fff;font-size:14px;text-decoration:none}
 </style>
     <script src="/static/ns-dialog.js"></script>
 </head>
@@ -446,7 +453,7 @@ const loadFeed=safe(async(append=false)=>{
 function card(p){
   const cm=p.open?`<div class="cmts">${(p.cm||[]).map(c=>`<div class="cmt">${av(c.name,'s')}<div><div><b>${esc(c.name)}</b>${esc(c.body)}</div></div>${c.mine||ME.is_admin?`<button class="cdel" data-a="cdel" data-cid="${c.id}" title="Xoá bình luận" aria-label="Xoá bình luận">${ic('x')}</button>`:''}</div>`).join('')}<div class="cmtin"><input placeholder="Viết bình luận..." maxlength="500"><button class="btn ghost" data-a="send">Gửi</button></div></div>`:'';
   return `<article class="card" data-id="${p.id}"><div class="row">${av(p.name)}<div style="flex:1;min-width:0"><div><span class="name">${esc(p.name)}</span><span class="tag">${esc(p.category)}</span></div><div class="meta">${esc(p.branch)}${p.branch?' · ':''}${ago(p.created_at)}</div></div>${p.mine||ME.is_admin?'<button class="icon-btn" data-a="del" title="Xoá bài" aria-label="Xoá bài">'+ic('trash')+'</button>':''}</div>
-  ${p.body?`<p class="post-text">${esc(p.body)}</p>`:''}${p.image?`<img class="post-img" loading="lazy" src="/static/teamhub_uploads/${esc(p.image)}" alt="">`:''}${p.file_path?`<div class="post-file">${fcHtml(p.file_path,p.file_name,p.file_size)}</div>`:''}
+  ${p.body?`<p class="post-text">${esc(p.body)}</p>`:''}${p.image?`<img class="post-img zoomable" loading="lazy" src="/static/teamhub_uploads/${esc(p.image)}" alt="">`:''}${p.file_path?`<div class="post-file">${fcHtml(p.file_path,p.file_name,p.file_size)}</div>`:''}
   <div class="stats"><span>${p.likes?ic('heart','fill sm')+' '+p.likes:''}</span><span>${p.ncm} bình luận</span></div>
   <div class="acts"><button class="${p.liked?'liked':''}" data-a="like">${ic('heart',p.liked?'fill':'')} Thích</button><button data-a="cm">${ic('chat')} Bình luận</button><button data-a="share">${ic('share')} Chia sẻ</button></div>${cm}</article>`;
 }
@@ -575,7 +582,7 @@ $('#online').addEventListener('click',e=>{const b=e.target.closest('[data-dm]');
 const startDm=safe(async to=>{const d=await post('dm',{to});go('chat');await loadConvos();openChat(d.id)});
 let CF=null,lastDay='';
 function showCPick(){const p=$('#cpick');if(!p)return;if(!CF){p.hidden=true;return}p.hidden=false;let th='';try{if(CF.type&&CF.type.startsWith('image/')){CF._u=CF._u||URL.createObjectURL(CF);th=`<img class="pk-th" src="${CF._u}" alt="">`}}catch(e){}p.innerHTML=`${th||ic('clip','sm')} ${esc(CF.name)} · ${fsz(CF.size)} <button class="lnk" id="cpx">Bỏ</button>`}
-const attHtml=m=>!m.att?'':m.att_kind==='image'?`<a href="/teamhub/file/${esc(m.att)}" target="_blank" rel="noopener"><img class="m-img" loading="lazy" src="/teamhub/file/${esc(m.att)}" alt="Ảnh"></a>`:fcHtml(m.att,m.att_name,m.att_size);
+const attHtml=m=>!m.att?'':m.att_kind==='image'?`<img class="m-img zoomable" loading="lazy" src="/teamhub/file/${esc(m.att)}" alt="Ảnh">`:fcHtml(m.att,m.att_name,m.att_size);
 let STK=null;try{STK=new RegExp('^(?:\\p{Extended_Pictographic}(?:\\uFE0F|\\u200D|\\p{Emoji_Modifier})*){1,3}$','u')}catch(e){}
 const isStk=m=>!!(STK&&m.body&&!m.att&&STK.test(m.body.trim()));
 const dayKey=iso=>{const d=new Date(iso);return d.getFullYear()+'-'+d.getMonth()+'-'+d.getDate()};
@@ -708,6 +715,25 @@ if('serviceWorker' in navigator)navigator.serviceWorker.register('/teamhub/sw.js
   }catch(e){
     if(e.message!=='login')document.querySelector('.app').innerHTML=`<div class="empty" style="grid-column:1/-1;padding:80px 20px">${esc(e.message)}</div>`;
   }
+})();
+</script>
+<script>
+/* lightbox xem ảnh: nút ✕, bấm nền, Esc, nút Back điện thoại */
+(function(){
+  var lb=document.createElement('div');lb.id='lb';
+  lb.innerHTML='<button type="button" class="lb-x" aria-label="Đóng">&#10005;</button><img alt=""><a class="lb-o" target="_blank" rel="noopener">Mở ảnh gốc</a>';
+  document.body.appendChild(lb);
+  var im=lb.querySelector('img'),ol=lb.querySelector('.lb-o'),pushed=false;
+  function open(src){im.src=src;ol.href=src;lb.classList.add('on');try{history.pushState({lb:1},'');pushed=true}catch(e){pushed=false}}
+  function close(fromPop){if(!lb.classList.contains('on'))return;lb.classList.remove('on');im.src='';if(pushed&&!fromPop){pushed=false;try{history.back()}catch(e){}}pushed=false}
+  document.addEventListener('click',function(e){
+    var t=e.target;
+    if(t.closest&&t.closest('#lb')){if(t.tagName!=='A'&&t!==im)close();return}
+    var z=t.closest&&t.closest('img.zoomable');
+    if(z){e.preventDefault();open(z.currentSrc||z.src)}
+  });
+  window.addEventListener('popstate',function(){close(true)});
+  document.addEventListener('keydown',function(e){if(e.key==='Escape')close()});
 })();
 </script>
 <script src="/static/push.js?v=1" defer></script>
