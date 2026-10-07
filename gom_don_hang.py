@@ -59,6 +59,16 @@ from app import (get_db, _valid_store_codes, classify_sales_frequency,
 # Mã không được đặt (vd khung xe 50100...) - dùng CHUNG quy tắc với app.py, sửa 1 chỗ là áp dụng cho cả hai.
 _EXCL_LIKE = [p + '%' for p in EXCLUDED_REORDER_PART_CODE_PREFIXES]
 
+
+def _push(target, title, body, go):
+    """Thông báo đẩy (xem push_notify.py): target = mã cửa hàng hoặc 'ALL' (admin). Chỉ xếp hàng, gửi sau khi request
+    thành công; lỗi gì cũng nuốt - không bao giờ ảnh hưởng luồng gôm/duyệt đơn."""
+    try:
+        from push_notify import queue_push
+        queue_push(target, title, body, go=go)
+    except Exception:
+        pass
+
 gom_don_hang_bp = Blueprint('gom_don_hang', __name__)
 _VN_TZ = ZoneInfo('Asia/Ho_Chi_Minh')
 
@@ -1647,6 +1657,7 @@ def gdh_submit():
         _log_event(cur, new_id, 'draft', 'pending', note or f'Chi nhánh đẩy đơn {ot} (tách từ phiên gôm {old_id})')
         _log_event(cur, old_id, 'draft', 'draft', f'Đẩy {len(codes)} mã {ot} sang đơn {new_id}, đã xoá khỏi phiên gôm')
         db.commit()
+        _push('ALL', 'Đơn gôm chờ duyệt', f"{batch['store_code']} vừa đẩy đơn {ot}: {n} mã, tổng SL {sum(r['qty_final'] for r in pick):g}.", 'review')
         remaining = {t: sum(1 for r in rows if r['order_type'] == t and r['qty_final'] > 0) for t in ORDER_TYPES if t != ot}
         print(f"[gdh] submit {ot}: phiên {old_id} -> đơn {new_id}, {len(codes)} mã, {(time.perf_counter() - _t0) * 1000:.0f} ms")
         audit_record('Đẩy đơn gôm cho admin duyệt', 'Gôm đơn hàng', target=f"đợt {new_id}",
@@ -1892,6 +1903,7 @@ def gdh_reject():
                 db.rollback()
                 return _bad_state(batch, 'Chờ duyệt hoặc Đang duyệt')
             db.commit()
+            _push(batch['store_code'], 'Đơn khẩn bị từ chối', f'Admin từ chối đơn khẩn {bid}: {reason[:120]}', 'gdh')
             _urgent_release_marks(bid)
             audit_record('Từ chối đơn khẩn', 'Gôm đơn hàng', target=f"đợt {bid}",
                          summary=f"Đợt {bid} ({batch['store_code']}): admin từ chối đơn khẩn (xoá đơn, trả các dòng về danh sách khách hàng). Lý do: {reason}",
@@ -1915,6 +1927,7 @@ def gdh_reject():
                            _order_name(batch, [t for t in ORDER_TYPES if tot['by_type'][t]['parts'] > 0]), reason)
             _log_event(cur, draft['id'], st, 'draft', f'Admin từ chối đơn {bid}: ' + reason)
             db.commit()
+            _push(batch['store_code'], 'Đơn gôm bị trả về', f'Admin từ chối đơn {bid}: {reason[:120]}', 'gdh')
             audit_record('Từ chối duyệt đơn gôm', 'Gôm đơn hàng', target=f"đợt {bid}",
                          summary=f"Đơn {bid} ({batch['store_code']}): từ chối, trả {n} mã về phiên gôm {draft['id']}. Lý do: {reason}",
                          after={'status': 'merged_to_draft', 'draft_id': draft['id'], 'reason': reason})
@@ -1936,6 +1949,7 @@ def gdh_reject():
         cur.execute("DELETE FROM gdh_batch_snap WHERE batch_id = %s AND stage = 'submitted'", (bid,))
         _log_event(cur, bid, st, 'draft', 'Admin từ chối duyệt: ' + reason)
         db.commit()
+        _push(batch['store_code'], 'Đơn gôm bị trả về', f'Admin từ chối đơn {bid}: {reason[:120]}', 'gdh')
         audit_record('Từ chối duyệt đơn gôm', 'Gôm đơn hàng', target=f"đợt {bid}",
                      summary=f"Đợt {bid} ({batch['store_code']}): {STATUS_LABELS.get(st, st)} -> Nháp (từ chối duyệt). Lý do: {reason}",
                      after={'status': 'draft', 'reason': reason})
@@ -2049,7 +2063,7 @@ def gdh_approve():
             cur.execute('SAVEPOINT gdh_notif')
             create_notification(cur, batch['store_code'], 'Đơn gôm đã được duyệt lại' if was_re else 'Đơn gôm đã được duyệt',
                                 f"{_order_name(batch, [v['order_type'] for v in sent.values() if v['qty_final'] > 0])} đã được admin {'duyệt lại' if was_re else 'duyệt'}. "
-                                'Vào Gôm đơn hàng > Đơn đã đẩy để xem SL duyệt, ghi chú và tải đơn về.', 'info')
+                                'Vào Gôm đơn hàng > Đơn đã đẩy để xem SL duyệt, ghi chú và tải đơn về.', 'info', push=True)
             cur.execute('RELEASE SAVEPOINT gdh_notif')
         except Exception:
             cur.execute('ROLLBACK TO SAVEPOINT gdh_notif')
@@ -2111,6 +2125,7 @@ def gdh_request_rereview():
                     'SELECT batch_id, part_code, approved_qty, note FROM gdh_batch_review WHERE batch_id = %s', (batch['id'],))
         _log_event(cur, batch['id'], st, 'pending', 'Chi nhánh nhờ duyệt lại: ' + note)
         db.commit()
+        _push('ALL', 'Nhờ duyệt lại đơn gôm', f"{batch['store_code']} nhờ duyệt lại: {note[:120]}", 'review')
         audit_record('Nhờ duyệt lại đơn gôm', 'Gôm đơn hàng', target=f"đợt {batch['id']}",
                      summary=f"Đợt {batch['id']} ({batch['store_code']}): {STATUS_LABELS.get(st, st)} -> Chờ duyệt (nhờ duyệt lại). Nội dung: {note}",
                      after={'status': 'pending', 'rereview_note': note})
@@ -2467,6 +2482,7 @@ def gdh_urgent_create():
         n = _snapshot(cur, batch, 'submitted')                # 'đơn lúc đẩy' để admin duyệt / so sánh như đơn thường
         _log_event(cur, bid, 'draft', 'pending', note or 'Chi nhánh gôm đơn khẩn từ danh sách khách hàng')
         db.commit()
+        _push('ALL', 'Đơn khẩn chờ duyệt', f'{store} vừa đẩy đơn khẩn: {n} mã đặt (từ {len(keep)} dòng khách).', 'review')
         done = True
         odb2, oc2 = _orders_conn()                            # gắn mã đơn khẩn vào các dòng khách (thay dấu giữ chỗ 0)
         if odb2:

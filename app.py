@@ -271,7 +271,7 @@ def _track_online_user():
 # Các request ghi KHÔNG làm cache phản hồi ở trên bị cũ: (đăng nhập/đăng xuất,
 # đánh dấu đã đọc thông báo, đổi mật khẩu - không đụng tới dữ liệu tồn
 # kho/vị trí/phiếu luân chuyển).
-_WRITE_EPOCH_IGNORED_PREFIXES = ('/api/notifications/', '/api/change-password', '/login', '/logout', '/api/login-geo', '/teamhub/',
+_WRITE_EPOCH_IGNORED_PREFIXES = ('/api/notifications/', '/api/change-password', '/login', '/logout', '/api/login-geo', '/api/push/', '/teamhub/',
                                 '/api/gom-don-hang/')   # Gôm đơn hàng không đụng tới tồn kho/vị trí/phiếu luân chuyển
 
 
@@ -1449,7 +1449,7 @@ def _set_app_setting(cursor, key, value):
 NOTIFICATION_RETENTION_DAYS = 7
 
 
-def create_notification(cursor, store_code, title, message, notif_type='info', transfer_id=None):
+def create_notification(cursor, store_code, title, message, notif_type='info', transfer_id=None, push=None):
     """Tạo 1 dòng thông báo cho đúng 1 cửa hàng (hiện trên icon chuông) -
     gọi ngay trong CÙNG transaction với thao tác gây ra thông báo đó (tạo
     phiếu, đồng ý, từ chối, huỷ, soạn hàng xong...) để đảm bảo không bao
@@ -1466,6 +1466,19 @@ def create_notification(cursor, store_code, title, message, notif_type='info', t
         INSERT INTO notifications (store_code, title, message, notif_type, transfer_id, created_at)
         VALUES (%s, %s, %s, %s, %s, %s)
     ''', (store_code, title, message, notif_type, transfer_id, vn_now()))
+
+    # THÔNG BÁO ĐẨY (Web Push) đi kèm thông báo chuông - xem push_notify.py. Mặc định CHỈ đẩy các thông báo
+    # luân chuyển nội bộ (có transfer_id); gôm đơn truyền push=True; các loại khác (cảnh báo tồn kho...) không đẩy.
+    # Chỉ XẾP HÀNG trong bộ nhớ, gửi thật sau khi request đã commit thành công; mọi lỗi đều bị nuốt để
+    # không bao giờ ảnh hưởng tới thao tác gốc.
+    if push is None:
+        push = transfer_id is not None
+    if push:
+        try:
+            from push_notify import queue_notification_push
+            queue_notification_push(cursor, store_code, title, message, transfer_id)
+        except Exception:
+            pass
 
 
 def cleanup_old_notifications(cursor):
@@ -8946,6 +8959,11 @@ app.register_blueprint(warehouse3d_bp)
 # init_teamhub_tables()).
 from teamhub import teamhub_bp, init_teamhub_tables
 app.register_blueprint(teamhub_bp)
+
+# Thông báo đẩy (Web Push): /sw.js, /api/push/*. Bảng push_subscriptions tự tạo ở lần dùng đầu tiên.
+# Chưa đặt VAPID_PUBLIC_KEY / VAPID_PRIVATE_KEY (hoặc chưa cài pywebpush) thì tự tắt, app chạy như cũ.
+from push_notify import push_bp
+app.register_blueprint(push_bp)
 
 # Gôm đơn hàng (import Tổng hợp tồn kho 2 mẫu -> đề xuất đặt -> loại đơn Định kỳ/Khẩn/Đơn 26
 # + Dashboard đơn hàng) - gom_don_hang.py. Bảng gdh_batches/gdh_lines tự tạo ở lần dùng đầu

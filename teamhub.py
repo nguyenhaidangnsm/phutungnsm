@@ -148,7 +148,16 @@ def _api(admin=False):
     return deco
 
 
-def _notify(usernames, text):
+def _push(usernames, title, body, tag=None):
+    """Thông báo đẩy (xem push_notify.py). Chỉ xếp hàng, gửi sau khi request thành công; lỗi gì cũng nuốt."""
+    try:
+        from push_notify import queue_push_users
+        queue_push_users(list(usernames), title, body, url='/teamhub', tag=tag)
+    except Exception:
+        pass
+
+
+def _notify(usernames, text, push=False):
     rows = [(u, text[:300]) for u in set(usernames)]
     if rows:
         db = get_db()
@@ -156,6 +165,8 @@ def _notify(usernames, text):
         cur.executemany('INSERT INTO th_notifs(username, text) VALUES(%s,%s)', rows)
         db.commit()
         cur.close()
+        if push:
+            _push([u for u, _t in rows], 'Kết nối', text)
 
 
 def _name(u):
@@ -332,7 +343,7 @@ def create_post(me):
                (me, cat, text, img, *att), 'one', True)['id']
     if cat == 'Thông báo':
         rows = _run('SELECT username FROM th_members WHERE removed_at IS NULL AND username<>%s', (me,))
-        _notify([r['username'] for r in rows], f'📢 {_name(me)} đăng thông báo mới: {text[:80]}')
+        _notify([r['username'] for r in rows], f'📢 {_name(me)} đăng thông báo mới: {text[:80]}', push=True)
     return jsonify(id=pid)
 
 
@@ -384,7 +395,7 @@ def add_comment(me, pid):
     cid = _run('INSERT INTO th_comments(post_id, author, body) VALUES(%s,%s,%s) RETURNING id',
                (pid, me, text), 'one', True)['id']
     if p['author'] != me:
-        _notify([p['author']], f'{_name(me)} đã bình luận bài viết của bạn: {text[:60]}')
+        _notify([p['author']], f'{_name(me)} đã bình luận bài viết của bạn: {text[:60]}', push=True)
     return jsonify(id=cid, name=_name(me), body=text, mine=True)
 
 
@@ -455,7 +466,7 @@ def create_group(me):
                     [(cid, u) for u in [me] + valid])
     db.commit()
     cur.close()
-    _notify(valid, f'{_name(me)} đã thêm bạn vào nhóm "{name}"')
+    _notify(valid, f'{_name(me)} đã thêm bạn vào nhóm "{name}"', push=True)
     return jsonify(id=cid)
 
 
@@ -483,7 +494,7 @@ def group_member_act(me, cid, act):
         if not _active_user(to):
             return jsonify(error='Không tìm thấy người này.'), 404
         _run('INSERT INTO th_convo_members(convo_id, username) VALUES(%s,%s) ON CONFLICT DO NOTHING', (cid, to), None, True)
-        _notify([to], f'{_name(me)} đã thêm bạn vào nhóm "{g["name"]}"')
+        _notify([to], f'{_name(me)} đã thêm bạn vào nhóm "{g["name"]}"', push=True)
     else:
         _run('DELETE FROM th_convo_members WHERE convo_id=%s AND username=%s', (cid, to), None, True)
     return jsonify(ok=True)
@@ -586,6 +597,18 @@ def send(me):
     r = _run('INSERT INTO th_messages(convo_id, sender, body, att, att_name, att_size, att_kind) VALUES(%s,%s,%s,%s,%s,%s,%s) RETURNING id',
              (cid, me, text, *att), 'one', True)
     _run('UPDATE th_convo_members SET last_read=%s WHERE convo_id=%s AND username=%s', (r['id'], cid, me), None, True)
+    try:        # đẩy tin nhắn tới các thành viên còn lại (chưa bị gỡ khỏi TeamHub); lỗi không ảnh hưởng việc gửi tin
+        rc = _run('''SELECT cm.username, c.kind, c.name FROM th_convo_members cm
+                     JOIN th_convos c ON c.id = cm.convo_id
+                     LEFT JOIN th_members m ON m.username = cm.username
+                     WHERE cm.convo_id=%s AND cm.username<>%s AND m.removed_at IS NULL''', (cid, me))
+        if rc:
+            who = _name(me)
+            title = who if rc[0]['kind'] == 'dm' else f"{who} · {rc[0]['name'] or 'Nhóm'}"
+            body = text or ('📷 Đã gửi một ảnh' if att[3] == 'image' else '📎 Đã gửi một tệp')
+            _push([x['username'] for x in rc], title, body, tag='th-convo-%s' % cid)
+    except Exception:
+        pass
     return jsonify(id=r['id'])
 
 
