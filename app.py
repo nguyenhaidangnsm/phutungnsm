@@ -3744,16 +3744,24 @@ _SFR_CACHE_MAX = 3
 
 
 def _compute_sales_frequency_rows_cached(cursor, store_code=None):
-    epoch = _inventory_epoch  # đọc TRƯỚC khi tính - nếu import xen giữa thì cache này tự lệch epoch
+    # Chữ ký = epoch trong RAM (bắt thay đổi do chính worker này) + mốc upload tồn
+    # kho / xuất bán lấy từ DB (bắt thay đổi do worker KHÁC xử lý - chạy nhiều
+    # worker gunicorn thì chỉ epoch là không đủ). Đọc TRƯỚC khi tính - nếu import
+    # xen giữa thì cache vừa dựng mang chữ ký cũ và lần sau tự bỏ đi dựng lại.
+    inv_sig = _inventory_meta_signature(cursor)
+    sales_sig = _sales_meta_signature(cursor)
+    if inv_sig is None or sales_sig is None:
+        return _compute_sales_frequency_rows(cursor, store_code)  # không lấy được chữ ký -> không dùng cache
+    sig = (_inventory_epoch, inv_sig, sales_sig)
     with _sfr_cache_lock:
         entry = _sfr_cache.get(store_code)
-    if entry is not None and entry[0] == epoch:
+    if entry is not None and entry[0] == sig:
         return list(entry[1]), entry[2]  # bản sao nông của list (route có thể .sort() tại chỗ)
     rows, period_months = _compute_sales_frequency_rows(cursor, store_code)
     with _sfr_cache_lock:
         if store_code not in _sfr_cache and len(_sfr_cache) >= _SFR_CACHE_MAX:
             _sfr_cache.pop(next(iter(_sfr_cache)))
-        _sfr_cache[store_code] = (epoch, rows, period_months)
+        _sfr_cache[store_code] = (sig, rows, period_months)
     return list(rows), period_months
 
 
@@ -4971,6 +4979,38 @@ def _inventory_db_signature(cursor):
         return None
 
 
+def _inventory_meta_signature(cursor):
+    """Chữ ký "tồn kho đã đổ lúc nào" lấy từ DB (inventory_meta). Mọi lần đổ tồn
+    (upload_inventory là nơi DUY NHẤT ghi inventory_items) đều ghi lại bảng này,
+    nên mọi worker đều thấy thay đổi - khác với _inventory_epoch chỉ tăng trong
+    RAM của worker xử lý upload. Trả về None nếu lỗi (khi đó không dùng cache)."""
+    try:
+        cursor.execute('SELECT upload_time, total_parts, filename FROM inventory_meta WHERE id = 1')
+        row = cursor.fetchone()
+        return ('inv',) + (tuple(str(v) for v in row.values()) if row else ())
+    except Exception:
+        try:
+            cursor.connection.rollback()
+        except Exception:
+            pass
+        return None
+
+
+def _sales_meta_signature(cursor):
+    """Tương tự _inventory_meta_signature nhưng cho số liệu xuất bán
+    (sales_export_meta) - dùng cho cache thống kê tần suất bán."""
+    try:
+        cursor.execute('SELECT upload_time, period_months, filename FROM sales_export_meta WHERE id = 1')
+        row = cursor.fetchone()
+        return ('sales',) + (tuple(str(v) for v in row.values()) if row else ())
+    except Exception:
+        try:
+            cursor.connection.rollback()
+        except Exception:
+            pass
+        return None
+
+
 def _inventory_json_response(body):
     """Trả body tồn kho kèm header cấm trình duyệt/proxy tự giữ bản cũ."""
     resp = app.response_class(body, mimetype='application/json')
@@ -5165,6 +5205,10 @@ def get_locations():
     # lấy "chữ ký"; chữ ký không đổi -> trả body dựng sẵn, không đọc lại tồn kho.
     loc_key = None
     loc_sig = None
+    # Mốc đổ tồn kho lấy từ DB: danh sách này trộn số tồn (inventory_items) nên
+    # phải đổi chữ ký khi admin đổ tồn ở BẤT KỲ worker nào. Lỗi -> chữ ký không
+    # bao giờ khớp lần sau (tức là không dùng cache, vẫn trả dữ liệu đúng).
+    inv_sig = _inventory_meta_signature(cursor) or ('no-sig', time.time_ns())
     if role == 'store':
         loc_key = ('locations', 'store', session['store_code'])
         cursor.execute(
@@ -5172,12 +5216,12 @@ def get_locations():
             (session['store_code'],)
         )
         sig_row = cursor.fetchone()
-        loc_sig = (_inventory_epoch, _write_epoch, sig_row['c'], str(sig_row['v']))
+        loc_sig = (_inventory_epoch, _write_epoch, inv_sig, sig_row['c'], str(sig_row['v']))
     elif role == 'admin':
         loc_key = ('locations', 'admin')
         cursor.execute('SELECT COUNT(*) AS c, MAX(updated_at) AS v FROM part_locations')
         sig_row = cursor.fetchone()
-        loc_sig = (_inventory_epoch, _write_epoch, sig_row['c'], str(sig_row['v']),
+        loc_sig = (_inventory_epoch, _write_epoch, inv_sig, sig_row['c'], str(sig_row['v']),
                    tuple(sorted(_valid_store_codes(cursor))))
     if loc_key is not None:
         cached_body = _resp_cache_get(loc_key, loc_sig)
