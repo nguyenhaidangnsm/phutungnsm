@@ -984,6 +984,8 @@ document.addEventListener('DOMContentLoaded', () => {
     if (e.key === 'Enter') { e.preventDefault(); e.target.blur(); }
     else if (e.key === 'Escape') { const rq = byId[e.target.dataset.rid]; if (rq) { const v = rq.items[+e.target.dataset.i][e.target.dataset.f]; e.target.value = e.target.dataset.t === 'date' ? fmtDate(v) : (v || ''); } e.target.blur(); }
   });
+  let rowOpenTimer = null;
+  const hasTextSelection = () => { const sel = window.getSelection && window.getSelection(); return !!(sel && !sel.isCollapsed && String(sel).trim()); };
   $('ordersTable').addEventListener('click', e => {
     const b = e.target.closest('[data-act]');
     if (b) {
@@ -992,9 +994,17 @@ document.addEventListener('DOMContentLoaded', () => {
       else deleteRequest(b.dataset.rid);
       return;
     }
-    if (e.target.closest('select, input')) return; const tr = e.target.closest('tr[data-rid]'); if (tr) openEditor(tr.dataset.rid);
+    if (e.target.closest('select, input')) return; const tr = e.target.closest('tr[data-rid]'); if (!tr) return;
+    // Bôi đen / double-click / triple-click để copy mã, tên, SĐT... KHÔNG được mở form sửa đơn:
+    //  - đang có chữ được bôi đen (kéo chuột) -> bỏ qua;
+    //  - click lần 2, 3 của double/triple-click -> huỷ lần mở đang chờ rồi bỏ qua;
+    //  - click đơn: chờ 300ms (đủ để biết có phải double-click không) rồi mới mở, và chỉ mở nếu lúc đó không có chữ nào được bôi đen.
+    clearTimeout(rowOpenTimer);
+    if (e.detail > 1 || hasTextSelection()) return;
+    const rid = tr.dataset.rid;
+    rowOpenTimer = setTimeout(() => { if (!hasTextSelection()) openEditor(rid); }, 300);
   });
-  const busy = () => document.querySelector('.modal.show') || document.hidden || document.activeElement.classList.contains('pillsel') || document.activeElement.classList.contains('qe') || pendingQuick > 0;
+  const busy = () => document.querySelector('.modal.show') || document.hidden || document.activeElement.classList.contains('pillsel') || document.activeElement.classList.contains('qe') || pendingQuick > 0 || hasTextSelection();
   setInterval(() => { if (!busy()) loadOrders({ silent: true }); }, REFRESH_MS);
   document.addEventListener('visibilitychange', () => { if (!busy()) loadOrders({ silent: true }); });
 });
