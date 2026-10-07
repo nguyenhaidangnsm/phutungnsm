@@ -3393,8 +3393,35 @@ const PO_DETAIL_MAX_FILES = 10;
             `<button type="button" class="btn btn-outline-secondary btn-sm" onclick="ocGdhRelease()"><i class="bi bi-box-arrow-up me-1"></i>Trả về hàng chờ</button>` +
             `<button type="button" class="btn btn-outline-danger btn-sm" onclick="ocGdhReject()" title="Đơn chưa ổn: từ chối duyệt và trả về chi nhánh kèm lý do"><i class="bi bi-x-circle me-1"></i>Từ chối</button>` +
             `<button type="button" class="btn btn-success btn-sm" onclick="ocGdhApprove()"><i class="bi bi-check2-circle me-1"></i>Duyệt xong</button></div>` +
-            `<div class="d-flex flex-wrap gap-1 mt-2 align-items-center"><span class="small text-muted me-1">Xem nhanh:</span>${chip('', 'Tất cả', null)}${chip('diff', 'SL duyệt ≠ SL gửi', st.diff)}${chip('locked', 'Bị khoá', st.locked)}${chip('short', 'Vẫn thiếu sau luân chuyển', st.short)}</div>` +
+            _ocSessStrip() + `<div class="d-flex flex-wrap gap-1 mt-2 align-items-center"><span class="small text-muted me-1">Xem nhanh:</span>${chip('', 'Tất cả', null)}${chip('diff', 'SL duyệt ≠ SL gửi', st.diff)}${chip('locked', 'Bị khoá', st.locked)}${chip('short', 'Vẫn thiếu sau luân chuyển', st.short)}</div>` +
             (_ocGdh.rereview ? `<div class="alert alert-warning py-1 px-2 small mt-2 mb-0"><i class="bi bi-arrow-repeat me-1"></i><b>Cửa hàng nhờ duyệt lại</b>${_ocGdh.rereview.n > 1 ? ' (lần ' + _ocGdh.rereview.n + ')' : ''}${_ocGdh.rereview.at ? ' lúc ' + e(_ocGdh.rereview.at) : ''}: <i>“${e(_ocGdh.rereview.note)}”</i>. SL duyệt và ghi chú của lần duyệt trước đã nạp sẵn, bạn chỉ cần sửa mã nào cần đổi.</div>` : '') + _ocUrgPanel();
+    }
+
+    // ===== THANH CHUYỂN PHIÊN DUYỆT: duyệt nhiều đơn song song, chuyển qua lại không mất nháp =====
+    var _ocSess = [], _ocSessBusy = false;
+    async function _ocSessRefresh() {
+        if (_ocSessBusy) return; _ocSessBusy = true;
+        try {
+            const j = await _gdhJson('/api/gom-don-hang/orders?status=active');
+            _ocSess = (j.data || []).filter(o => (o.status === 'reviewing' && o.claimed_by_me) || o.status === 'pending');
+            _ocSess.sort((a, b) => ((b.status === 'reviewing') - (a.status === 'reviewing')) || ((b.urgent_parts > 0) - (a.urgent_parts > 0)) || ((b.waiting_min || 0) - (a.waiting_min || 0)));
+            _ocGdhRenderBar();
+        } catch (err) { /* thanh chuyển phiên chỉ là tiện ích: lỗi thì bỏ qua */ }
+        finally { _ocSessBusy = false; }
+    }
+    function _ocSessStrip() {
+        if (!_ocGdh || _ocSess.length < 2) return '';
+        const e = _gdhEsc;
+        const chips = _ocSess.map(o => {
+            const mine = o.status === 'reviewing', cur = _ocGdh.id === o.id, urg = o.urgent_parts > 0;
+            return `<button type="button" class="oc-sess ${cur ? 'on' : ''} ${mine ? '' : 'pend'}" ${cur ? 'disabled' : ''} onclick="ocSessGo(${o.id}, ${mine})" title="${mine ? 'Chuyển sang đơn này (nháp đơn hiện tại tự lưu)' : 'Lấy đơn này về duyệt'}">` +
+                `<i class="bi ${mine ? 'bi-pencil-square' : 'bi-hourglass-split'}"></i><span class="n">${e(_gdhOrderName(o))}</span><span class="s">${e(o.store || '')}</span>${urg ? '<b class="u">Khẩn</b>' : ''}</button>`;
+        }).join('');
+        return `<div class="oc-sesswrap"><span class="small text-muted me-1">Phiên duyệt:</span><div class="oc-sesslist">${chips}</div></div>`;
+    }
+    async function ocSessGo(id, mine) {
+        const bz = document.getElementById('ocBusy'); if (bz && bz.style.display !== 'none') return;
+        if (mine) await ocGdhOpen(id, true); else await ocGdhClaim(id, true);
     }
     function ocGdhQuick(k) { _ocQuick = (_ocQuick === k) ? '' : k; renderOrderCheckTable(); _ocGdhRenderBar(); }
     async function ocGdhResetSuggest() {
@@ -3962,6 +3989,7 @@ const PO_DETAIL_MAX_FILES = 10;
     }
     async function ocGdhLoad() {
         const list = document.getElementById('ocGdhList'); if (!list) return;
+        _ocSessRefresh();
         const isFiles = _ocGdhTab === 'files';
         document.getElementById('ocArcPanel')?.classList.toggle('d-none', !isFiles);
         list.classList.toggle('d-none', isFiles);
@@ -3996,8 +4024,8 @@ const PO_DETAIL_MAX_FILES = 10;
                 : `<div class="text-center text-muted py-4"><i class="bi ${_ocGdhTab === 'active' ? 'bi-check2-circle text-success' : 'bi-inbox'} fs-3 d-block mb-1"></i>${_ocGdhTab === 'active' ? 'Không có đơn nào chờ duyệt.' : 'Chưa có đơn nào.'}</div>`;
         } catch (err) { list.innerHTML = `<div class="text-center text-danger py-3">${_gdhEsc(err.message)}</div>`; }
     }
-    async function ocGdhClaim(id) {
-        if (_ocGdh && _ocGdh.id !== id && !await nsConfirm('Bạn đang duyệt dở một đơn gôm khác trên màn này. Lấy đơn mới sẽ thay phiên đang duyệt (đơn cũ vẫn ở trạng thái Đang duyệt, nháp đã lưu, mở lại được bằng nút "Mở để duyệt"). Tiếp tục?')) return;
+    async function ocGdhClaim(id, skipConfirm) {
+        if (!skipConfirm && _ocGdh && _ocGdh.id !== id && !await nsConfirm('Bạn đang duyệt dở một đơn gôm khác trên màn này. Lấy đơn mới sẽ thay phiên đang duyệt (đơn cũ vẫn ở trạng thái Đang duyệt, nháp đã lưu, mở lại được bằng nút "Mở để duyệt"). Tiếp tục?')) return;
         _ocBusy(true, 'Đang lấy đơn về duyệt...');
         let j;
         try { j = await _gdhJson('/api/gom-don-hang/claim', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({batch_id: id})}); }

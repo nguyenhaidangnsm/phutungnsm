@@ -1535,3 +1535,14 @@
         .form-select:not(.form-select-sm) { font-size: 16px; }
     }
 }
+/* ===== Thanh chuyển phiên duyệt đơn gôm ===== */
+.oc-sesswrap{display:flex;align-items:center;gap:4px;margin-top:8px;min-width:0}
+.oc-sesslist{display:flex;gap:6px;overflow-x:auto;padding:2px 0 4px;scrollbar-width:thin;flex:1;min-width:0}
+.oc-sess{flex:none;display:inline-flex;align-items:center;gap:6px;max-width:260px;padding:6px 12px;border:1px solid var(--c-cbd5e1,#cbd5e1);border-radius:999px;background:#fff;color:var(--c-334155,#334155);font-size:.8rem;line-height:1.2}
+.oc-sess .n{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:150px}
+.oc-sess .s{color:#64748b;font-size:.72rem}
+.oc-sess .u{background:#dc3545;color:#fff;border-radius:6px;padding:1px 6px;font-size:.68rem}
+.oc-sess.pend{border-style:dashed;color:#64748b}
+.oc-sess.on{background:var(--c-primary,#0d6efd);border-color:var(--c-primary,#0d6efd);color:#fff;opacity:1}
+.oc-sess.on .s{color:#dbeafe}
+.oc-sess:not(.on):hover{background:#eff6ff;border-color:#0d6efd}
