@@ -218,11 +218,27 @@ body{font-size:15px}
  .cwin,.chat.open .cwin{height:100%;border-left:0;padding:18px 28px 20px;background:var(--bg)}
 }
 @media(min-width:1500px){.app.chatmode{grid-template-columns:240px minmax(0,1fr) 300px}.app.chatmode .right{display:block}}
+/* ===== v3: ngày tin nhắn, emoji/sticker, dán ảnh ===== */
+.dsep{align-self:center;font-size:12px;color:var(--mute);background:var(--card);border:1px solid var(--line);border-radius:999px;padding:3px 12px;margin:10px 0 4px}
+.m.st,.m.me.st{background:none;border-color:transparent;padding:2px 4px}
+.m.st .stk{display:block;font-size:56px;line-height:1.15}
+.m.st small,.m.me.st small{color:var(--mute)}
+.pk-th{width:40px;height:40px;object-fit:cover;border-radius:8px;flex:none}
+.epanel{border:1px solid var(--line);background:var(--card);border-radius:16px;margin-top:10px;overflow:hidden}
+.epanel[hidden]{display:none}
+.etabs{display:flex;border-bottom:1px solid var(--line)}
+.etabs button{flex:1;padding:10px 6px;font-size:14px;color:var(--mute)}
+.etabs button.on{color:var(--acc);box-shadow:inset 0 -2px 0 var(--acc)}
+.egrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(42px,1fr));gap:2px;padding:8px;max-height:210px;overflow-y:auto;overscroll-behavior:contain}
+.egrid button{font-size:25px;line-height:1;padding:6px 0;border-radius:10px}
+.egrid button:hover{background:var(--accbg)}
+.egrid.stk{grid-template-columns:repeat(auto-fill,minmax(72px,1fr))}
+.egrid.stk button{font-size:44px;padding:8px 0}
 </style>
     <script src="/static/ns-dialog.js"></script>
 </head>
 <body>
-<svg width="0" height="0" style="position:absolute" aria-hidden="true"><symbol id="i-home" viewBox="0 0 24 24"><path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V20a1 1 0 0 0 1 1h4v-6h4v6h4a1 1 0 0 0 1-1V9.5"/></symbol><symbol id="i-users" viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></symbol><symbol id="i-chat" viewBox="0 0 24 24"><path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"/></symbol><symbol id="i-bell" viewBox="0 0 24 24"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></symbol><symbol id="i-user" viewBox="0 0 24 24"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></symbol><symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M6.3 17.7l-1.4 1.4M19.1 4.9l-1.4 1.4"/></symbol><symbol id="i-moon" viewBox="0 0 24 24"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></symbol><symbol id="i-monitor" viewBox="0 0 24 24"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></symbol><symbol id="i-arrow-left" viewBox="0 0 24 24"><path d="m12 19-7-7 7-7M19 12H5"/></symbol><symbol id="i-chev-left" viewBox="0 0 24 24"><path d="m15 18-6-6 6-6"/></symbol><symbol id="i-clip" viewBox="0 0 24 24"><path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48"/></symbol><symbol id="i-heart" viewBox="0 0 24 24"><path d="M19 14c1.5-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z"/></symbol><symbol id="i-share" viewBox="0 0 24 24"><path d="M4 12v7a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-7M16 6l-4-4-4 4M12 2v13"/></symbol><symbol id="i-trash" viewBox="0 0 24 24"><path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></symbol><symbol id="i-x" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></symbol><symbol id="i-check" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></symbol><symbol id="i-file" viewBox="0 0 24 24"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5Z"/><path d="M14 2v6h6"/></symbol></svg>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true"><symbol id="i-home" viewBox="0 0 24 24"><path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V20a1 1 0 0 0 1 1h4v-6h4v6h4a1 1 0 0 0 1-1V9.5"/></symbol><symbol id="i-users" viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></symbol><symbol id="i-chat" viewBox="0 0 24 24"><path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"/></symbol><symbol id="i-bell" viewBox="0 0 24 24"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></symbol><symbol id="i-user" viewBox="0 0 24 24"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></symbol><symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M6.3 17.7l-1.4 1.4M19.1 4.9l-1.4 1.4"/></symbol><symbol id="i-moon" viewBox="0 0 24 24"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></symbol><symbol id="i-monitor" viewBox="0 0 24 24"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></symbol><symbol id="i-arrow-left" viewBox="0 0 24 24"><path d="m12 19-7-7 7-7M19 12H5"/></symbol><symbol id="i-chev-left" viewBox="0 0 24 24"><path d="m15 18-6-6 6-6"/></symbol><symbol id="i-clip" viewBox="0 0 24 24"><path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48"/></symbol><symbol id="i-heart" viewBox="0 0 24 24"><path d="M19 14c1.5-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z"/></symbol><symbol id="i-share" viewBox="0 0 24 24"><path d="M4 12v7a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-7M16 6l-4-4-4 4M12 2v13"/></symbol><symbol id="i-trash" viewBox="0 0 24 24"><path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></symbol><symbol id="i-x" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></symbol><symbol id="i-check" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></symbol><symbol id="i-file" viewBox="0 0 24 24"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5Z"/><path d="M14 2v6h6"/></symbol><symbol id="i-smile" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M8 14s1.5 2 4 2 4-2 4-2M9 9h.01M15 9h.01"/></symbol></svg>
 <div class="app">
   <aside class="side">
     <div class="logo"><img class="logo-img" src="/static/logo-mark.png" alt=""><span>Nam Sương Motor</span></div>
@@ -470,26 +486,71 @@ $('#clist').addEventListener('click',e=>{const b=e.target.closest('[data-i]');if
 $('#newdm').onchange=safe(async e=>{const to=e.target.value;e.target.value='';if(to)startDm(to)});
 $('#online').addEventListener('click',e=>{const b=e.target.closest('[data-dm]');if(b)startDm(b.dataset.dm)});
 const startDm=safe(async to=>{const d=await post('dm',{to});go('chat');await loadConvos();openChat(d.id)});
-let CF=null;
-function showCPick(){const p=$('#cpick');if(!p)return;if(!CF){p.hidden=true;return}p.hidden=false;p.innerHTML=`${ic('clip','sm')} ${esc(CF.name)} · ${fsz(CF.size)} <button class="lnk" id="cpx">Bỏ</button>`}
+let CF=null,lastDay='';
+function showCPick(){const p=$('#cpick');if(!p)return;if(!CF){p.hidden=true;return}p.hidden=false;let th='';try{if(CF.type&&CF.type.startsWith('image/')){CF._u=CF._u||URL.createObjectURL(CF);th=`<img class="pk-th" src="${CF._u}" alt="">`}}catch(e){}p.innerHTML=`${th||ic('clip','sm')} ${esc(CF.name)} · ${fsz(CF.size)} <button class="lnk" id="cpx">Bỏ</button>`}
 const attHtml=m=>!m.att?'':m.att_kind==='image'?`<a href="/teamhub/file/${esc(m.att)}" target="_blank" rel="noopener"><img class="m-img" loading="lazy" src="/teamhub/file/${esc(m.att)}" alt="Ảnh"></a>`:fcHtml(m.att,m.att_name,m.att_size);
-const msgHtml=m=>`<div class="m ${m.mine?'me':''}" data-id="${m.id}">${!m.mine&&cur&&convos.find(c=>c.id===cur)?.kind==='group'?`<b class="who-n">${esc(m.name)}</b>`:''}${m.body?`<span>${esc(m.body)}</span>`:''}${attHtml(m)}<small>${hm(m.created_at)}</small></div>`;
+let STK=null;try{STK=new RegExp('^(?:\\p{Extended_Pictographic}(?:\\uFE0F|\\u200D|\\p{Emoji_Modifier})*){1,3}$','u')}catch(e){}
+const isStk=m=>!!(STK&&m.body&&!m.att&&STK.test(m.body.trim()));
+const dayKey=iso=>{const d=new Date(iso);return d.getFullYear()+'-'+d.getMonth()+'-'+d.getDate()};
+const dayLabel=iso=>{const t=new Date(),y=new Date();y.setDate(t.getDate()-1);const k=dayKey(iso);if(k===dayKey(t))return'Hôm nay';if(k===dayKey(y))return'Hôm qua';return new Date(iso).toLocaleDateString('vi-VN',{weekday:'long',day:'2-digit',month:'2-digit',year:'numeric'})};
+const msgHtml=m=>{const st=isStk(m);return `<div class="m ${m.mine?'me':''} ${st?'st':''}" data-id="${m.id}" title="${esc(new Date(m.created_at).toLocaleString('vi-VN'))}">${!m.mine&&cur&&convos.find(c=>c.id===cur)?.kind==='group'?`<b class="who-n">${esc(m.name)}</b>`:''}${m.body?`<span class="${st?'stk':''}">${esc(m.body)}</span>`:''}${attHtml(m)}<small>${hm(m.created_at)}</small></div>`};
+const msgsHtml=list=>list.map(m=>{let s='';const k=dayKey(m.created_at);if(k!==lastDay){lastDay=k;s=`<div class="dsep">${esc(dayLabel(m.created_at))}</div>`}return s+msgHtml(m)}).join('');
+/* ---- emoji + sticker ---- */
+const EMO='😀 😃 😄 😁 😆 😅 😂 🤣 😊 🙂 😉 😍 🥰 😘 😋 😜 🤪 😎 🤩 🥳 😏 😒 😞 😔 😟 🙁 😣 😫 😩 🥺 😢 😭 😤 😠 😡 🤯 😳 🥵 🥶 😱 😨 😰 😓 🤗 🤔 🤭 🤫 😶 😐 😬 🙄 😯 😮 😲 🥱 😴 🤤 😷 🤒 🤕 👍 👎 👌 ✌\uFE0F 🤞 🤝 👏 🙌 🙏 💪 👋 🤙 👀 ❤\uFE0F 🧡 💛 💚 💙 💜 🖤 💔 💯 🔥 ✨ 🎉 🎊 🎁 🏆 ✅ ❌ ⭐ 🌹 ☕ 🍺 🍻 🍜 🍕 🎂 🚗 🏍\uFE0F 🏁'.split(' ');
+const STKS='👍 ❤\uFE0F 😂 😍 🥳 😎 🙏 👏 🔥 🎉 😭 😮 🤔 😴 💪 ✅ 👌 🙌 😅 🤝 🚀 💯 😡 🥰 😇 🤩 😱 🙈 💖 🎂 ☕ 🏍\uFE0F'.split(' ');
+let EMO_TAB='emo';
+function renderEmo(){
+  const p=$('#epanel');if(!p)return;
+  const list=EMO_TAB==='emo'?EMO:STKS;
+  p.innerHTML=`<div class="etabs"><button type="button" data-et="emo" class="${EMO_TAB==='emo'?'on':''}">Biểu tượng</button><button type="button" data-et="stk" class="${EMO_TAB==='stk'?'on':''}">Sticker</button></div><div class="egrid ${EMO_TAB==='stk'?'stk':''}">${list.map(x=>`<button type="button" data-e="${x}">${x}</button>`).join('')}</div>`;
+}
+function toggleEmo(){const p=$('#epanel');if(!p)return;p.hidden=!p.hidden;if(!p.hidden)renderEmo()}
+const emoClick=safe(async e=>{
+  const t=e.target.closest('[data-et]');if(t){EMO_TAB=t.dataset.et;renderEmo();return}
+  const b=e.target.closest('[data-e]');if(!b||!cur)return;
+  const x=b.dataset.e;
+  if(EMO_TAB==='stk'){$('#epanel').hidden=true;await post('messages',{convo:cur,body:x});await pullMsgs();return}
+  const i=$('#msgin');if(!i)return;
+  const s0=i.selectionStart==null?i.value.length:i.selectionStart,e0=i.selectionEnd==null?s0:i.selectionEnd;
+  if(i.value.length-(e0-s0)+x.length>2000)return;
+  i.value=i.value.slice(0,s0)+x+i.value.slice(e0);
+  const pos=s0+x.length;
+  if(!matchMedia('(pointer:coarse)').matches)i.focus();
+  try{i.setSelectionRange(pos,pos)}catch(_){}
+});
+/* ---- dán / kéo thả ảnh chụp màn hình vào khung chat ---- */
+function takeFile(f){if(!f)return;CF=f;showCPick();const i=$('#msgin');if(i&&!matchMedia('(pointer:coarse)').matches)i.focus()}
+document.addEventListener('paste',e=>{
+  if(view!=='chat'||!cur||!$('#msgin'))return;
+  const it=[...((e.clipboardData&&e.clipboardData.items)||[])].find(x=>x.kind==='file'&&x.type.startsWith('image/'));
+  const f=it&&it.getAsFile();if(!f)return;
+  e.preventDefault();
+  takeFile(new File([f],'anh-chup-man-hinh.png',{type:f.type||'image/png'}));
+});
+document.addEventListener('dragover',e=>{if(view==='chat'&&cur&&$('#msgin')&&e.dataTransfer&&[...e.dataTransfer.types].includes('Files'))e.preventDefault()});
+document.addEventListener('drop',e=>{
+  if(view!=='chat'||!cur||!$('#msgin'))return;
+  const f=e.dataTransfer&&e.dataTransfer.files&&e.dataTransfer.files[0];if(!f)return;
+  e.preventDefault();takeFile(f);
+});
 const openChat=safe(async id=>{
-  cur=id;lastMsg=0;CF=null;const c=convos.find(x=>x.id===id)||{name:'Trò chuyện'};
+  cur=id;lastMsg=0;lastDay='';CF=null;const c=convos.find(x=>x.id===id)||{name:'Trò chuyện'};
   $('#chat').classList.add('open');
-  $('#cwin').innerHTML=`<div class="chead"><button class="back" id="back" aria-label="Quay lại">${ic('chev-left')}</button>${av(c.name,'s')}<div class="name">${esc(c.name)}</div></div><div class="msgs" id="msgs"></div><div class="pickline" id="cpick" hidden></div><div class="cmtin"><label class="icon-btn" style="display:grid;place-items:center;cursor:pointer;flex:none" title="Đính kèm ảnh hoặc tệp" aria-label="Đính kèm ảnh hoặc tệp"><svg class="ic "><use href="#i-clip"/></svg><input type="file" id="cfile" hidden></label><input id="msgin" placeholder="Nhập tin nhắn..." maxlength="2000"><button class="btn" id="msgsend">Gửi</button></div>`;
+  $('#cwin').innerHTML=`<div class="chead"><button class="back" id="back" aria-label="Quay lại">${ic('chev-left')}</button>${av(c.name,'s')}<div class="name">${esc(c.name)}</div></div><div class="msgs" id="msgs"></div><div class="pickline" id="cpick" hidden></div><div class="epanel" id="epanel" hidden></div><div class="cmtin"><label class="icon-btn" style="display:grid;place-items:center;cursor:pointer;flex:none" title="Đính kèm ảnh hoặc tệp" aria-label="Đính kèm ảnh hoặc tệp"><svg class="ic "><use href="#i-clip"/></svg><input type="file" id="cfile" hidden></label><button type="button" class="icon-btn" id="emobtn" title="Biểu tượng cảm xúc và sticker" aria-label="Biểu tượng cảm xúc và sticker" style="flex:none"><svg class="ic "><use href="#i-smile"/></svg></button><input id="msgin" placeholder="Nhập tin nhắn..." maxlength="2000"><button class="btn" id="msgsend">Gửi</button></div>`;
   $('#back').onclick=()=>{cur=null;$('#chat').classList.remove('open');loadConvos()};
   $('#msgsend').onclick=sendMsg;
   $('#cfile').onchange=()=>{CF=$('#cfile').files[0]||null;showCPick()};
   $('#cpick').onclick=e=>{if(e.target.id==='cpx'){CF=null;$('#cfile').value='';showCPick()}};
   $('#msgin').addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.isComposing)sendMsg()});
+  $('#emobtn').onclick=toggleEmo;
+  $('#epanel').onclick=emoClick;
   await pullMsgs();renderConvos();
 });
 const pullMsgs=safe(async()=>{
   if(!cur)return;
   const d=await api(`messages?convo=${cur}&after=${lastMsg}`);if(!d.messages.length)return;
   const box=$('#msgs'),atEnd=box.scrollHeight-box.scrollTop-box.clientHeight<80||!lastMsg;
-  box.insertAdjacentHTML('beforeend',d.messages.map(msgHtml).join(''));
+  box.insertAdjacentHTML('beforeend',msgsHtml(d.messages));
   lastMsg=d.messages[d.messages.length-1].id;if(atEnd)box.scrollTop=box.scrollHeight;
 },true);
 const sendMsg=safe(async()=>{
