@@ -352,6 +352,12 @@ def _parse_kind_file(kind, file_storage, month):
     df = _read_sheet(file_storage, KIND_SHEET_HINT[kind], header_keys=set(spec['code']))
     c_code, c_qty, c_price = _pick(df, *spec['code']), _pick(df, *spec['qty']), _pick(df, *spec['price'])
     c_date = _pick(df, *spec['date'])
+    if kind == 'nhan':
+        # File MRN của HMS có cả phiếu "Open" (chưa đóng, hàng chưa tính là đã nhận) -> chỉ lấy "Closed".
+        # File không có cột MRN Status (định dạng cũ) thì giữ nguyên, không lọc.
+        c_mrn = _pick(df, 'mrn status')
+        if c_mrn is not None:
+            df = df[df[c_mrn].map(lambda v: _key(str(v)) == 'closed')]
     miss = [n for n, c in (('Mã phụ tùng', c_code), ('Số lượng', c_qty), ('Giá nhập', c_price)) if c is None]
     if miss:
         raise ValueError('File thiếu cột: ' + ', '.join(miss) + '. Hãy chọn đúng file "' + KIND_LABEL[kind] + '" xuất từ HMS.')
