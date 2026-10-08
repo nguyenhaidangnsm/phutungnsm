@@ -8226,7 +8226,7 @@ if (storeLocationForm) {
                 if (_openTransferDetail && _openTransferDetail.id === id) _openTransferDetail = null;
                 loadTransfers();
             } else {
-                alert('Lỗi: ' + (result.error || 'Không thể xoá phiếu.'));
+                loadTransfers(); alert('Lỗi: ' + (result.error || 'Không thể xoá phiếu.'));
             }
         } catch (e) {
             alert('Lỗi kết nối server.');
@@ -8245,7 +8245,7 @@ if (storeLocationForm) {
                 loadTransfers();
                 refreshTransferHighlights();
             } else {
-                alert('Lỗi: ' + (result.error || 'Không thể xử lý phiếu.'));
+                loadTransfers(); alert('Lỗi: ' + (result.error || 'Không thể xử lý phiếu.'));
             }
         } catch (e) { console.error(e); alert('Lỗi kết nối đến server.'); }
     }
@@ -8314,7 +8314,7 @@ if (storeLocationForm) {
                 loadTransfers();
                 refreshTransferHighlights();
             } else {
-                alert('Lỗi: ' + (result.error || 'Không thể xử lý phiếu.'));
+                loadTransfers(); alert('Lỗi: ' + (result.error || 'Không thể xử lý phiếu.'));
             }
         } catch (e) { console.error(e); alert('Lỗi kết nối đến server.'); }
     }
@@ -8332,7 +8332,7 @@ if (storeLocationForm) {
                 loadTransfers();
                 refreshTransferHighlights();
             } else {
-                alert('Lỗi: ' + (result.error || 'Không thể đổi lại lựa chọn.'));
+                loadTransfers(); alert('Lỗi: ' + (result.error || 'Không thể đổi lại lựa chọn.'));
             }
         } catch (e) { console.error(e); alert('Lỗi kết nối đến server.'); }
     }
@@ -8348,7 +8348,7 @@ if (storeLocationForm) {
             if (res.ok && result.success) {
                 loadTransfers();
             } else {
-                alert('Lỗi: ' + (result.error || 'Không thể cập nhật trạng thái soạn hàng.'));
+                loadTransfers(); alert('Lỗi: ' + (result.error || 'Không thể cập nhật trạng thái soạn hàng.'));
             }
         } catch (e) { console.error(e); alert('Lỗi kết nối đến server.'); }
     }
@@ -8365,7 +8365,7 @@ if (storeLocationForm) {
                 loadTransfers();
                 refreshTransferHighlights();
             } else {
-                alert('Lỗi: ' + (result.error || 'Không thể cập nhật.'));
+                loadTransfers(); alert('Lỗi: ' + (result.error || 'Không thể cập nhật.'));
             }
         } catch (e) { console.error(e); alert('Lỗi kết nối đến server.'); }
     }
@@ -8384,7 +8384,7 @@ if (storeLocationForm) {
                 loadTransfers();
                 refreshTransferHighlights();
             } else {
-                alert('Lỗi: ' + (result.error || 'Không thể cập nhật.'));
+                loadTransfers(); alert('Lỗi: ' + (result.error || 'Không thể cập nhật.'));
             }
         } catch (e) { console.error(e); alert('Lỗi kết nối đến server.'); }
     }
@@ -8399,7 +8399,7 @@ if (storeLocationForm) {
             });
             const result = await res.json();
             if (res.ok && result.success) { loadTransfers(); }
-            else { alert('Lỗi: ' + (result.error || 'Không thể huỷ phiếu.')); }
+            else { loadTransfers(); alert('Lỗi: ' + (result.error || 'Không thể huỷ phiếu.')); }
         } catch (e) { console.error(e); alert('Lỗi kết nối đến server.'); }
     }
 
@@ -8431,7 +8431,7 @@ if (storeLocationForm) {
                 bootstrap.Modal.getInstance(document.getElementById('transferRequestDeleteModal'))?.hide();
                 loadTransfers();
             } else {
-                alert('Lỗi: ' + (result.error || 'Không thể gửi yêu cầu xoá phiếu.'));
+                loadTransfers(); alert('Lỗi: ' + (result.error || 'Không thể gửi yêu cầu xoá phiếu.'));
             }
         } catch (e) { console.error(e); alert('Lỗi kết nối đến server.'); }
     }
@@ -8448,7 +8448,7 @@ if (storeLocationForm) {
             });
             const result = await res.json();
             if (res.ok && result.success) { loadTransfers(); }
-            else { alert('Lỗi: ' + (result.error || 'Không thể bỏ qua yêu cầu.')); }
+            else { loadTransfers(); alert('Lỗi: ' + (result.error || 'Không thể bỏ qua yêu cầu.')); }
         } catch (e) { console.error(e); alert('Lỗi kết nối đến server.'); }
     }
 
@@ -9550,6 +9550,11 @@ if (storeLocationForm) {
             refreshDamagedHighlights();
             const dmgTab = document.getElementById('damaged-tab');
             if (dmgTab && dmgTab.classList.contains('active')) { loadDamaged(); }
+        }
+        if (v.price_adj_version !== lastVersions.price_adj_version) {
+            // Máy khác vừa đề xuất/sửa/xoá/import tăng giá: chỉ tải lại bảng khi đang mở đúng tab này.
+            const priceAdjTab = document.getElementById('price-adjustment-tab');
+            if (priceAdjTab && priceAdjTab.classList.contains('active')) { loadPriceAdjustmentList(); }
         }
         if (v.unread_notifications !== lastVersions.unread_notifications) {
             updateNotifBadge(v.unread_notifications);

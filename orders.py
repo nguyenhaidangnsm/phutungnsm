@@ -107,7 +107,7 @@ LIST_COLUMNS = (
     'quantity, order_value, deposit_amount, order_date, order_type, '
     'customer_request_date, deposit_date, expected_delivery_date, customer_call_date, '
     'actual_delivery_date, call_note, unit_price, order_value_manual, source, source_store, '
-    'quote_no, urgent_batch_id'
+    'quote_no, urgent_batch_id, updated_at'
 )
 
 
@@ -401,6 +401,12 @@ def _auto_total(items):
     return round(total) if found else None
 
 
+def _version_str(count, last_update):
+    """Mốc phiên bản của 1 đơn = số dòng + lần cập nhật gần nhất. Giao diện gửi lại mốc này khi lưu
+    để biết đơn có bị máy khác sửa/xoá dòng trong lúc mình đang mở hay không."""
+    return f"{int(count or 0)}|{last_update.isoformat() if last_update else ''}"
+
+
 def _rows_to_request(rid, items):
     """Gộp các dòng cùng request_id thành 1 yêu cầu. Thông tin khách/xe lấy giá
     trị đầu tiên khác rỗng trong các dòng (khớp cách Excel gộp ô)."""
@@ -424,6 +430,7 @@ def _rows_to_request(rid, items):
     req['deposit_amount'] = _num(first('deposit_amount'))
     req['order_value_manual'] = bool(first('order_value_manual'))
     req['items'] = [_item_to_dict(it) for it in items]
+    req['version'] = _version_str(len(items), max((it.get('updated_at') for it in items if it.get('updated_at')), default=None))
     return req
 
 
@@ -721,16 +728,30 @@ def save_order():
     try:
         if request_id:
             # ---- SỬA yêu cầu có sẵn ----
+            # Khoá theo đơn: 2 máy cùng lưu/xoá 1 đơn thì lần sau chờ lần trước xong rồi mới đọc lại
+            # dữ liệu (tránh ghi chồng lên nhau, hoặc lưu vào đơn vừa bị xoá). Tự nhả khi commit/rollback.
+            cursor.execute('SELECT pg_advisory_xact_lock(hashtext(%s))', ('bo_req:' + request_id,))
             if role == 'admin':
-                cursor.execute('SELECT id, store_code, seq_no, quote_no FROM bo_orders WHERE request_id = %s', (request_id,))
+                cursor.execute('SELECT id, store_code, seq_no, quote_no, updated_at FROM bo_orders WHERE request_id = %s', (request_id,))
             else:
-                cursor.execute('SELECT id, store_code, seq_no, quote_no FROM bo_orders WHERE request_id = %s AND store_code = %s',
+                cursor.execute('SELECT id, store_code, seq_no, quote_no, updated_at FROM bo_orders WHERE request_id = %s AND store_code = %s',
                                (request_id, session['store_code']))
             existing = cursor.fetchall()
             if not existing:
                 db.rollback()
                 cursor.close()
                 return jsonify({'error': 'Không tìm thấy đơn (hoặc không thuộc cửa hàng của bạn).'}), 404
+            # Kiểm tra phiên bản: giao diện gửi mốc của đơn lúc mở. Nếu máy khác đã lưu/xoá dòng trong lúc đó
+            # thì không ghi đè (báo để người dùng tải lại). Không gửi mốc (bản giao diện cũ) = bỏ qua kiểm tra.
+            base_version = data.get('base_version')
+            if base_version:
+                cur_version = _version_str(len(existing), max((r['updated_at'] for r in existing if r['updated_at']), default=None))
+                if str(base_version) != cur_version:
+                    db.rollback()
+                    cursor.close()
+                    return jsonify({'error': 'Đơn này vừa được máy khác cập nhật nên chưa lưu để tránh ghi đè. '
+                                             'Danh sách đã được tải lại, vui lòng mở lại đơn và thao tác lại.',
+                                    'code': 'stale'}), 409
             store_code = existing[0]['store_code']
             seq_no = existing[0]['seq_no']
             old_quote = next((r['quote_no'] for r in existing if r['quote_no']), None)
@@ -754,6 +775,8 @@ def save_order():
                     cursor.close()
                     return jsonify({'error': 'Vui lòng chọn chi nhánh hợp lệ.'}), 400
             request_id = uuid.uuid4().hex
+            # Khoá theo chi nhánh: 2 máy cùng tạo đơn không được lấy trùng 1 STT (tự nhả khi commit/rollback).
+            cursor.execute('SELECT pg_advisory_xact_lock(hashtext(%s))', ('bo_seq:' + store_code,))
             cursor.execute('SELECT COALESCE(MAX(seq_no), 0) + 1 AS n FROM bo_orders WHERE store_code = %s', (store_code,))
             seq_no = cursor.fetchone()['n']
             existing_ids = set()
@@ -817,6 +840,9 @@ def save_order():
                 raise RuntimeError('Số dòng thêm mới không khớp.')
         it_new = iter(new_ids)
         item_ids = [i if i is not None else next(it_new) for i in order]
+        cursor.execute('SELECT COUNT(*) AS c, MAX(updated_at) AS m FROM bo_orders WHERE request_id = %s', (request_id,))
+        vr = cursor.fetchone()
+        new_version = _version_str(vr['c'], vr['m'])
         db.commit()
     except Exception as e:
         db.rollback()
@@ -825,7 +851,7 @@ def save_order():
     cursor.close()
 
     return jsonify({'success': True, 'request_id': request_id, 'seq_no': seq_no,
-                    'item_ids': item_ids, 'order_value': header.get('order_value')})
+                    'item_ids': item_ids, 'order_value': header.get('order_value'), 'version': new_version})
 
 
 @orders_bp.route('/api/orders/import', methods=['POST'])
@@ -1055,6 +1081,7 @@ def delete_order():
 
     db = get_orders_db()
     cursor = db.cursor()
+    cursor.execute('SELECT pg_advisory_xact_lock(hashtext(%s))', ('bo_req:' + request_id,))
     if role == 'admin':
         cursor.execute('DELETE FROM bo_orders WHERE request_id = %s', (request_id,))
     else:

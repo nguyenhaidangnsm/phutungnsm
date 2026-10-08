@@ -26,6 +26,7 @@
 #     rất lớn).
 # ----------------------------------------------------------------------------
 
+import time
 from datetime import datetime
 
 import openpyxl
@@ -34,9 +35,15 @@ from part_code_utils import norm_index_sql
 from audit_log import audit_record
 from psycopg2.extras import execute_values
 
-from app import get_db, vn_now, _current_actor_name, invalidate_inventory_cache
+from app import get_db, vn_now, _current_actor_name, invalidate_inventory_cache, _set_app_setting
 
 price_adjustment_bp = Blueprint('price_adjustment', __name__)
+
+
+def _bump_price_adj_version(cursor):
+    """Đánh dấu 'dữ liệu tăng giá vừa đổi' trong DB (app_settings) để /api/version báo cho MỌI máy/worker
+    biết mà tự tải lại danh sách - gọi ngay trước db.commit() của mọi thao tác ghi."""
+    _set_app_setting(cursor, 'price_adj_version', str(time.time_ns()))
 
 
 def init_price_adjustment_tables(cursor):
@@ -471,6 +478,7 @@ def price_adjustment_import():
                 page_size=1000
             )
 
+        _bump_price_adj_version(cursor)
         db.commit()
         invalidate_inventory_cache()
         return jsonify({
@@ -939,6 +947,7 @@ def price_adjustment_propose():
         if cursor.fetchone() is None:
             _upsert_new_code(cursor, part_code, part_name, thue_frac, gia_ban, actor, now)
 
+        _bump_price_adj_version(cursor)
         db.commit()
         invalidate_inventory_cache()
         return jsonify({
@@ -1030,6 +1039,7 @@ def price_adjustment_update_proposal(proposal_id):
         if cursor.fetchone() is None:
             _upsert_new_code(cursor, part_code, part_name, None, gia_ban, _current_actor_name(), vn_now())
 
+        _bump_price_adj_version(cursor)
         db.commit()
         invalidate_inventory_cache()
         _new = {'part_name': part_name if part_name is not None else _old['part_name'], 'thue_percent': thue_percent,
@@ -1099,6 +1109,8 @@ def price_adjustment_reset_code(part_code):
 
     cursor.execute('DELETE FROM price_adjustment_proposals WHERE part_code = %s RETURNING id', (part_code,))
     deleted_rows = cursor.fetchall()
+    if deleted_rows:
+        _bump_price_adj_version(cursor)
     db.commit()
     invalidate_inventory_cache()
     cursor.close()
@@ -1126,6 +1138,8 @@ def price_adjustment_delete_proposal(proposal_id):
     _old = cursor.fetchone()
     cursor.execute('DELETE FROM price_adjustment_proposals WHERE id = %s RETURNING id', (proposal_id,))
     row = cursor.fetchone()
+    if row:
+        _bump_price_adj_version(cursor)
     db.commit()
     invalidate_inventory_cache()
     cursor.close()

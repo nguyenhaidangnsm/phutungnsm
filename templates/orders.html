@@ -524,7 +524,7 @@ const itemFilled = it => ['part_code','part_name','quantity','order_type'].some(
 const blankItem = () => ({ id: null, status: STATUS_OPTIONS[0], part_code: '', part_name: '', quantity: '', unit_price: null, order_type: '', order_date: null, expected_delivery_date: null, customer_call_date: null, actual_delivery_date: null, call_note: '', source: 'Đặt hàng', source_store: '' });
 function buildPayload(rq) {
   const header = {}; HFIELDS.forEach(f => header[f] = rq[f] ?? ''); header.order_value_manual = !!rq.order_value_manual;
-  return { header, items: rq.items.filter(it => it.id != null || itemFilled(it)).map(it => { const o = {}; if (it.id != null) o.id = it.id; IFIELDS.forEach(f => o[f] = it[f] ?? ''); return o; }) };
+  return { header, base_version: rq.version || null, items: rq.items.filter(it => it.id != null || itemFilled(it)).map(it => { const o = {}; if (it.id != null) o.id = it.id; IFIELDS.forEach(f => o[f] = it[f] ?? ''); return o; }) };
 }
 
 /* ---------- Danh sách ---------- */
@@ -637,7 +637,7 @@ async function loadOrders(opts = {}) {
 function quickSave(rq) {   // lưu nối tiếp từng đơn, không vẽ lại danh sách
   pendingQuick++;
   rq._q = (rq._q || Promise.resolve()).then(async () => {
-    try { const p = buildPayload(rq); p.request_id = rq.request_id; await api('/api/orders/save', p); lastSig = ''; toast('Đã lưu'); }
+    try { const p = buildPayload(rq); p.request_id = rq.request_id; const r = await api('/api/orders/save', p); if (r.version) rq.version = r.version; lastSig = ''; toast('Đã lưu'); }
     catch (e) { toast('Lỗi lưu: ' + e.message, true); loadOrders({ silent: true }); }
     finally { pendingQuick--; }
   });
@@ -891,6 +891,7 @@ async function saveEditor(again) {
     if (!cur.request_id) currentPage = 1; loadOrders(); if (again) setTimeout(() => openEditor(null), 350);
   } catch (e) {
     toast(e.code === 'dup_quote' ? e.message : 'Lỗi lưu: ' + e.message, true);
+    if (e.code === 'stale') loadOrders({ silent: true });   // đơn bị máy khác sửa: nạp bản mới vào nền, người dùng đóng form và mở lại
     if (e.code === 'dup_quote') { const f = document.querySelector('#edBody [data-f="quote_no"]'); if (f) { f.classList.add('is-bad'); f.focus(); } }
   }
   finally { saving = false; $('btnSave').disabled = false; }

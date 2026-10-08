@@ -6190,10 +6190,13 @@ def get_version():
                FROM users) AS users_v,
             (SELECT COUNT(*) FROM transfer_requests) AS tr_c,
             (SELECT MAX(updated_at) FROM transfer_requests) AS tr_v,
+            (SELECT COUNT(*) FROM transfer_requests WHERE delete_requested) AS tr_dc,
+            (SELECT MAX(delete_requested_at) FROM transfer_requests) AS tr_dv,
             (SELECT MAX(updated_at) FROM part_locations) AS loc_v,
             (SELECT COUNT(*) FROM damaged_items) AS dmg_c,
             (SELECT MAX(created_at) FROM damaged_items) AS dmg_v,
             (SELECT COUNT(resolved_at)::text || ':' || COALESCE(MAX(resolved_at)::text, '') FROM damaged_items) AS dmg_r,
+            (SELECT value FROM app_settings WHERE key = 'price_adj_version') AS price_adj_v,
             (SELECT COUNT(*) FROM notifications WHERE store_code = %s AND is_read = FALSE) AS unread
     ''', (session.get('store_code'),))
     vrow = cursor.fetchone()
@@ -6202,7 +6205,7 @@ def get_version():
     history_version = vrow['history_v']
     inventory_version = vrow['inv_v']
     users_version = vrow['users_v']
-    transfer_version = f"{vrow['tr_c']}:{vrow['tr_v']}"
+    transfer_version = f"{vrow['tr_c']}:{vrow['tr_v']}:{vrow['tr_dc']}:{vrow['tr_dv']}"
     locations_version = vrow['loc_v']
     damaged_version = f"{vrow['dmg_c']}:{vrow['dmg_v']}:{vrow['dmg_r']}"
     unread_notifications = vrow['unread'] if session['role'] in ('store', 'admin') else 0
@@ -6226,6 +6229,7 @@ def get_version():
         'transfer_version': transfer_version,
         'locations_version': str(locations_version) if locations_version else None,
         'damaged_version': damaged_version,
+        'price_adj_version': vrow['price_adj_v'],
         'unread_notifications': unread_notifications,
         'truck_announcements': truck_announcements,
     })
@@ -7383,7 +7387,7 @@ def admin_transfer_delete():
 
     db = get_db()
     cursor = db.cursor()
-    cursor.execute('SELECT * FROM transfer_requests WHERE id = %s', (req_id,))
+    cursor.execute('SELECT * FROM transfer_requests WHERE id = %s FOR UPDATE', (req_id,))
     row = cursor.fetchone()
     if not row:
         cursor.close()
@@ -7426,7 +7430,7 @@ def admin_dismiss_delete_request():
 
     db = get_db()
     cursor = db.cursor()
-    cursor.execute('SELECT * FROM transfer_requests WHERE id = %s', (req_id,))
+    cursor.execute('SELECT * FROM transfer_requests WHERE id = %s FOR UPDATE', (req_id,))
     row = cursor.fetchone()
     if not row:
         cursor.close()
@@ -7632,12 +7636,18 @@ def transfer_list():
     if not (before or date_from_str or date_to_str):
         tr_key = ('transfer_list', role, store_code if role == 'store' else None,
                   (filter_store or 'ALL') if role == 'admin' else None)
-        sig_sql = 'SELECT COUNT(*) AS c, MAX(updated_at) AS v FROM transfer_requests'
+        # delete_requested/delete_requested_at đổi mà KHÔNG đổi updated_at (xin xoá /
+        # bỏ qua xin xoá) -> đưa vào chữ ký từ DB để MỌI worker đều thấy, không chỉ worker xử lý request.
+        inv_sig = _inventory_meta_signature(cursor) or ('no-sig', time.time_ns())
+        sig_sql = ('SELECT COUNT(*) AS c, MAX(updated_at) AS v, '
+                   'COUNT(*) FILTER (WHERE delete_requested) AS dr_c, '
+                   'MAX(delete_requested_at) AS dr_v FROM transfer_requests')
         if store_where:
             sig_sql += f' WHERE {store_where}'
         cursor.execute(sig_sql, store_params)
         sig_row = cursor.fetchone()
         tr_sig = (_inventory_epoch, _write_epoch, _transfer_epoch, sig_row['c'], str(sig_row['v']),
+                  sig_row['dr_c'], str(sig_row['dr_v']), inv_sig,
                   vn_now().date().isoformat())
         cached_body = _resp_cache_get(tr_key, tr_sig)
         if cached_body is not None:
@@ -8096,7 +8106,7 @@ def transfer_respond():
 
     db = get_db()
     cursor = db.cursor()
-    cursor.execute('SELECT * FROM transfer_requests WHERE id = %s', (req_id,))
+    cursor.execute('SELECT * FROM transfer_requests WHERE id = %s FOR UPDATE', (req_id,))
     row = cursor.fetchone()
 
     if not row:
@@ -8216,7 +8226,7 @@ def transfer_toggle_prepared():
 
     db = get_db()
     cursor = db.cursor()
-    cursor.execute('SELECT * FROM transfer_requests WHERE id = %s', (req_id,))
+    cursor.execute('SELECT * FROM transfer_requests WHERE id = %s FOR UPDATE', (req_id,))
     row = cursor.fetchone()
     if not row:
         cursor.close()
@@ -8273,7 +8283,7 @@ def transfer_revert():
 
     db = get_db()
     cursor = db.cursor()
-    cursor.execute('SELECT * FROM transfer_requests WHERE id = %s', (req_id,))
+    cursor.execute('SELECT * FROM transfer_requests WHERE id = %s FOR UPDATE', (req_id,))
     row = cursor.fetchone()
 
     if not row:
@@ -8346,6 +8356,7 @@ def transfer_mark_received():
         SELECT ti.*, tr.from_store, tr.to_store, tr.status AS request_status
         FROM transfer_items ti JOIN transfer_requests tr ON tr.id = ti.request_id
         WHERE ti.id = %s
+        FOR UPDATE OF tr
     ''', (item_id,))
     row = cursor.fetchone()
 
@@ -8397,7 +8408,7 @@ def transfer_mark_all_received():
 
     db = get_db()
     cursor = db.cursor()
-    cursor.execute('SELECT * FROM transfer_requests WHERE id = %s', (request_id,))
+    cursor.execute('SELECT * FROM transfer_requests WHERE id = %s FOR UPDATE', (request_id,))
     req_row = cursor.fetchone()
     if not req_row:
         cursor.close()
@@ -8444,7 +8455,7 @@ def transfer_cancel():
 
     db = get_db()
     cursor = db.cursor()
-    cursor.execute('SELECT * FROM transfer_requests WHERE id = %s', (req_id,))
+    cursor.execute('SELECT * FROM transfer_requests WHERE id = %s FOR UPDATE', (req_id,))
     row = cursor.fetchone()
 
     if not row:
@@ -8496,7 +8507,7 @@ def transfer_request_delete():
 
     db = get_db()
     cursor = db.cursor()
-    cursor.execute('SELECT * FROM transfer_requests WHERE id = %s', (req_id,))
+    cursor.execute('SELECT * FROM transfer_requests WHERE id = %s FOR UPDATE', (req_id,))
     row = cursor.fetchone()
     if not row:
         cursor.close()
