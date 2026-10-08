@@ -216,6 +216,10 @@ body{font-size:15px}
  .chat{grid-template-columns:360px minmax(0,1fr);gap:0;min-height:0;height:calc(100vh - 32px);height:calc(100dvh - 32px);border:1px solid var(--line);border-radius:20px;background:var(--card);overflow:hidden}
  .clist{padding:20px 14px;overflow-y:auto;border-right:1px solid var(--line)}
  .cwin,.chat.open .cwin{height:100%;border-left:0;padding:18px 28px 20px;background:var(--bg)}
+ .chat{grid-template-rows:minmax(0,1fr)}
+ .cwin{min-height:0;overflow:hidden}
+ .cwin .msgs{min-height:0}
+ .cwin .chead,.cwin .cmtin,.cwin .pickline,.cwin .epanel{flex:none}
 }
 @media(min-width:1500px){.app.chatmode{grid-template-columns:240px minmax(0,1fr) 300px}.app.chatmode .right{display:block}}
 /* ===== v3: ngày tin nhắn, emoji/sticker, dán ảnh ===== */
