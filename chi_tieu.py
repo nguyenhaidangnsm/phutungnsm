@@ -358,6 +358,11 @@ def _parse_kind_file(kind, file_storage, month):
         c_mrn = _pick(df, 'mrn status')
         if c_mrn is not None:
             df = df[df[c_mrn].map(lambda v: _key(str(v)) == 'closed')]
+    if kind == 'dat':
+        # File đặt hàng (PO): tính mọi dòng, trừ phiếu có PO Status = Cancelled (đã huỷ). Không có cột này thì giữ nguyên.
+        c_po = _pick(df, 'po status')
+        if c_po is not None:
+            df = df[~df[c_po].map(lambda v: _key(str(v)).startswith('cancel'))]
     miss = [n for n, c in (('Mã phụ tùng', c_code), ('Số lượng', c_qty), ('Giá nhập', c_price)) if c is None]
     if miss:
         raise ValueError('File thiếu cột: ' + ', '.join(miss) + '. Hãy chọn đúng file "' + KIND_LABEL[kind] + '" xuất từ HMS.')
