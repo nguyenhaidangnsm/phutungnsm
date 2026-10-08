@@ -272,7 +272,7 @@ def _track_online_user():
 # đánh dấu đã đọc thông báo, đổi mật khẩu - không đụng tới dữ liệu tồn
 # kho/vị trí/phiếu luân chuyển).
 _WRITE_EPOCH_IGNORED_PREFIXES = ('/api/notifications/', '/api/change-password', '/login', '/logout', '/api/login-geo', '/api/push/', '/teamhub/',
-                                '/api/gom-don-hang/')   # Gôm đơn hàng không đụng tới tồn kho/vị trí/phiếu luân chuyển
+                                '/api/gom-don-hang/', '/api/chi-tieu/')   # Gôm đơn hàng / Chỉ tiêu không đụng tới tồn kho/vị trí/phiếu luân chuyển
 
 
 @app.after_request
@@ -8976,6 +8976,11 @@ app.register_blueprint(gom_don_hang_bp)
 # Dữ liệu tách hẳn latest_uploads/po_detail_items nên không ảnh hưởng dữ liệu thật của cửa hàng.
 from admin_hang_no import admin_hang_no_bp
 app.register_blueprint(admin_hang_no_bp)
+
+# Chỉ tiêu HMS theo cửa hàng (thay file Excel "THEO DÕI CHỈ TIÊU HMS") - chi_tieu.py. Bảng ct_* tự tạo ở lần dùng đầu tiên.
+# Cửa hàng tải 4 file HMS và xem kết quả của mình; admin xem tổng hợp mọi cửa hàng + đặt chỉ tiêu/tỉ lệ + bảng tra.
+from chi_tieu import chi_tieu_bp
+app.register_blueprint(chi_tieu_bp)
 
 # Tự động gọi khởi tạo bảng khi chạy app (gọi SAU khi đã đăng ký blueprint
 # ở trên, vì init_db() bên trong có gọi init_stocktake_tables()).

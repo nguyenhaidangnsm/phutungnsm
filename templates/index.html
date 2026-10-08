@@ -325,6 +325,12 @@
             </button>
             {% endif %}
             {% if role == 'admin' or role == 'store' %}
+            <button type="button" class="ns-sidebar-item" data-target-tab="ct-tab" onclick="megaNavClick('ct-tab', this)">
+                <span class="ns-sidebar-icon"><i class="bi bi-bullseye"></i></span>
+                <span class="ns-label">Chỉ Tiêu</span>
+            </button>
+            {% endif %}
+            {% if role == 'admin' or role == 'store' %}
             <button type="button" class="ns-sidebar-item" data-target-tab="gdh-tab" onclick="megaNavClick('gdh-tab', this)">
                 <span class="ns-sidebar-icon"><i class="bi bi-boxes"></i></span>
                 <span class="ns-label">Gôm Đơn Hàng</span>
@@ -485,6 +491,13 @@
     <li class="nav-item" role="presentation">
         <button class="nav-link" id="transfer-import-tab" data-bs-toggle="pill" data-bs-target="#transfer-import-pane" onclick="loadTransfers(); if (globalInventory.length === 0) loadInventory();">
             <i class="bi bi-box-arrow-in-down me-2"></i>Nhận Nội Bộ
+        </button>
+    </li>
+    {% endif %}
+    {% if role == 'admin' or role == 'store' %}
+    <li class="nav-item" role="presentation">
+        <button class="nav-link" id="ct-tab" data-bs-toggle="pill" data-bs-target="#ct-pane" onclick="ctTabOpened()">
+            <i class="bi bi-bullseye me-2"></i>Chỉ Tiêu
         </button>
     </li>
     {% endif %}
@@ -1136,6 +1149,26 @@
             <button class="btn btn-outline-secondary btn-sm" onclick="ahnPage(1)">Sau &raquo;</button>
         </div>
     </div>
+</div>
+{% endif %}
+
+{% if role == 'admin' or role == 'store' %}
+<!-- CHỈ TIÊU HMS theo cửa hàng - /api/chi-tieu/* (chi_tieu.py, static/chi_tieu.js).
+     Admin: tổng hợp mọi cửa hàng + nhập chỉ tiêu/tỉ lệ + bảng tra. Cửa hàng: tải 4 file HMS và xem kết quả của mình. -->
+<div class="tab-pane fade" id="ct-pane">
+    <div class="card card-custom p-3 mb-3">
+        <div class="d-flex flex-wrap align-items-center gap-2">
+            <h6 class="fw-bold mb-0 me-2"><i class="bi bi-bullseye me-2 text-danger"></i>Chỉ Tiêu HMS</h6>
+            <div class="btn-group" id="ctViews"></div>
+            <div class="ms-auto d-flex flex-wrap align-items-center gap-2">
+                <span id="ctMonthWrap"><input type="month" class="form-control form-control-sm" id="ctMonth" onchange="ctChange()"></span>
+                <select class="form-select form-select-sm d-none" style="width:auto" id="ctStore" onchange="ctChange()"></select>
+                <button class="btn btn-outline-success btn-sm d-none" id="ctExport" onclick="ctExport()"><i class="bi bi-file-earmark-excel me-1"></i>Xuất Excel</button>
+                <span class="small text-muted" id="ctLive"></span>
+            </div>
+        </div>
+    </div>
+    <div id="ctBody"><div class="text-center text-muted py-5">Đang tải...</div></div>
 </div>
 {% endif %}
 
@@ -3550,7 +3583,9 @@
     const ADMIN_EMPLOYEES = {{ admin_employees|tojson }};
     const NS_LOGO_URL = "{{ url_for('static', filename='logo.png') }}";
 </script>
+<link rel="stylesheet" href="{{ url_for('static', filename='chi_tieu.css') }}?v=1">
 <script src="{{ url_for('static', filename='app.js') }}"></script>
+<script src="{{ url_for('static', filename='chi_tieu.js') }}?v=1"></script>
 <script src="{{ url_for('static', filename='mobile.js') }}?v=1"></script>
 <div id="imgLightboxOverlay" onclick="closeImageLightbox(event)">
     <span class="lightbox-close" onclick="closeImageLightbox(event)">&times;</span>

@@ -1,0 +1,163 @@
+/* =====================================================================
+   Chỉ Tiêu HMS - giao diện báo cáo trung tính
+   Nguyên tắc: 1 màu nhấn (xanh navy), xanh lá/đỏ CHỈ dùng cho đạt/chưa đạt,
+   tiêu đề bảng nền navy có vạch ngăn cột, cột "Thực tế/Tổng" nền xám xanh nhạt.
+   ===================================================================== */
+#ct-pane {
+    --ct-navy: #1e3a5f;      /* tiêu đề bảng */
+    --ct-navy2: #35557f;     /* tiêu đề nhóm cấp 2 */
+    --ct-accent: #1d4ed8;
+    --ct-line: #d9dee5;
+    --ct-line2: #eceff3;
+    --ct-ink: #1f2937;
+    --ct-mute: #6b7280;
+    --ct-hl: #edf3fc;        /* cột nổi bật */
+    --ct-zebra: #f6f8fb;
+    --ct-ok: #15803d; --ct-mid: #b45309; --ct-low: #b91c1c;
+}
+
+/* ---------- tiện ích cũ (giữ nguyên tên) ---------- */
+#ct-pane .ct-table th, #ct-pane .ct-table td { white-space: nowrap; font-size: .85rem; }
+#ct-pane .ct-click { cursor: pointer; }
+#ct-pane .ct-good { color: var(--ct-ok); font-weight: 600; }
+#ct-pane .ct-bad { color: var(--ct-low); font-weight: 600; }
+#ct-pane .ct-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #adb5bd; margin-right: 4px; }
+#ct-pane .ct-dot.on { background: var(--ct-ok); box-shadow: 0 0 0 0 rgba(21,128,61,.6); animation: ctPulse 2s infinite; }
+@keyframes ctPulse { 70% { box-shadow: 0 0 0 7px rgba(21,128,61,0); } 100% { box-shadow: 0 0 0 0 rgba(21,128,61,0); } }
+#ct-pane #ctViews { flex-wrap: wrap; }
+#ct-pane .ct-in { text-align: right; font-variant-numeric: tabular-nums; font-weight: 600; letter-spacing: .02em; }
+#ct-pane .ct-money { font-size: 1rem; }
+
+/* ---------- tông màu: tất cả đưa về 1 màu nhấn ---------- */
+.ct-t-blue   { --ct-c: #2563a8; --ct-cs: #e4eefb; --ct-cd: #17406f; }
+.ct-t-teal   { --ct-c: #0f8a8a; --ct-cs: #def3f2; --ct-cd: #0b5c5c; }
+.ct-t-orange { --ct-c: #d9731a; --ct-cs: #fdeedd; --ct-cd: #8f4608; }
+.ct-t-indigo { --ct-c: #5b4bc4; --ct-cs: #ebe8fb; --ct-cd: #3a2f8a; }
+.ct-t-amber  { --ct-c: #c28a0a; --ct-cs: #fbf1d6; --ct-cd: #7a5805; }
+.ct-t-green  { --ct-c: #2e8b57; --ct-cs: #e0f4e8; --ct-cd: #1b5c38; }
+.ct-t-red    { --ct-c: #c0392b; --ct-cs: #fbe4e1; --ct-cd: #8a2218; }
+
+/* ---------- thẻ chỉ số ---------- */
+#ct-pane .ct-kpi { flex-direction: row; align-items: center; gap: .85rem; padding: .85rem 1rem; border: 1px solid var(--ct-line); border-radius: 8px; box-shadow: none; background: #fff; }
+#ct-pane .ct-kpi-ico { flex: none; width: 40px; height: 40px; border-radius: 8px; background: var(--ct-cs); color: var(--ct-c); display: grid; place-items: center; font-size: 1.2rem; }
+#ct-pane .ct-kpi-b { min-width: 0; flex: 1; }
+#ct-pane .ct-kpi-l { font-size: .7rem; text-transform: uppercase; letter-spacing: .05em; font-weight: 700; color: var(--ct-mute); }
+#ct-pane .ct-kpi-v { font-size: 1.5rem; font-weight: 700; line-height: 1.25; color: var(--ct-ink); font-variant-numeric: tabular-nums; }
+#ct-pane .ct-kpi-sub { font-size: .75rem; color: var(--ct-mute); margin-top: 2px; }
+#ct-pane .ct-mini { height: 6px; background: #e5e9ef; border-radius: 3px; overflow: hidden; margin-top: 6px; }
+#ct-pane .ct-c-ok { color: var(--ct-ok); } #ct-pane .ct-c-mid { color: var(--ct-mid); } #ct-pane .ct-c-low { color: var(--ct-low); }
+
+/* ---------- khối nội dung ---------- */
+#ct-pane .ct-card { border: 1px solid var(--ct-line); border-radius: 8px; padding: 0 0 1rem; box-shadow: none; background: #fff; overflow: hidden; }
+#ct-pane .ct-card::before { display: none; }
+#ct-pane .ct-card > :not(.ct-sec) { margin-left: 1rem; margin-right: 1rem; }
+#ct-pane .ct-sec { display: flex; align-items: center; flex-wrap: wrap; gap: .6rem; margin: 0 0 .9rem; padding: .7rem 1rem; background: var(--ct-cs, #f3f5f8); border-bottom: 1px solid var(--ct-line); }
+#ct-pane .ct-sec-ico { width: 28px; height: 28px; border-radius: 6px; background: var(--ct-c, var(--ct-navy)); color: #fff; display: grid; place-items: center; font-size: .95rem; }
+#ct-pane .ct-sec-t { margin: 0; font-weight: 700; font-size: 1rem; color: var(--ct-ink); }
+#ct-pane .ct-sec-s { color: var(--ct-mute); font-size: .78rem; }
+#ct-pane .ct-sec-x { margin-left: auto; }
+#ct-pane .ct-xls { border: 1px solid #b6c2d3; background: #fff; color: var(--ct-navy); font-size: .76rem; font-weight: 600; border-radius: 6px; padding: .22rem .6rem; line-height: 1.3; }
+#ct-pane .ct-xls:hover { background: var(--ct-navy); color: #fff; border-color: var(--ct-navy); }
+#ct-pane .ct-subh { margin: 1.2rem 0 .5rem; padding-top: .8rem; border-top: 1px dashed var(--ct-line); font-weight: 700; color: var(--ct-ink); display: flex; align-items: center; gap: .45rem; }
+#ct-pane .ct-note { margin-top: .7rem; font-size: .78rem; color: var(--ct-mute); }
+#ct-pane .ct-strip { display: flex; flex-wrap: wrap; gap: .5rem; margin-bottom: .75rem; }
+#ct-pane .ct-trophy { color: var(--ct-navy); }
+
+/* ---------- bảng ---------- */
+#ct-pane .ct-table { font-variant-numeric: tabular-nums; border-collapse: separate; border-spacing: 0; width: 100%; border: 1px solid var(--ct-line); border-radius: 6px; overflow: hidden; }
+#ct-pane .ct-table thead th {
+    background: #dfe8f5 !important; color: #1e3a5f !important; text-transform: none !important; letter-spacing: 0 !important;
+    font-size: .78rem; font-weight: 700; padding: .6rem .8rem; vertical-align: middle; white-space: nowrap;
+    border: 0 !important; border-right: 1px solid #c3d1e6 !important; border-bottom: 3px solid #35557f !important;
+}
+#ct-pane .ct-table thead th:last-child { border-right: 0 !important; }
+#ct-pane .ct-table th.text-end { text-align: right !important; }
+#ct-pane .ct-table th.text-center { text-align: center !important; }
+#ct-pane .ct-table tbody td { padding: .5rem .8rem; border-bottom: 1px solid var(--ct-line2); border-right: 1px solid var(--ct-line2); background: #fff; vertical-align: middle; color: var(--ct-ink); }
+#ct-pane .ct-table tbody td:last-child { border-right: 0; }
+#ct-pane .ct-table tbody tr:nth-child(even) > td { background: var(--ct-zebra); }
+#ct-pane .ct-table tbody tr:hover > td { background: #e3edfb !important; }
+#ct-pane .ct-table tbody tr:hover > td.ct-hl { background: #d3e2f8 !important; }
+#ct-pane .ct-table tbody tr:last-child > td { border-bottom: 0; }
+#ct-pane .ct-narrow { max-width: none; }
+#ct-pane .ct-z { color: #c3cad4; font-weight: 400; }
+#ct-pane .ct-dim { opacity: .5; }
+/* cột tổng / thực tế */
+#ct-pane .ct-table td.ct-hl { background: var(--ct-hl) !important; font-weight: 700; color: var(--ct-ink); border-left: 1px solid #c7d4ea; border-right: 1px solid #c7d4ea; }
+#ct-pane .ct-table th.ct-hl { background: #c6d8f0 !important; color: #14304f !important; }
+/* hàng mới nhất / hôm nay: chỉ 1 vạch bên trái + nền nhạt */
+#ct-pane .ct-cur > td, #ct-pane .ct-today > td { background-image: linear-gradient(rgba(30,58,95,.07), rgba(30,58,95,.07)); }
+#ct-pane .ct-cur > td:first-child, #ct-pane .ct-today > td:first-child { font-weight: 700; box-shadow: inset 4px 0 0 var(--ct-navy); }
+
+/* cột đầu dính trái khi kéo ngang */
+#ct-pane .ct-sticky th:first-child, #ct-pane .ct-sticky td:first-child { position: sticky; left: 0; z-index: 2; box-shadow: 1px 0 0 var(--ct-line); }
+#ct-pane .ct-sticky thead th:first-child { z-index: 3; }
+#ct-pane .ct-sticky .ct-cur > td:first-child, #ct-pane .ct-sticky .ct-today > td:first-child { box-shadow: inset 4px 0 0 var(--ct-navy), 1px 0 0 var(--ct-line); }
+
+/* thanh tiến độ: nền xám, 3 mức màu nhạt */
+#ct-pane .ct-prog { display: flex; align-items: center; gap: .6rem; min-width: 190px; }
+#ct-pane .ct-prog-track { flex: 1; height: 10px; background: #e5e9ef; border-radius: 5px; overflow: hidden; }
+#ct-pane .ct-prog-fill { height: 100%; border-radius: 5px; background: #9aa5b4; }
+#ct-pane .ct-prog-fill.ok  { background: #2f9e5b; }
+#ct-pane .ct-prog-fill.mid { background: #d49a2a; }
+#ct-pane .ct-prog-fill.low { background: #d64545; }
+#ct-pane .ct-prog-n { min-width: 3.9rem; text-align: right; font-weight: 700; font-size: .9rem; }
+#ct-pane .ct-prog-n.ok { color: var(--ct-ok); } #ct-pane .ct-prog-n.mid { color: var(--ct-mid); } #ct-pane .ct-prog-n.low { color: var(--ct-low); }
+
+/* nhãn / huy hiệu: nền trắng viền mảnh, chỉ đạt/chưa đạt có màu */
+#ct-pane .ct-pill { display: inline-flex; align-items: center; gap: .35rem; padding: .18rem .6rem; border-radius: 6px; font-weight: 700; font-size: .82rem; border: 1px solid transparent; }
+#ct-pane .ct-pill.ok { background: #ecf7f0; color: var(--ct-ok); border-color: #b9dfc8; }
+#ct-pane .ct-pill.bad { background: #fbeeee; color: var(--ct-low); border-color: #efc4c4; }
+#ct-pane .kpi-ratio .ct-pill { font-size: 1.05rem; }
+#ct-pane .ct-kpi-v .ct-pill { font-size: 1.1rem; padding: .15rem .7rem; }
+#ct-pane .ct-chip { display: inline-flex; align-items: center; gap: .3rem; padding: .15rem .55rem; border-radius: 6px; font-weight: 600; font-size: .78rem; background: #fff; color: #374151; border: 1px solid var(--ct-line); white-space: nowrap; }
+#ct-pane .ct-chip.ok { background: #ecf7f0; color: var(--ct-ok); border-color: #b9dfc8; }
+#ct-pane .ct-chip.bad { background: #fbeeee; color: var(--ct-low); border-color: #efc4c4; }
+#ct-pane .ct-chip.muted { background: #f3f5f8; color: var(--ct-mute); font-weight: 500; }
+#ct-pane .ct-chip.ban, #ct-pane .ct-chip.dat, #ct-pane .ct-chip.nhan { background: #f3f5f8; color: var(--ct-navy); border-color: #c5cedb; }
+#ct-pane .ct-chip.warn { background: var(--ct-navy); color: #fff; border-color: var(--ct-navy); font-size: .66rem; padding: .05rem .45rem; }
+
+/* ---------- bán theo ngày ---------- */
+#ct-pane .ct-daywrap { max-height: 68vh; border: 1px solid var(--ct-line); border-radius: 6px; }
+#ct-pane .ct-daywrap .ct-table { border: 0; border-radius: 0; }
+#ct-pane .ct-day thead th { position: sticky; top: 0; z-index: 2; height: 34px; padding-top: .3rem; padding-bottom: .3rem; }
+#ct-pane .ct-day thead tr:nth-child(2) th { top: 34px; }
+#ct-pane .ct-day thead th:first-child { z-index: 4; }
+/* tiêu đề nhóm cấp 1: navy; cấp 2 (BL/DV): xám nhạt chữ tối */
+#ct-pane .ct-day thead th.ct-grp { background: #cddaee !important; }
+#ct-pane .ct-day thead th.ct-grp0 { background: #b9cce8 !important; }
+#ct-pane .ct-day thead th.ct-sub { background: #e4e9f0 !important; color: var(--ct-ink) !important; border-bottom: 2px solid #b6c2d3 !important; border-right: 1px solid #cfd7e2 !important; }
+#ct-pane .ct-day td.ct-gfirst, #ct-pane .ct-day th.ct-gfirst { border-left: 2px solid #aeb9c9 !important; }
+#ct-pane .ct-day tr.ct-we > td:first-child { background: #f1f3f6; }
+#ct-pane .ct-day .ct-totrow > td { position: sticky; bottom: 0; z-index: 2; background: #e4e9f0 !important; color: var(--ct-ink); font-weight: 700; border-top: 2px solid var(--ct-navy); border-bottom: 0; }
+#ct-pane .ct-day .ct-totrow > td:first-child { z-index: 3; }
+
+@media (max-width: 767.98px) {
+    #ct-pane .ct-table th, #ct-pane .ct-table td { font-size: .78rem; }
+    #ct-pane .ct-kpi-v { font-size: 1.25rem; }
+    #ct-pane .ct-kpi-ico { width: 34px; height: 34px; font-size: 1rem; }
+    #ct-pane .ct-card > :not(.ct-sec) { margin-left: .7rem; margin-right: .7rem; }
+}
+
+/* bảng tổng quan admin: tiêu đề nhóm hao mòn 2 tầng */
+#ct-pane .ct-table thead th.ct-grp { background: #cddaee !important; }
+#ct-pane .ct-table thead th.ct-sub { background: #e9eff8 !important; border-bottom: 2px solid #b6c2d3 !important; }
+#ct-pane .ct-table th.ct-gfirst, #ct-pane .ct-table td.ct-gfirst { border-left: 2px solid #aeb9c9 !important; }
+
+/* ---------- pha màu theo từng khối (nhạt, chỉ để phân biệt khu vực) ---------- */
+#ct-pane .ct-card { border-top: 3px solid var(--ct-c, var(--ct-navy)); }
+#ct-pane .ct-kpi { border-left: 4px solid var(--ct-c); background: linear-gradient(90deg, var(--ct-cs) 0, #fff 60%); }
+#ct-pane .ct-card .ct-table thead th { background: var(--ct-cs) !important; color: var(--ct-cd, var(--ct-navy)) !important; border-right-color: rgba(0,0,0,.08) !important; border-bottom: 3px solid var(--ct-c) !important; }
+#ct-pane .ct-card .ct-table th.ct-hl { background: color-mix(in srgb, var(--ct-c) 24%, #fff) !important; }
+#ct-pane .ct-card .ct-table td.ct-hl { background: color-mix(in srgb, var(--ct-c) 8%, #fff) !important; border-left-color: color-mix(in srgb, var(--ct-c) 25%, #fff); border-right-color: color-mix(in srgb, var(--ct-c) 25%, #fff); }
+#ct-pane .ct-card .ct-table tbody tr:hover > td { background: color-mix(in srgb, var(--ct-c) 10%, #fff) !important; }
+#ct-pane .ct-card .ct-table tbody tr:hover > td.ct-hl { background: color-mix(in srgb, var(--ct-c) 20%, #fff) !important; }
+#ct-pane .ct-card .ct-day thead th.ct-grp { background: color-mix(in srgb, var(--ct-c) 26%, #fff) !important; }
+#ct-pane .ct-card .ct-day thead th.ct-grp0 { background: color-mix(in srgb, var(--ct-c) 38%, #fff) !important; }
+#ct-pane .ct-card .ct-day thead th.ct-sub { background: color-mix(in srgb, var(--ct-c) 10%, #fff) !important; }
+#ct-pane .ct-card .ct-xls { border-color: var(--ct-c); color: var(--ct-cd, var(--ct-navy)); }
+#ct-pane .ct-card .ct-xls:hover { background: var(--ct-c); color: #fff; }
+
+/* ---------- KPI Honda theo quý / năm ---------- */
+#ct-pane .ct-kq { display: flex; flex-wrap: wrap; align-items: center; gap: .6rem; }
+#ct-pane .ct-table td .ct-pill { font-size: .72rem; padding: .08rem .45rem; }

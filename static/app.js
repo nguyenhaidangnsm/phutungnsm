@@ -8955,7 +8955,7 @@ if (storeLocationForm) {
                     </td>
                     <td class="small">
                         ${u.last_login_time ? fmtDateTimeVN(u.last_login_time) : '<span class="text-muted">Chưa từng đăng nhập</span>'}
-                        ${u.last_login_ip ? `<div class="text-muted">IP: ${u.last_login_ip}${u.last_login_location ? ` · ${u.last_login_location}` : ''}</div>` : ''}
+                        ${u.last_login_ip ? `<div class="text-muted">IP: ${u.last_login_ip}${u.last_login_location ? ` · ${u.last_login_location} (theo IP, gần đúng)` : ''}</div>` : ''}
                         ${renderGeoInfo(u.last_geo)}
                         ${u.is_store_ip === true ? '<span class="badge bg-success mt-1"><i class="bi bi-shield-check me-1"></i>Đúng IP cửa hàng</span>'
                             : u.is_store_ip === false ? '<span class="badge bg-warning text-dark mt-1"><i class="bi bi-exclamation-triangle me-1"></i>IP khác cửa hàng</span>'
@@ -8983,8 +8983,19 @@ if (storeLocationForm) {
     function renderGeoInfo(g) {
         if (!g) return '';
         if (g.lat != null && g.lng != null) {
-            const acc = g.accuracy_m != null ? ` (sai số ±${Math.round(g.accuracy_m)} m)` : '';
+            let acc = '';
+            if (g.accuracy_m != null) {
+                const m = Math.round(g.accuracy_m);
+                const txt = m >= 1000 ? (m / 1000).toFixed(1) + ' km' : m + ' m';
+                acc = m > 300
+                    ? ` <span class="text-warning fw-semibold">(chỉ gần đúng, sai số ±${txt})</span>`
+                    : ` (sai số ±${txt})`;
+            }
             const url = `https://www.google.com/maps?q=${Number(g.lat)},${Number(g.lng)}`;
+            // Sai số > 1 km: địa chỉ chữ chắc chắn không đáng tin -> không hiển thị địa chỉ
+            if (g.accuracy_m != null && g.accuracy_m > 1000) {
+                return `<div class="mt-1 text-danger"><i class="bi bi-geo-alt me-1"></i>Không xác định được địa chỉ chính xác${acc} <a href="${url}" target="_blank" rel="noopener">Xem vùng ước lượng</a></div>`;
+            }
             const addr = g.geo_address
                 ? escapeHtmlText(g.geo_address)
                 : `Toạ độ ${Number(g.lat).toFixed(5)}, ${Number(g.lng).toFixed(5)}`;
@@ -9028,7 +9039,7 @@ if (storeLocationForm) {
             tbody.innerHTML = logs.length ? logs.map(log => `
                 <tr>
                     <td class="small">${fmtDateTimeVN(log.login_time)}</td>
-                    <td class="small">${log.ip_address || '--'}${log.location ? `<div class="text-muted">${log.location}</div>` : ''}${renderGeoInfo(log)}</td>
+                    <td class="small">${log.ip_address || '--'}${log.location ? `<div class="text-muted">${log.location} (theo IP, gần đúng)</div>` : ''}${renderGeoInfo(log)}</td>
                     <td class="small text-muted">${parseUserAgent(log.user_agent)}</td>
                     <td class="small">
                         ${log.is_store_ip === true ? '<span class="badge bg-success">Đúng</span>'
@@ -10203,10 +10214,27 @@ function checkTransferChanges(prev, current) {
             body: JSON.stringify(payload)
         }).catch(() => {});
         if (!navigator.geolocation) { send({ status: 'unavailable' }); return; }
-        navigator.geolocation.getCurrentPosition(
-            pos => send({ status: 'ok', lat: pos.coords.latitude, lng: pos.coords.longitude, accuracy: pos.coords.accuracy }),
-            err => send({ status: err.code === 1 ? 'denied' : (err.code === 3 ? 'timeout' : 'unavailable') }),
-            { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
+        // Không nhận ngay kết quả đầu tiên (thường là định vị thô qua Wi-Fi/IP, sai số
+        // hàng trăm m đến vài km). Theo dõi liên tục tối đa 20 giây, giữ kết quả có sai
+        // số NHỎ NHẤT, dừng sớm khi đã đủ chính xác (<= 40 m).
+        const GOOD_M = 40, MAX_MS = 20000;
+        let best = null, done = false, lastErr = null, wid = null;
+        const finish = () => {
+            if (done) return; done = true;
+            try { navigator.geolocation.clearWatch(wid); } catch (e) {}
+            clearTimeout(tm);
+            if (best) send({ status: 'ok', lat: best.latitude, lng: best.longitude, accuracy: best.accuracy });
+            else send({ status: lastErr && lastErr.code === 1 ? 'denied' : (lastErr && lastErr.code === 3 ? 'timeout' : (lastErr ? 'unavailable' : 'timeout')) });
+        };
+        const tm = setTimeout(finish, MAX_MS);
+        wid = navigator.geolocation.watchPosition(
+            pos => {
+                const c = pos.coords;
+                if (!best || c.accuracy < best.accuracy) best = { latitude: c.latitude, longitude: c.longitude, accuracy: c.accuracy };
+                if (best.accuracy <= GOOD_M) finish();
+            },
+            err => { lastErr = err; if (err.code === 1) finish(); },
+            { enableHighAccuracy: true, timeout: MAX_MS, maximumAge: 0 }
         );
     }
     document.addEventListener('DOMContentLoaded', reportLoginLocation);
