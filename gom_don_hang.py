@@ -290,6 +290,24 @@ def _ensure_tables(db):
                     rejected_by TEXT, rejected_at TIMESTAMP NOT NULL DEFAULT (NOW() AT TIME ZONE \'Asia/Ho_Chi_Minh\'), reason TEXT
                 )''')
             cur.execute('CREATE INDEX IF NOT EXISTS idx_gdh_rejections_sto ON gdh_rejections (store_code, rejected_at DESC)')
+            # ---- ADMIN THÊM MÃ + YÊU CẦU CỬA HÀNG ĐẶT THÊM (lúc duyệt) ----
+            # *_draft: bản nháp khi admin đang duyệt; gdh_review_extra: bản chốt lúc Duyệt xong (cửa hàng xem). Đây chỉ là YÊU CẦU
+            # cho cửa hàng, KHÔNG nằm trong đơn đã đẩy nên không ảnh hưởng SL cuối / snapshot / file đặt hàng.
+            for _tb in ('gdh_review_extra_draft', 'gdh_review_extra'):
+                cur.execute(f'''
+                    CREATE TABLE IF NOT EXISTS {_tb} (
+                        batch_id INTEGER NOT NULL REFERENCES gdh_batches(id) ON DELETE CASCADE,
+                        part_code VARCHAR(100) NOT NULL,           -- MÃ ĐẶT (đã quy mã thay thế / mã cha)
+                        typed_code VARCHAR(100),                   -- mã admin gõ
+                        part_name TEXT, unit VARCHAR(50),
+                        qty NUMERIC NOT NULL,
+                        note TEXT NOT NULL DEFAULT '',
+                        stock NUMERIC,                             -- tồn hệ thống của chi nhánh lúc admin thêm (để admin tham khảo)
+                        locked BOOLEAN NOT NULL DEFAULT FALSE,
+                        added_by TEXT,
+                        added_at TIMESTAMP NOT NULL DEFAULT (NOW() AT TIME ZONE \'Asia/Ho_Chi_Minh\'),
+                        PRIMARY KEY (batch_id, part_code)
+                    )''')
             # GIỜ VIỆT NAM: các cột TIMESTAMP (không múi giờ) lưu đúng giờ Việt Nam bất kể múi giờ cấu hình của Postgres
             # (thường là UTC -> trước đây NOW() ghi lệch -7 giờ). Bảng cũ vẫn giữ DEFAULT NOW() cũ nên đặt lại ở đây.
             for _t, _c in (('gdh_batches', 'uploaded_at'), ('gdh_batch_events', 'at'), ('gdh_review_draft', 'updated_at'),
@@ -1726,6 +1744,8 @@ def gdh_recall():
             db.rollback()
             return _bad_state(batch, 'Chờ duyệt')
         cur.execute("DELETE FROM gdh_batch_snap WHERE batch_id = %s AND stage = 'submitted'", (batch['id'],))
+        cur.execute('DELETE FROM gdh_review_extra_draft WHERE batch_id = %s', (batch['id'],))
+        cur.execute('DELETE FROM gdh_review_extra WHERE batch_id = %s', (batch['id'],))
         _log_event(cur, batch['id'], 'pending', 'draft', 'Chi nhánh thu hồi đơn')
         db.commit()
         audit_record('Thu hồi đơn gôm', 'Gôm đơn hàng', target=f"đợt {batch['id']}",
@@ -1947,6 +1967,8 @@ def gdh_reject():
         _rejection_log(cur, batch, tot['parts'], tot['qty'],
                        _order_name(batch, [t for t in ORDER_TYPES if tot['by_type'][t]['parts'] > 0]), reason)
         cur.execute("DELETE FROM gdh_batch_snap WHERE batch_id = %s AND stage = 'submitted'", (bid,))
+        cur.execute('DELETE FROM gdh_review_extra_draft WHERE batch_id = %s', (bid,))
+        cur.execute('DELETE FROM gdh_review_extra WHERE batch_id = %s', (bid,))
         _log_event(cur, bid, st, 'draft', 'Admin từ chối duyệt: ' + reason)
         db.commit()
         _push(batch['store_code'], 'Đơn gôm bị trả về', f'Admin từ chối đơn {bid}: {reason[:120]}', 'gdh')
@@ -1978,6 +2000,7 @@ def _review_payload(cur, batch):
     draft = {r['part_code']: {'qty': _f(r['approved_qty']), 'note': r['note'] or ''} for r in drows}
     out = {'batch': _batch_json(batch), 'items': items, 'draft': draft,
            'draft_saved_at': _fmt_dt(max((r['updated_at'] for r in drows), default=None))}
+    out['extra'] = _extra_list(cur, batch['id'])               # mã admin đã thêm (nháp) để nạp lại khi mở / đổi máy
     if batch.get('rereview_open'):
         # Cửa hàng nhờ duyệt lại: kèm SL + ghi chú admin đã duyệt ở lần trước (gdh_batch_review chỉ bị thay khi admin duyệt xong lần mới)
         out['prev_review'] = {c: {'qty': q, 'note': n} for c, (q, n) in _review_map(cur, batch['id']).items()}
@@ -2052,6 +2075,11 @@ def gdh_approve():
             return _bad_state(batch, 'Đang duyệt')
         cur.execute('DELETE FROM gdh_batch_review WHERE batch_id = %s', (batch['id'],))
         cur.execute('DELETE FROM gdh_review_draft WHERE batch_id = %s', (batch['id'],))
+        cur.execute('DELETE FROM gdh_review_extra WHERE batch_id = %s', (batch['id'],))
+        cur.execute(f'INSERT INTO gdh_review_extra (batch_id, {_EXTRA_COLS}) SELECT batch_id, {_EXTRA_COLS} '
+                    'FROM gdh_review_extra_draft WHERE batch_id = %s', (batch['id'],))
+        n_extra = cur.rowcount
+        cur.execute('DELETE FROM gdh_review_extra_draft WHERE batch_id = %s', (batch['id'],))
         if given:
             execute_values(cur, 'INSERT INTO gdh_batch_review (batch_id, part_code, approved_qty, note) VALUES %s',
                            [(batch['id'], c, q, n) for c, (q, n) in given.items()], page_size=1000)
@@ -2063,20 +2091,21 @@ def gdh_approve():
             cur.execute('SAVEPOINT gdh_notif')
             create_notification(cur, batch['store_code'], 'Đơn gôm đã được duyệt lại' if was_re else 'Đơn gôm đã được duyệt',
                                 f"{_order_name(batch, [v['order_type'] for v in sent.values() if v['qty_final'] > 0])} đã được admin {'duyệt lại' if was_re else 'duyệt'}. "
-                                'Vào Gôm đơn hàng > Đơn đã đẩy để xem SL duyệt, ghi chú và tải đơn về.', 'info', push=True)
+                                'Vào Gôm đơn hàng > Đơn đã đẩy để xem SL duyệt, ghi chú và tải đơn về.' +
+                                (f' Admin có yêu cầu đặt thêm {n_extra} mã (xem trong bảng kết quả duyệt).' if n_extra else ''), 'info', push=True)
             cur.execute('RELEASE SAVEPOINT gdh_notif')
         except Exception:
             cur.execute('ROLLBACK TO SAVEPOINT gdh_notif')
         db.commit()
         audit_record('Duyệt xong đơn gôm', 'Duyệt Đơn Hàng', target=f"đợt {batch['id']}",
                      summary=f"Đợt {batch['id']} ({batch['store_code']}): Đang duyệt -> Đã duyệt, {len(sent_codes)} mã gửi, {len(given)} mã có kết quả duyệt",
-                     after={'status': 'approved', 'note': note}, extra={'so_dong_luu': n})
+                     after={'status': 'approved', 'note': note}, extra={'so_dong_luu': n, 'so_ma_yeu_cau_them': n_extra})
     except Exception:
         db.rollback()
         raise
     finally:
         cur.close()
-    return jsonify({'success': True, 'status': 'approved', 'saved': len(given), 'missing': len(sent_codes) - len(given)})
+    return jsonify({'success': True, 'status': 'approved', 'saved': len(given), 'missing': len(sent_codes) - len(given), 'extra_saved': n_extra})
 
 
 @gom_don_hang_bp.route('/api/gom-don-hang/request-rereview', methods=['POST'])
@@ -2123,6 +2152,9 @@ def gdh_request_rereview():
         cur.execute('DELETE FROM gdh_review_draft WHERE batch_id = %s', (batch['id'],))
         cur.execute('INSERT INTO gdh_review_draft (batch_id, part_code, approved_qty, note) '
                     'SELECT batch_id, part_code, approved_qty, note FROM gdh_batch_review WHERE batch_id = %s', (batch['id'],))
+        cur.execute('DELETE FROM gdh_review_extra_draft WHERE batch_id = %s', (batch['id'],))
+        cur.execute(f'INSERT INTO gdh_review_extra_draft (batch_id, {_EXTRA_COLS}) SELECT batch_id, {_EXTRA_COLS} '
+                    'FROM gdh_review_extra WHERE batch_id = %s', (batch['id'],))
         _log_event(cur, batch['id'], st, 'pending', 'Chi nhánh nhờ duyệt lại: ' + note)
         db.commit()
         _push('ALL', 'Nhờ duyệt lại đơn gôm', f"{batch['store_code']} nhờ duyệt lại: {note[:120]}", 'review')
@@ -2188,9 +2220,10 @@ def gdh_compare():
             rows.append({'stt': i, 'part_code': code, 'part_name': v['part_name'], 'order_type': v['order_type'],
                          'sent_qty': v['qty_final'], 'approved_qty': aq, 'note': nt})
         meta = _batch_json(batch)
+        extra = _extra_list(cur, batch['id'], 'gdh_review_extra')
     finally:
         cur.close()
-    return jsonify({'success': True, 'batch': meta, 'rows': rows, 'reviewed': st in ('approved', 'viewed', 'ordered')})
+    return jsonify({'success': True, 'batch': meta, 'rows': rows, 'reviewed': st in ('approved', 'viewed', 'ordered'), 'extra': extra})
 
 
 @gom_don_hang_bp.route('/api/gom-don-hang/orders', methods=['GET'])
@@ -2252,6 +2285,11 @@ def gdh_orders():
                                GROUP BY s.batch_id''', (done_ids,))
                 for r in cur.fetchall():
                     results[r['batch_id']] = {k: (float(v) if k in ('sent_qty', 'approved_qty') else int(v)) for k, v in r.items() if k != 'batch_id'}
+        extras = {}
+        if batches:
+            cur.execute('SELECT batch_id, COUNT(*) AS n FROM gdh_review_extra WHERE batch_id = ANY(%s) GROUP BY batch_id',
+                        ([b['id'] for b in batches],))
+            extras = {r['batch_id']: int(r['n']) for r in cur.fetchall()}
         csql, cparams = "SELECT status, COUNT(*) AS n FROM gdh_batches WHERE owner = '' AND status <> 'draft'", []
         if store:
             csql += ' AND store_code = %s'; cparams.append(store)
@@ -2262,7 +2300,8 @@ def gdh_orders():
                                 'by_type': types.get(b['id'], {}),
                                 'urgent_parts': (types.get(b['id'], {}).get('Khẩn') or {}).get('parts', 0),
                                 'waiting_min': int(b['waiting_min']) if b.get('waiting_min') is not None else None,
-                                'result': results.get(b['id'])}) for b in batches]
+                                'result': results.get(b['id']),
+                                'extra_parts': extras.get(b['id'], 0)}) for b in batches]
         if want in ('active', 'pending'):               # đơn Khẩn lên đầu, trong cùng nhóm thì đơn chờ lâu nhất lên trước
             data.sort(key=lambda o: (o['urgent_parts'] <= 0, -(o['waiting_min'] or 0)))
         arch_days, arch_pending = None, 0
@@ -2628,6 +2667,215 @@ def gdh_review_draft():
     finally:
         cur.close()
     return jsonify({'success': True, 'saved': len(rows), 'saved_at': at})
+
+
+# ----------------------------------------------------------------------------
+# 4b. ADMIN THÊM MÃ + YÊU CẦU CỬA HÀNG ĐẶT THÊM (ngay trong lúc duyệt)
+#     Chỉ là YÊU CẦU cho cửa hàng: không đưa vào đơn đã đẩy (SL cuối, snapshot, file đặt hàng giữ nguyên).
+#     Mã admin gõ được quy về MÃ ĐẶT đúng quy tắc của bảng gôm (khoá đặt hàng -> mã thay thế, mã con -> mã CHA).
+# ----------------------------------------------------------------------------
+_EXTRA_COLS = 'part_code, typed_code, part_name, unit, qty, note, stock, locked, added_by, added_at'
+
+
+def _extra_list(cur, bid, table='gdh_review_extra_draft'):
+    """Các mã admin thêm của 1 đơn. table: 'gdh_review_extra_draft' (nháp lúc duyệt) | 'gdh_review_extra' (đã chốt, cửa hàng xem)."""
+    if table not in ('gdh_review_extra_draft', 'gdh_review_extra'):
+        raise ValueError(table)
+    cur.execute(f'SELECT {_EXTRA_COLS} FROM {table} WHERE batch_id = %s ORDER BY added_at, part_code', (bid,))
+    return [{'part_code': r['part_code'], 'typed_code': r['typed_code'] or '', 'part_name': r['part_name'] or '',
+             'unit': r['unit'] or '', 'qty': _f(r['qty']), 'note': r['note'] or '', 'stock': _f(r['stock']),
+             'locked': bool(r['locked']), 'added_by': _display_name(r['added_by']) or (r['added_by'] or ''),
+             'added_at': _fmt_dt(r['added_at'])} for r in cur.fetchall()]
+
+
+def _extra_qty(v):
+    try:
+        q = int(round(float(str(v).strip().replace(',', '.'))))
+    except (TypeError, ValueError):
+        return None
+    return q if 1 <= q <= 100000 else None
+
+
+def _extra_guard(cur, payload):
+    """(batch, None) hoặc (None, response): admin đang duyệt đơn này (đã lấy đơn). Khoá dòng đơn để 2 worker / 2 máy không chạy xen với 'Duyệt xong'."""
+    blk = _need_role('admin')
+    if blk:
+        return None, blk
+    batch, err = _get_batch(cur, payload.get('batch_id'))
+    if err:
+        return None, err
+    me = str(session.get('user') or '')
+    cur.execute('SELECT * FROM gdh_batches WHERE id = %s FOR UPDATE', (batch['id'],))
+    batch = cur.fetchone()
+    if batch['owner'] or (batch.get('status') or 'draft') != 'reviewing':
+        return None, _bad_state(batch, 'Đang duyệt')
+    if (batch.get('claimed_by') or '') != me:
+        return None, (jsonify({'error': f"Đơn đang do {_display_name(batch.get('claimed_by')) or 'admin khác'} duyệt."}), 403)
+    return batch, None
+
+
+def _extra_resolve(cur, batch, typed):
+    """Quy mã gõ vào về MÃ ĐẶT giống compute_rows: khoá đặt hàng có mã thay thế -> dùng mã thay thế; rồi mã con -> mã CHA (gdh_bundles)."""
+    base, locked, rep_code = typed, False, None
+    cur.execute('SELECT is_locked, replacement_code FROM order_lock_items WHERE UPPER(TRIM(part_code)) = %s LIMIT 1', (_bkey(typed),))
+    lk = cur.fetchone()
+    if lk:
+        locked = bool(lk['is_locked'])
+        rep_code = (lk['replacement_code'] or '').strip() or None
+        if locked and rep_code:
+            base = rep_code
+    b = _load_bundles(cur).get(_bkey(base))
+    order_code = b[0] if b else base
+    names = _parent_names(cur, batch['id'], [order_code, typed])
+    hit = None
+    for q in (order_code, typed):
+        for v in _catalog_find(cur, q, limit=60):
+            if _bkey(v['code']) == _bkey(q):
+                hit = v
+                break
+        if hit:
+            break
+    if hit and _bkey(hit['code']) == _bkey(order_code):
+        order_code = hit['code']
+    name = names.get(_bkey(order_code)) or names.get(_bkey(typed)) or (hit or {}).get('name') or ''
+    stock = None
+    try:
+        cur.execute('SELECT COALESCE(SUM(quantity), 0) AS q FROM inventory_items WHERE store_code = %s AND UPPER(TRIM(part_code)) = %s',
+                    (batch['store_code'], _bkey(order_code)))
+        stock = float(cur.fetchone()['q'] or 0)
+    except Exception:
+        cur.connection.rollback()
+        raise
+    msgs = []
+    if b and _bkey(base) != _bkey(b[0]):
+        msgs.append(f"Mã {base} thuộc mã cha {b[0]} nên đã quy về mã cha. SL nhập tính theo đơn vị mã cha.")
+    if locked and rep_code:
+        msgs.append(f"Mã {typed} đang bị khoá đặt hàng, dùng mã thay thế {rep_code}.")
+    elif locked:
+        msgs.append(f"Mã {typed} đang bị khoá đặt hàng (chưa có mã thay thế).")
+    return {'order_code': order_code, 'typed': typed, 'name': name, 'unit': (hit or {}).get('unit') or '',
+            'known': bool(hit) or bool(name), 'stock': stock, 'locked': locked, 'messages': msgs}
+
+
+@gom_don_hang_bp.route('/api/gom-don-hang/extra-list', methods=['GET'])
+def gdh_extra_list():
+    """Admin đang duyệt: các mã đã thêm (nháp) của đơn - dùng khi nạp lại trang."""
+    db, cur = _ctx()
+    try:
+        batch, err = _extra_guard(cur, {'batch_id': request.args.get('batch_id')})
+        if err:
+            db.rollback()
+            return err
+        data = _extra_list(cur, batch['id'])
+        db.rollback()
+    finally:
+        cur.close()
+    return jsonify({'success': True, 'extra': data})
+
+
+@gom_don_hang_bp.route('/api/gom-don-hang/extra-add', methods=['POST'])
+def gdh_extra_add():
+    """Admin thêm 1 mã + SL yêu cầu cửa hàng đặt thêm. Mã đã có trong đơn chi nhánh gửi thì không thêm (sửa SL Duyệt ở bảng).
+    Mã không có trong danh mục chỉ thêm khi confirm_new=true. Thêm lại cùng mã đặt = cập nhật SL / ghi chú."""
+    payload = request.get_json(silent=True) or {}
+    code = re.sub(r'\s+', '', str(payload.get('code') or ''))[:100]
+    if not code:
+        return jsonify({'error': 'Chưa nhập mã hàng.'}), 400
+    qty = _extra_qty(payload.get('qty'))
+    if qty is None:
+        return jsonify({'error': 'SL yêu cầu đặt thêm phải là số nguyên từ 1 đến 100.000.'}), 400
+    note = str(payload.get('note') or '').strip()[:500]
+    if _is_excluded_from_reorder(code):
+        return jsonify({'error': f'Mã {code} không được phép đặt (khung xe...).'}), 400
+    db, cur = _ctx()
+    try:
+        batch, err = _extra_guard(cur, payload)
+        if err:
+            db.rollback()
+            return err
+        info = _extra_resolve(cur, batch, code)
+        oc = info['order_code']
+        if _is_excluded_from_reorder(oc):
+            db.rollback()
+            return jsonify({'error': f'Mã {oc} không được phép đặt (khung xe...).'}), 400
+        if not info['known'] and not payload.get('confirm_new'):
+            db.rollback()
+            return jsonify({'error': f'Mã {code} chưa có trong danh mục hệ thống. Kiểm tra lại mã; nếu đúng thì xác nhận để thêm.',
+                            'need_confirm': True}), 409
+        sent = _snap_load(cur, batch['id'], 'submitted')
+        if any(_bkey(c) == _bkey(oc) and v['qty_final'] > 0 and v['order_type'] in ORDER_TYPES for c, v in sent.items()):
+            db.rollback()
+            return jsonify({'error': f'Mã {oc} đã có trong đơn chi nhánh gửi. Hãy sửa SL Duyệt của mã này ở bảng kiểm tra, không thêm ở đây.'}), 409
+        cur.execute(f'''INSERT INTO gdh_review_extra_draft (batch_id, part_code, typed_code, part_name, unit, qty, note, stock, locked, added_by)
+                       VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                       ON CONFLICT (batch_id, part_code) DO UPDATE SET qty = EXCLUDED.qty, note = EXCLUDED.note,
+                           typed_code = EXCLUDED.typed_code, stock = EXCLUDED.stock, locked = EXCLUDED.locked,
+                           added_by = EXCLUDED.added_by''',
+                    (batch['id'], oc, code, info['name'] or None, info['unit'] or None, qty, note, info['stock'], info['locked'],
+                     str(session.get('user') or '')))
+        data = _extra_list(cur, batch['id'])
+        db.commit()
+        audit_record('Admin thêm mã yêu cầu đặt thêm', 'Duyệt Đơn Hàng', target=f"đợt {batch['id']}",
+                     summary=f"Đợt {batch['id']} ({batch['store_code']}): thêm mã {oc} SL {qty} yêu cầu cửa hàng đặt thêm",
+                     after={'part_code': oc, 'typed': code, 'qty': qty, 'note': note})
+    except Exception:
+        db.rollback()
+        raise
+    finally:
+        cur.close()
+    return jsonify({'success': True, 'extra': data, 'added': oc, 'messages': info['messages']})
+
+
+@gom_don_hang_bp.route('/api/gom-don-hang/extra-update', methods=['POST'])
+def gdh_extra_update():
+    """Admin sửa SL / ghi chú của 1 mã đã thêm."""
+    payload = request.get_json(silent=True) or {}
+    qty = _extra_qty(payload.get('qty'))
+    if qty is None:
+        return jsonify({'error': 'SL yêu cầu đặt thêm phải là số nguyên từ 1 đến 100.000.'}), 400
+    note = str(payload.get('note') or '').strip()[:500]
+    code = str(payload.get('part_code') or '').strip()
+    db, cur = _ctx()
+    try:
+        batch, err = _extra_guard(cur, payload)
+        if err:
+            db.rollback()
+            return err
+        cur.execute('UPDATE gdh_review_extra_draft SET qty = %s, note = %s WHERE batch_id = %s AND part_code = %s',
+                    (qty, note, batch['id'], code))
+        if cur.rowcount != 1:
+            db.rollback()
+            return jsonify({'error': 'Mã này không còn trong danh sách yêu cầu đặt thêm (có thể vừa bị xoá).'}), 404
+        data = _extra_list(cur, batch['id'])
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+    finally:
+        cur.close()
+    return jsonify({'success': True, 'extra': data})
+
+
+@gom_don_hang_bp.route('/api/gom-don-hang/extra-delete', methods=['POST'])
+def gdh_extra_delete():
+    """Admin bỏ 1 mã khỏi danh sách yêu cầu đặt thêm."""
+    payload = request.get_json(silent=True) or {}
+    code = str(payload.get('part_code') or '').strip()
+    db, cur = _ctx()
+    try:
+        batch, err = _extra_guard(cur, payload)
+        if err:
+            db.rollback()
+            return err
+        cur.execute('DELETE FROM gdh_review_extra_draft WHERE batch_id = %s AND part_code = %s', (batch['id'], code))
+        data = _extra_list(cur, batch['id'])
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+    finally:
+        cur.close()
+    return jsonify({'success': True, 'extra': data})
 
 
 # ----------------------------------------------------------------------------

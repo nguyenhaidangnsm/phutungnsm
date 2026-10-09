@@ -2146,6 +2146,15 @@ const PO_DETAIL_MAX_FILES = 10;
             return `<span class="badge ${on ? 'bg-success' : 'bg-light text-muted border'}">${x[0]}</span><span class="${on ? '' : 'text-muted'}">${on ? _gdhEsc(x[1]) : 'chưa'}</span>` + (i < 3 ? '<i class="bi bi-chevron-right text-muted mx-1"></i>' : '');
         }).join('') + '</div>';
     }
+    function _gdhExtraBlock(ex) {             // các mã admin thêm để cửa hàng đặt thêm (không nằm trong đơn đã gửi)
+        if (!ex || !ex.length) return '';
+        const e = _gdhEsc, tot = ex.reduce((s, x) => s + (Number(x.qty) || 0), 0);
+        return `<div class="mt-3 border border-warning rounded-3 overflow-hidden"><div class="px-3 py-2 bg-warning-subtle fw-semibold"><i class="bi bi-plus-circle me-1"></i>Admin yêu cầu đặt thêm ${ex.length} mã · SL ${_gdhFmt(tot, 0)}` +
+            `<div class="fw-normal small text-muted">Các mã này không nằm trong đơn bạn đã gửi. Vui lòng đặt thêm theo số lượng admin yêu cầu.</div></div>` +
+            `<div class="table-responsive"><table class="table table-sm align-middle mb-0 text-nowrap"><thead class="table-light"><tr><th>STT</th><th>Mã hàng</th><th>Tên hàng</th><th class="text-end">SL yêu cầu thêm</th><th>Ghi chú</th></tr></thead><tbody>` +
+            ex.map((x, i) => `<tr><td class="text-muted">${i + 1}</td><td class="fw-semibold">${e(x.part_code)}</td><td style="white-space:normal;min-width:220px">${e(x.part_name)}</td>` +
+                `<td class="text-end fw-bold">${_gdhFmt(x.qty, 0)}</td><td style="white-space:normal;min-width:200px">${e(x.note)}</td></tr>`).join('') + `</tbody></table></div></div>`;
+    }
     function _gdhCmpRender() {                 // kết quả duyệt: STT, mã hàng, tên hàng, SL gửi, SL duyệt, ghi chú của admin
         const j = _gdhCmp, b = j.batch, e = _gdhEsc;
         const oc = (_gdhOrdersCache.concat(typeof _ocGdhCache !== 'undefined' ? _ocGdhCache : [])).find(x => x.id === b.id);
@@ -2174,7 +2183,7 @@ const PO_DETAIL_MAX_FILES = 10;
             `<th>STT</th><th>Loại đơn</th><th>Mã hàng</th><th>Tên hàng</th><th class="text-end">SL gửi</th><th class="text-end">SL duyệt</th><th>Ghi chú</th></tr></thead><tbody>` +
             (rows || '<tr><td colspan="7" class="text-center text-muted py-3">Đơn không có mã nào.</td></tr>') + `</tbody></table></div>`;
         document.getElementById('gdhCmpBody').innerHTML = `<style>#gdhCmpModal .modal-content{font-family:var(--ns-font-main);font-variant-numeric:tabular-nums slashed-zero;}` +
-            `#gdhCmpModal table{font-size:.95rem;}#gdhCmpModal th{font-weight:700;letter-spacing:.02em;color:#334155;}#gdhCmpModal td{color:#0f172a;}</style>` + _gdhTimeline(b) + info + table;
+            `#gdhCmpModal table{font-size:.95rem;}#gdhCmpModal th{font-weight:700;letter-spacing:.02em;color:#334155;}#gdhCmpModal td{color:#0f172a;}</style>` + _gdhTimeline(b) + info + table + _gdhExtraBlock(j.extra);
         const canDl = CURRENT_ROLE === 'store' && ['approved', 'viewed', 'ordered'].includes(b.status);
         const canRecall = isStore && b.status === 'pending' && !b.rereview_open;
         const canRereview = isStore && b.can_rereview;
@@ -3381,6 +3390,7 @@ const PO_DETAIL_MAX_FILES = 10;
     }
     function _ocGdhRenderBar() {            // thanh công cụ của khung duyệt: tiến độ, xem nhanh, nút Duyệt xong
         const el = document.getElementById('ocGdhBar'); if (!el) return;
+        try { _ocExtraRender(); } catch (e) { /* khối thêm mã chỉ là tiện ích: lỗi thì bỏ qua, không làm hỏng thanh duyệt */ }
         if (!_ocGdh || !_orderCheckData.length || _orderCheckCurrentStore !== _ocGdh.store) { el.classList.add('d-none'); el.innerHTML = ''; return; }
         el.classList.remove('d-none');
         const st = _ocGdhStats(), e = _gdhEsc;
@@ -3469,6 +3479,94 @@ const PO_DETAIL_MAX_FILES = 10;
         _ocGdhRenderBar();
     }
     function _ocToast(msg, onClick) { nsToast(msg, 'info', 12000, {title: 'Thông báo', onClick}); }
+    // ---------------------------------------------------------------------
+    // ADMIN THÊM MÃ + YÊU CẦU CỬA HÀNG ĐẶT THÊM (ngay trong khung duyệt)
+    // Chỉ là YÊU CẦU: không nằm trong đơn chi nhánh đã đẩy. Máy chủ quy mã về MÃ ĐẶT (khoá -> mã thay thế, mã con -> mã cha).
+    // Nháp lưu trên máy chủ ngay khi thêm/sửa/xoá; bấm "Duyệt xong" thì chốt và cửa hàng nhìn thấy trong bảng kết quả duyệt.
+    // ---------------------------------------------------------------------
+    var _ocExtra = {id: 0, lines: [], open: false, loaded: false};
+    function _ocExtraCount() { return (_ocGdh && _ocExtra.id === _ocGdh.id) ? _ocExtra.lines.length : 0; }
+    function _ocExtraPost(url, body) {
+        return _gdhJson(url, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(Object.assign({batch_id: _ocGdh.id}, body))});
+    }
+    async function _ocExtraFetch(id) {
+        try {
+            const j = await _gdhJson('/api/gom-don-hang/extra-list?batch_id=' + id);
+            if (_ocGdh && _ocGdh.id === id) { _ocExtra.lines = j.extra || []; _ocExtra.loaded = true; _ocExtraRender(true); }
+        } catch (err) { /* đơn không còn ở trạng thái Đang duyệt...: bỏ qua, khung duyệt tự báo ở các thao tác khác */ }
+    }
+    function _ocExtraRender(force) {
+        const bar = document.getElementById('ocGdhBar'); if (!bar) return;
+        let box = document.getElementById('ocExtraBox');
+        const show = !!_ocGdh && _orderCheckData.length && _orderCheckCurrentStore === _ocGdh.store;
+        if (!show) { if (box) { box.classList.add('d-none'); box.dataset.sig = ''; } return; }
+        if (_ocExtra.id !== _ocGdh.id) { _ocExtra = {id: _ocGdh.id, lines: [], open: false, loaded: false}; _ocExtraFetch(_ocGdh.id); }
+        if (!box) { box = document.createElement('div'); box.id = 'ocExtraBox'; box.className = 'mb-2'; bar.insertAdjacentElement('afterend', box); }
+        const sig = _ocGdh.id + '|' + (_ocExtra.loaded ? 1 : 0) + '|' + _ocExtra.lines.map(l => l.part_code).join(',');
+        if (!force && box.dataset.sig === sig && !box.classList.contains('d-none')) return;       // chỉ vẽ lại khi danh sách mã đổi (không làm mất chữ đang gõ)
+        box.dataset.sig = sig;
+        box.classList.remove('d-none');
+        const e = _gdhEsc, L = _ocExtra.lines;
+        const rows = L.map(l => `<tr data-code="${e(l.part_code)}"><td class="fw-semibold">${e(l.part_code)}${l.locked ? ' <span class="badge text-bg-warning" title="Mã đang bị khoá đặt hàng">Khoá</span>' : ''}` +
+            `${l.typed_code && l.typed_code.toUpperCase() !== String(l.part_code).toUpperCase() ? `<div class="text-muted" style="font-size:.7rem">gõ: ${e(l.typed_code)}</div>` : ''}</td>` +
+            `<td style="white-space:normal;min-width:180px">${e(l.part_name)}</td><td class="text-end">${l.stock === null || l.stock === undefined ? '' : _gdhFmt(l.stock, 0)}</td>` +
+            `<td><input type="number" min="1" step="1" class="form-control form-control-sm ocex-q" style="width:90px" value="${e(l.qty)}" onchange="ocExtraSave(this)"></td>` +
+            `<td><input type="text" maxlength="500" class="form-control form-control-sm ocex-n" style="min-width:200px" value="${e(l.note)}" placeholder="Ghi chú cho cửa hàng" onchange="ocExtraSave(this)"></td>` +
+            `<td><button type="button" class="btn btn-sm btn-outline-danger" title="Bỏ mã này" onclick="ocExtraDel(this.closest('tr').dataset.code)"><i class="bi bi-trash"></i></button></td></tr>`).join('');
+        const keyAdd = "if(event.key==='Enter'){event.preventDefault();ocExtraAdd();}";
+        box.innerHTML = `<details class="border rounded-3 bg-white" ${_ocExtra.open ? 'open' : ''} ontoggle="_ocExtra.open = this.open">` +
+            `<summary class="px-3 py-2 small fw-semibold text-primary" style="cursor:pointer"><i class="bi bi-plus-circle me-1"></i>Thêm mã yêu cầu cửa hàng đặt thêm · <b>${L.length}</b> mã</summary>` +
+            `<div class="px-3 pb-2"><div class="d-flex flex-wrap gap-2 align-items-center">` +
+            `<input type="text" id="ocExCode" class="form-control form-control-sm" style="width:170px" placeholder="Mã hàng" autocomplete="off" onkeydown="${keyAdd}">` +
+            `<input type="number" id="ocExQty" min="1" step="1" class="form-control form-control-sm" style="width:100px" placeholder="SL thêm" onkeydown="${keyAdd}">` +
+            `<input type="text" id="ocExNote" maxlength="500" class="form-control form-control-sm flex-grow-1" style="min-width:180px" placeholder="Ghi chú cho cửa hàng (không bắt buộc)" onkeydown="${keyAdd}">` +
+            `<button type="button" id="ocExAdd" class="btn btn-primary btn-sm" onclick="ocExtraAdd()"><i class="bi bi-plus-lg me-1"></i>Thêm</button></div>` +
+            `<div class="small text-muted mt-1">Mã chỉ để cửa hàng đặt thêm, không nằm trong đơn đã đẩy. Mã con tự quy về mã cha (SL tính theo đơn vị mã cha); mã đã có trong đơn thì sửa SL Duyệt ở bảng bên dưới. Cửa hàng thấy các mã này sau khi bạn bấm <b>Duyệt xong</b>.</div>` +
+            (L.length ? `<div class="border rounded mt-2" style="max-height:200px;overflow:auto"><table class="table table-sm align-middle mb-0 text-nowrap" style="font-size:.82rem"><thead class="table-light"><tr><th>Mã đặt</th><th>Tên hàng</th><th class="text-end" title="Tồn hệ thống của chi nhánh lúc thêm">Tồn CH</th><th>SL thêm</th><th>Ghi chú</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>` : '') +
+            `</div></details>`;
+    }
+    async function ocExtraAdd(confirmNew) {
+        if (!_ocGdh) return;
+        const codeEl = document.getElementById('ocExCode'), qtyEl = document.getElementById('ocExQty'), noteEl = document.getElementById('ocExNote');
+        if (!codeEl) return;
+        const code = codeEl.value.trim(), qty = parseInt(qtyEl.value, 10), note = noteEl.value.trim();
+        if (!code) { alert('Nhập mã hàng cần cửa hàng đặt thêm.'); codeEl.focus(); return; }
+        if (!(qty >= 1)) { alert('Nhập SL yêu cầu đặt thêm (số nguyên từ 1 trở lên).'); qtyEl.focus(); return; }
+        const btn = document.getElementById('ocExAdd'); _gdhBusy(btn, true, 'Đang thêm...');
+        let again = false;
+        try {
+            const j = await _ocExtraPost('/api/gom-don-hang/extra-add', {code, qty, note, confirm_new: !!confirmNew});
+            _ocExtra.lines = j.extra || []; _ocExtra.open = true; _ocExtra.loaded = true;
+            if (j.messages && j.messages.length) _ocToast(j.messages.join(' '));
+            _ocExtraRender(true);
+            const c2 = document.getElementById('ocExCode'); if (c2) c2.focus();
+        } catch (err) {
+            if (err.data && err.data.need_confirm) again = await nsConfirm(err.message);
+            else { alert(err.message); if (err.data && err.data.status) ocGdhLoad(); }
+        } finally { _gdhBusy(btn, false); }
+        if (again) return ocExtraAdd(true);
+    }
+    async function ocExtraSave(el) {
+        if (!_ocGdh) return;
+        const tr = el.closest('tr'), code = tr.dataset.code;
+        const old = _ocExtra.lines.find(l => l.part_code === code);
+        const qEl = tr.querySelector('.ocex-q'), nEl = tr.querySelector('.ocex-n');
+        const qty = parseInt(qEl.value, 10);
+        if (!(qty >= 1)) { alert('SL yêu cầu đặt thêm phải là số nguyên từ 1 trở lên.'); if (old) qEl.value = old.qty; return; }
+        try {
+            const j = await _ocExtraPost('/api/gom-don-hang/extra-update', {part_code: code, qty, note: nEl.value.trim()});
+            _ocExtra.lines = j.extra || _ocExtra.lines;
+            el.classList.add('is-valid'); setTimeout(() => el.classList.remove('is-valid'), 1200);
+        } catch (err) { alert(err.message); _ocExtraFetch(_ocGdh.id); }
+    }
+    async function ocExtraDel(code) {
+        if (!_ocGdh || !code) return;
+        if (!await nsConfirm(`Bỏ mã ${code} khỏi danh sách yêu cầu cửa hàng đặt thêm?`)) return;
+        try {
+            const j = await _ocExtraPost('/api/gom-don-hang/extra-delete', {part_code: code});
+            _ocExtra.lines = j.extra || []; _ocExtraRender(true);
+        } catch (err) { alert(err.message); _ocExtraFetch(_ocGdh.id); }
+    }
     async function ocGdhNavBadge() {            // số đơn Chờ duyệt trên menu + báo khi có đơn mới đẩy
         if (CURRENT_ROLE !== 'admin') return;
         try { _ocGdhApplyCounts(await _gdhJson('/api/gom-don-hang/orders?counts_only=1')); } catch (err) { /* không chặn giao diện */ }
@@ -3903,6 +4001,7 @@ const PO_DETAIL_MAX_FILES = 10;
         const title = `${badges}<span class="ns-dot">·</span>${e(o.store)}<span class="ns-dot">·</span><span class="ns-when">${when}</span>` +
             (o.kind === 'urgent' ? ' <span class="ns-b ns-b-kh">Từ danh sách KH</span>' : '') +
             (o.rereview_open ? ' <span class="ns-b ns-b-kh">Nhờ duyệt lại</span>' : '') +
+            (o.extra_parts > 0 ? ` <span class="ns-b ns-b-kh">Admin yêu cầu thêm ${o.extra_parts} mã</span>` : '') +
             ((store && !list) ? '' : ((list || ['pending', 'reviewing'].includes(o.status)) ? ' ' + _gdhStBadge(o.status, o.status_label) : ''));
         const apAt = String(o.approved_at || '');
         const apTime = apAt.slice(0, 10) === String(o.submitted_at || '').slice(0, 10) ? apAt.slice(11) : apAt;
@@ -4045,6 +4144,7 @@ const PO_DETAIL_MAX_FILES = 10;
         if (sel) sel.value = j.batch.store;
         document.getElementById('orderCheckInput').value = j.items.map(i => i.part_code + '\t' + i.qty).join('\n');
         _ocGdh = {id: id, store: j.batch.store, from: j.batch.from, to: j.batch.to, codes: j.items.map(i => i.part_code), kind: j.batch.kind || 'regular'};
+        _ocExtra = {id: id, lines: j.extra || [], open: false, loaded: true};          // mã admin đã thêm (nháp) của đơn này
         if (j.urgent_lines) _ocUrg = {id: id, lines: j.urgent_lines, open: true, loading: false};          // đơn khẩn: nạp sẵn thông tin khách
         _ocGdhSave(); _ocGdhRenderActive();
         _ocQuick = ''; _ocGdhDraftTxt = '';
@@ -4105,7 +4205,7 @@ const PO_DETAIL_MAX_FILES = 10;
         const items = _ocGdhCollect();
         const missing = items.filter(i => i.approved_qty === null).length;
         if (missing && !await nsConfirm(`Có ${missing} mã của đơn không còn trong bảng kiểm tra (SL duyệt sẽ để trống). Vẫn duyệt xong?`)) return;
-        const note = await nsPrompt('Duyệt xong và trả kết quả về cho chi nhánh?\nChi nhánh sẽ thấy: STT, mã hàng, tên hàng, SL gửi, SL duyệt và ghi chú từng mã của bạn.\n\nGhi chú chung cho chi nhánh (không bắt buộc) - bấm OK để duyệt xong:', '');
+        const note = await nsPrompt((_ocExtraCount() ? 'Kèm ' + _ocExtraCount() + ' mã yêu cầu cửa hàng đặt thêm.\n' : '') + 'Duyệt xong và trả kết quả về cho chi nhánh?\nChi nhánh sẽ thấy: STT, mã hàng, tên hàng, SL gửi, SL duyệt và ghi chú từng mã của bạn.\n\nGhi chú chung cho chi nhánh (không bắt buộc) - bấm OK để duyệt xong:', '');
         if (note === null) return;
         clearTimeout(_ocGdhT);
         _ocBusy(true, 'Đang lưu kết quả duyệt...');
