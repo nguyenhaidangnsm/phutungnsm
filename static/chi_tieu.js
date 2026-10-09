@@ -214,6 +214,17 @@
         };
         h += sec('amber', 'droplet-half', 'Dầu máy sửa chữa dịch vụ', '', `<div class="table-responsive"><table class="table mb-0 ct-table ct-narrow"><thead><tr><th></th><th class="text-end">Số lượng nhớt xe ga</th><th class="text-end">Tiền nhớt xe ga</th><th class="text-end">Số lượng nhớt xe số</th><th class="text-end">Tiền nhớt xe số</th><th class="text-end ct-hl">Tổng tiền</th></tr></thead><tbody>${nr('phuy')}${nr('chai')}</tbody></table></div>`);
 
+        /* ---- VAP (nhóm PG): số chai xuất / mục tiêu lượt xe ---- */
+        if (d.vap) {
+            const v = d.vap, vr = (label, cls, x) => `<tr><td><span class="ct-chip ${cls}">${label}</span></td><td class="text-end">${fmt(x.chai)}</td><td class="text-end">${fmt(x.tien)}</td></tr>`;
+            h += sec('indigo', 'capsule', 'VAP (nhóm PG) · chai xuất / lượt xe', 'số chai xuất ÷ mục tiêu lượt xe đến', `<div class="table-responsive"><table class="table mb-0 ct-table ct-narrow"><thead><tr><th></th><th class="text-end">Số chai xuất</th><th class="text-end">Tiền VAP</th></tr></thead><tbody>
+                ${vr('Bán lẻ', 'ban', v.ban_le)}${vr('Sửa chữa', 'dat', v.sua_chua)}
+                <tr><td><b>Tổng</b></td><td class="text-end ct-hl">${fmt(v.chai)}</td><td class="text-end ct-hl">${fmt(v.tien)}</td></tr>
+                <tr><td>Mục tiêu lượt xe</td><td class="text-end">${fmt(v.visits)}</td><td></td></tr>
+                <tr><td><b>% chai / lượt xe</b></td><td class="text-end ct-hl"><b>${v.visits ? pct(v.pct, 2) : '-'}</b></td><td class="text-muted small">${v.visits ? '' : 'Chưa nhập lượt xe'}</td></tr></tbody></table></div>
+                <div class="ct-note">Thùng được quy ra chai (vd "BOX95" = 95 chai). Xuất = bán lẻ + sửa chữa. % = tổng chai ÷ mục tiêu lượt xe.</div>`);
+        }
+
         /* ---- Xuất / nhận theo tuần ---- */
         const lastIdx = (arr) => { let k = -1; arr.forEach((w, i) => { if (w.tong) k = i; }); return k; };
         const lx = lastIdx(d.tuan_xuat), ln = lastIdx(d.tuan_nhan);

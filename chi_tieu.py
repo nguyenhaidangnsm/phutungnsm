@@ -46,6 +46,14 @@ DEFAULT_PCT_DAT = 0.9308
 DEFAULT_PCT_NHAN = 0.9308
 NHAN_BAN_LOW, NHAN_BAN_HIGH = 0.95, 1.05
 
+# VAP = nhóm "PG" (phụ gia) trong Part Category. Số CHAI = số lượng xuất x hệ số dưới đây.
+# Mã không có trong bảng = bán theo chai/lẻ (hệ số 1). Mã THÙNG quy ra số chai theo tên trong Part Category
+# ("...BOX95" = 95 chai, "BOX 12" = 12 chai...). Có mã thùng PG mới thì thêm vào đây.
+PG_CHAI_PER_UNIT = {
+    '08286ZOIL10BOX': 95, '08286ZOIL25BOX': 95, '08286ZOIL50BOX': 20, '08286ZOILBOX': 80,
+    '08286ZOIL10CAN': 24, '08286ZOIL25CAN': 24, '08CAZCASBOX': 12,
+}
+
 _ensure_lock = threading.Lock()
 _tables_ready = False
 
@@ -506,6 +514,20 @@ def _compute(cur, store, month, ref):
                 nhot[kind][veh][1] += float(r.amount)
                 nhot[kind][veh][2] += 1
 
+    # VAP (nhóm PG): số chai đã xuất (bán lẻ + sửa chữa) chia cho mục tiêu lượt xe đến
+    def _pg_xuat(df):
+        if df.empty:
+            return dict(chai=0.0, tien=0.0)
+        pg_rows = df[df['cate'] == 'PG']
+        if pg_rows.empty:
+            return dict(chai=0.0, tien=0.0)
+        chai = (pg_rows['qty'] * pg_rows['part_code'].map(lambda c: PG_CHAI_PER_UNIT.get(c, 1))).sum()
+        return dict(chai=float(chai), tien=float(pg_rows['amount'].sum()))
+    vap_bl, vap_sc = _pg_xuat(otc), _pg_xuat(jc)
+    vap_chai = vap_bl['chai'] + vap_sc['chai']
+    vap = dict(ban_le=vap_bl, sua_chua=vap_sc, chai=vap_chai, tien=vap_bl['tien'] + vap_sc['tien'],
+               visits=tg['visits'], pct=(vap_chai / tg['visits']) if tg['visits'] else None)
+
     # Theo tuần / theo ngày (xuất)
     last_day = calendar.monthrange(int(month[:4]), int(month[5:7]))[1]
     first = date(int(month[:4]), int(month[5:7]), 1)
@@ -562,7 +584,7 @@ def _compute(cur, store, month, ref):
         'ratio_ok': (ratio is not None and NHAN_BAN_LOW <= ratio <= NHAN_BAN_HIGH),
         'pct_done': (xuat / target_total) if target_total else None,
         'hm1': hm1, 'hm2': hm2,
-        'chi_tiet': chi_tiet, 'ban_le_sc': ban_le_sc, 'nhot': nhot,
+        'chi_tiet': chi_tiet, 'ban_le_sc': ban_le_sc, 'nhot': nhot, 'vap': vap,
         'tuan_xuat': tuan_xuat, 'tuan_nhan': tuan_nhan, 'ngay': ngay,
         'groups': list(HM_ALL),
         'uploads': ups,
