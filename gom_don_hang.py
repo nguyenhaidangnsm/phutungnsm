@@ -73,7 +73,7 @@ gom_don_hang_bp = Blueprint('gom_don_hang', __name__)
 _VN_TZ = ZoneInfo('Asia/Ho_Chi_Minh')
 
 ORDER_TYPES = ['Định kỳ', 'Khẩn', 'Đơn 26']
-EXTRA_SHEET = 'Đặt thêm (admin)'      # sheet chứa các mã admin yêu cầu cửa hàng đặt thêm
+EXTRA_TARGET_TYPE = 'Định kỳ'      # mã admin yêu cầu đặt thêm được gộp chung vào sheet của loại đơn này
 DEFAULT_FORECAST_WEEKS = 3
 DAYS_PER_MONTH = 30.0
 STORE_COLS = ['NS1', 'NS2', 'NS3', 'NS4', 'NS5', 'NSM1']      # thứ tự cột tồn từng chi nhánh
@@ -2959,6 +2959,13 @@ def gdh_export():
         only = (request.args.get('order_type') or '').strip()
         sheets = {}
         has_review = bool(review.get('__has__'))
+        # Mã admin yêu cầu đặt thêm: gộp CHUNG vào sheet EXTRA_TARGET_TYPE (Định kỳ), dưới các mã của đơn chi nhánh gửi
+        extra_on = has_review and only in ('', EXTRA_TARGET_TYPE)
+        ex = {}
+        if extra_on:
+            for e in extra_items:
+                if e['qty'] and e['qty'] > 0:
+                    ex[e['part_code']] = ex.get(e['part_code'], 0) + int(round(e['qty']))
         for t in ([only] if only in ORDER_TYPES else ORDER_TYPES):
             merged = {}
             for r in order_items:
@@ -2972,18 +2979,12 @@ def gdh_export():
                     else:
                         q = r['order_qty']
                     merged[r['order_code']] = merged.get(r['order_code'], 0) + q
+            if t == EXTRA_TARGET_TYPE:
+                for p, q in ex.items():
+                    merged[p] = merged.get(p, 0) + q
             if merged:
                 sheets[t] = pd.DataFrame([{'Line#': i, 'Order Number': '', 'Part#': p, 'Quantity Requested': q}
                                           for i, (p, q) in enumerate(merged.items(), 1)])
-        if has_review and not only:
-            # Mã admin yêu cầu đặt thêm: không có Loại đơn nên đưa vào sheet riêng (cùng 4 cột như các sheet đặt hàng)
-            ex = {}
-            for e in extra_items:
-                if e['qty'] and e['qty'] > 0:
-                    ex[e['part_code']] = ex.get(e['part_code'], 0) + int(round(e['qty']))
-            if ex:
-                sheets[EXTRA_SHEET] = pd.DataFrame([{'Line#': i, 'Order Number': '', 'Part#': p, 'Quantity Requested': q}
-                                                    for i, (p, q) in enumerate(ex.items(), 1)])
         if not sheets:
             return jsonify({'error': ('Admin chưa duyệt mã nào có SL duyệt > 0.' if has_review
                                       else 'Chưa có mã hàng nào có Loại đơn và SL cuối > 0.')}), 400
@@ -2995,11 +2996,11 @@ def gdh_export():
                     lst.append({'STT': len(lst) + 1, 'Loại đơn': t, 'Mã hàng': r['part_code'], 'Tên hàng': r['part_name'],
                                 'Mã đặt': r['order_code'], 'SL gửi (SL cuối)': r['qty_final'], 'SL đặt': r['order_qty'],
                                 'SL duyệt': aq, 'Ghi chú của admin': nt})
-            if not only:
+            if extra_on:
                 for e in extra_items:
-                    lst.append({'STT': len(lst) + 1, 'Loại đơn': EXTRA_SHEET, 'Mã hàng': e['part_code'], 'Tên hàng': e['part_name'],
-                                'Mã đặt': e['part_code'], 'SL gửi (SL cuối)': None, 'SL đặt': e['qty'],
-                                'SL duyệt': e['qty'], 'Ghi chú của admin': e['note']})
+                    lst.append({'STT': len(lst) + 1, 'Loại đơn': EXTRA_TARGET_TYPE, 'Mã hàng': e['part_code'], 'Tên hàng': e['part_name'],
+                                'Mã đặt': e['part_code'], 'SL gửi (SL cuối)': None, 'SL đặt': e['qty'], 'SL duyệt': e['qty'],
+                                'Ghi chú của admin': 'Admin yêu cầu thêm' + (f": {e['note']}" if e['note'] else '')})
             sheets['Kết quả duyệt'] = pd.DataFrame(lst)
         return _send_xlsx(sheets, f'dat-hang-{stamp}.xlsx')
     sel = [r for r in rows if r['suggest'] > 0 or r['qty_final'] > 0 or r['adj'] or r['order_type'] or r['note']]
