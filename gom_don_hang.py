@@ -579,7 +579,10 @@ def compute_rows(cur, batch, order_only=False, with_extra=False):
     if order_only:
         sql += ' AND order_type IS NOT NULL'
     cur.execute(sql + ' ORDER BY part_code', (batch['id'],))
-    lines = [l for l in cur.fetchall() if not _is_excluded_from_reorder(l['part_code'])]
+    # Ngoại lệ DUY NHẤT: đơn KHẨN (kind = 'urgent') được phép chứa mã sườn/khung 50100... để admin duyệt;
+    # mọi loại đơn khác (Định kỳ, Đơn 26, đợt gôm thường) vẫn lọc bỏ mã không được đặt như cũ.
+    is_urgent = (batch.get('kind') or 'regular') == 'urgent'
+    lines = [l for l in cur.fetchall() if is_urgent or not _is_excluded_from_reorder(l['part_code'])]
     codes = [l['part_code'] for l in lines]
     locks = {}
     if codes:
@@ -2566,7 +2569,7 @@ def _urgent_resolve(cur, items):
     out = []
     for code, qty in items:
         base = (code or '').strip()
-        skip = 'Mã không được đặt hàng' if _is_excluded_from_reorder(base) else None
+        skip = None      # đơn KHẨN được phép gôm cả mã sườn/khung 50100... (các luồng khác vẫn chặn qua _is_excluded_from_reorder)
         lk = locks.get(_bkey(base))
         if lk and lk[0] and lk[1]:
             base = lk[1]
