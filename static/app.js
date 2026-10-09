@@ -2122,6 +2122,15 @@ const PO_DETAIL_MAX_FILES = 10;
         document.body.insertAdjacentHTML('beforeend', `<div class="modal fade" id="gdhCmpModal" tabindex="-1"><div class="modal-dialog modal-xl modal-dialog-scrollable"><div class="modal-content">
             <div class="modal-header"><h5 class="modal-title" id="gdhCmpTitle"></h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
             <div class="modal-body" id="gdhCmpBody"></div><div class="modal-footer" id="gdhCmpFoot"></div></div></div></div>`);
+        const m = document.getElementById('gdhCmpModal');
+        m.addEventListener('shown.bs.modal', () => {            // đang mở: 15 giây hỏi lại 1 lần xem bên kia có trả lời chưa
+            clearInterval(_gdhCmtTimer);
+            _gdhCmtTimer = setInterval(() => { if (_gdhCmtId && !document.hidden) _gdhCmtLoad(_gdhCmtId, false); }, 15000);
+        });
+        m.addEventListener('hidden.bs.modal', () => {
+            clearInterval(_gdhCmtTimer); _gdhCmtTimer = null; _gdhCmtId = null;
+            if (_gdhCmtTouched) { _gdhCmtTouched = false; _gdhAfterAct(); }   // làm mới huy hiệu số trao đổi / chưa đọc trên thẻ đơn
+        });
     }
     async function gdhOpenCompare(id, silentRefresh) {
         id = id || _gdhBatchId;
@@ -2183,7 +2192,10 @@ const PO_DETAIL_MAX_FILES = 10;
             `<th>STT</th><th>Loại đơn</th><th>Mã hàng</th><th>Tên hàng</th><th class="text-end">SL gửi</th><th class="text-end">SL duyệt</th><th>Ghi chú</th></tr></thead><tbody>` +
             (rows || '<tr><td colspan="7" class="text-center text-muted py-3">Đơn không có mã nào.</td></tr>') + `</tbody></table></div>`;
         document.getElementById('gdhCmpBody').innerHTML = `<style>#gdhCmpModal .modal-content{font-family:var(--ns-font-main);font-variant-numeric:tabular-nums slashed-zero;}` +
-            `#gdhCmpModal table{font-size:.95rem;}#gdhCmpModal th{font-weight:700;letter-spacing:.02em;color:#334155;}#gdhCmpModal td{color:#0f172a;}</style>` + _gdhTimeline(b) + info + table + _gdhExtraBlock(j.extra);
+            `#gdhCmpModal table{font-size:.95rem;}#gdhCmpModal th{font-weight:700;letter-spacing:.02em;color:#334155;}#gdhCmpModal td{color:#0f172a;}</style>` + _gdhTimeline(b) +
+            `<div class="mb-2"><a href="#" id="gdhCmtJump" class="small text-decoration-none" onclick="document.getElementById('gdhCmtBox')?.scrollIntoView({behavior:'smooth'});return false"><i class="bi bi-chat-dots me-1"></i>Trao đổi về đơn này</a></div>` +
+            info + table + _gdhExtraBlock(j.extra) + '<div id="gdhCmtBox" class="mt-3"></div>';
+        _gdhCmtMount(b.id);
         const canDl = CURRENT_ROLE === 'store' && ['approved', 'viewed', 'ordered'].includes(b.status);
         const canRecall = isStore && b.status === 'pending' && !b.rereview_open;
         const canRereview = isStore && b.can_rereview;
@@ -2191,6 +2203,69 @@ const PO_DETAIL_MAX_FILES = 10;
             (canRereview ? `<button type="button" class="btn btn-outline-warning me-auto" onclick="gdhRequestRereview(${b.id})"><i class="bi bi-arrow-repeat me-1"></i>Nhờ duyệt lại</button>` : '') +
             `<button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Đóng</button>` +
             (canDl ? `<button type="button" class="btn ${b.status === 'ordered' ? 'btn-outline-success' : 'btn-success'}" onclick="gdhDownloadOrder(${b.id})"><i class="bi bi-download me-1"></i>${b.status === 'ordered' ? 'Tải lại file đặt hàng' : 'Tải đơn về (chuyển Đã đặt)'}</button>` : '');
+    }
+
+    // ---------- Trao đổi (bình luận) giữa admin và chi nhánh trong 1 đơn ----------
+    let _gdhCmtId = null, _gdhCmtList = [], _gdhCmtLoaded = false, _gdhCmtDraft = '', _gdhCmtTimer = null, _gdhCmtTouched = false;
+    function _gdhCmtHtml() {
+        const e = _gdhEsc;
+        const msgs = !_gdhCmtLoaded ? '<div class="text-center text-muted small py-3">Đang tải...</div>'
+            : _gdhCmtList.length ? _gdhCmtList.map(c => {
+                const ad = c.side === 'admin';
+                return `<div class="d-flex ${c.mine ? 'justify-content-end' : 'justify-content-start'} mb-2"><div class="rounded-3 px-3 py-2 ${c.mine ? 'bg-primary-subtle' : 'bg-light border'}" style="max-width:85%">` +
+                    `<div class="small mb-1"><span class="fw-semibold">${e(c.name)}</span> <span class="badge ${ad ? 'bg-dark' : 'bg-secondary'} ms-1">${ad ? 'Admin' : 'Chi nhánh'}</span> <span class="text-muted ms-1">${e(c.at)}</span></div>` +
+                    `<div style="white-space:pre-wrap;word-break:break-word">${e(c.body)}</div></div></div>`;
+            }).join('') : '<div class="text-center text-muted small py-3">Chưa có trao đổi nào. Cần hỏi hoặc thống nhất số lượng thì nhắn ở đây.</div>';
+        return `<div class="border rounded-3 overflow-hidden"><div class="px-3 py-2 bg-light fw-semibold border-bottom"><i class="bi bi-chat-dots me-1"></i>Trao đổi về đơn này</div>` +
+            `<div id="gdhCmtList" class="p-3" style="max-height:280px;overflow-y:auto">${msgs}</div>` +
+            `<div class="p-2 border-top d-flex gap-2 align-items-end"><textarea id="gdhCmtInput" class="form-control" rows="2" maxlength="1000" placeholder="Nhập nội dung trao đổi (Enter để gửi, Shift+Enter xuống dòng)">${e(_gdhCmtDraft)}</textarea>` +
+            `<button type="button" class="btn btn-primary" id="gdhCmtSend" onclick="gdhCmtSend()" title="Gửi"><i class="bi bi-send"></i></button></div></div>`;
+    }
+    function _gdhCmtRender(stickBottom) {
+        const box = document.getElementById('gdhCmtBox'); if (!box) return;
+        const inp = document.getElementById('gdhCmtInput'); if (inp) _gdhCmtDraft = inp.value;     // giữ chữ đang gõ dở khi vẽ lại
+        const old = document.getElementById('gdhCmtList');
+        const atBottom = !old || (old.scrollHeight - old.scrollTop - old.clientHeight < 40);
+        const hadFocus = !!document.activeElement && document.activeElement.id === 'gdhCmtInput';
+        box.innerHTML = _gdhCmtHtml();
+        const l = document.getElementById('gdhCmtList'); if (l && (stickBottom || atBottom)) l.scrollTop = l.scrollHeight;
+        const n = document.getElementById('gdhCmtInput');
+        if (n) {
+            n.addEventListener('keydown', ev => { if (ev.key === 'Enter' && !ev.shiftKey && !ev.isComposing) { ev.preventDefault(); gdhCmtSend(); } });   // isComposing: không gửi nhầm khi đang gõ Telex/VNI
+            if (hadFocus) n.focus();
+        }
+        const jump = document.getElementById('gdhCmtJump');
+        if (jump) jump.innerHTML = '<i class="bi bi-chat-dots me-1"></i>Trao đổi về đơn này' + (_gdhCmtList.length ? ` (${_gdhCmtList.length})` : '');
+    }
+    async function _gdhCmtLoad(bid, first) {
+        try {
+            const j = await _gdhJson('/api/gom-don-hang/comments?batch_id=' + bid);
+            if (_gdhCmtId !== bid) return;
+            const changed = first || !_gdhCmtLoaded || j.comments.length !== _gdhCmtList.length;
+            _gdhCmtList = j.comments; _gdhCmtLoaded = true;
+            if (j.comments.length) _gdhCmtTouched = true;
+            if (changed) _gdhCmtRender(first);
+        } catch (err) {
+            const box = document.getElementById('gdhCmtBox');
+            if (first && box && _gdhCmtId === bid) box.innerHTML = '<div class="small text-muted">Không tải được phần trao đổi. ' + _gdhEsc(err.message) + '</div>';
+        }
+    }
+    function _gdhCmtMount(bid) {
+        if (_gdhCmtId !== bid) { _gdhCmtId = bid; _gdhCmtList = []; _gdhCmtLoaded = false; _gdhCmtDraft = ''; }
+        _gdhCmtRender(true);
+        _gdhCmtLoad(bid, true);
+    }
+    async function gdhCmtSend() {
+        const inp = document.getElementById('gdhCmtInput'), btn = document.getElementById('gdhCmtSend');
+        const body = (inp?.value || '').trim();
+        if (!body || !_gdhCmtId || (btn && btn.disabled)) return;
+        if (btn) btn.disabled = true;
+        try {
+            const j = await _gdhJson('/api/gom-don-hang/comment-add', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({batch_id: _gdhCmtId, body})});
+            _gdhCmtDraft = ''; if (inp) inp.value = '';
+            _gdhCmtList = j.comments; _gdhCmtLoaded = true; _gdhCmtTouched = true;
+            _gdhCmtRender(true);
+        } catch (err) { alert(err.message); if (btn) btn.disabled = false; }
     }
 
     // ---------- Dashboard ----------
@@ -3998,7 +4073,9 @@ const PO_DETAIL_MAX_FILES = 10;
         const key = types.length === 1 ? (_NS_TYPE_KEY[types[0]] || 'd') : 'd';
         const badges = types.map(t => `<span class="ns-b ns-b-${_NS_TYPE_KEY[t] || 'd'}">${e(t)}${types.length > 1 ? ' ' + F(o.by_type[t].parts) + ' mã' : ''}</span>`).join(' ');
         const when = e(String(o.submitted_at || '').slice(0, 16));
-        const title = `${badges}<span class="ns-dot">·</span>${e(o.store)}<span class="ns-dot">·</span><span class="ns-when">${when}</span>` +
+        const canDel = isAd && o.status !== 'reviewing' && o.status !== 'draft';
+        const selCb = canDel ? `<input type="checkbox" class="form-check-input ns-selcb me-2" style="width:1.1em;height:1.1em;vertical-align:-.15em;cursor:pointer" aria-label="Chọn đơn ${o.id}" title="Chọn để xoá" ${_nsSel.has(o.id) ? 'checked' : ''} data-id="${o.id}" onclick="nsSelToggle(${o.id}, this.checked, event)">` : '';
+        const title = `${selCb}${badges}<span class="ns-dot">·</span>${e(o.store)}<span class="ns-dot">·</span><span class="ns-when">${when}</span>` +
             (o.kind === 'urgent' ? ' <span class="ns-b ns-b-kh">Từ danh sách KH</span>' : '') +
             (o.rereview_open ? ' <span class="ns-b ns-b-kh">Nhờ duyệt lại</span>' : '') +
             (o.extra_parts > 0 ? ` <span class="ns-b ns-b-kh">Admin yêu cầu thêm ${o.extra_parts} mã</span>` : '') +
@@ -4012,6 +4089,7 @@ const PO_DETAIL_MAX_FILES = 10;
             if (o.approved_by) parts.push(`Duyệt bởi ${e(o.approved_by)} lúc ${e(apTime)}`);
             if (list && o.ordered_at) parts.push(`Đặt ${e(o.ordered_at)}`); else if (list && o.viewed_at) parts.push(`Xem ${e(o.viewed_at)}`);
         }
+        if (o.comment_count) parts.push(`<span class="${o.comment_unread ? 'text-danger fw-bold' : 'text-muted'}" title="${o.comment_unread ? o.comment_unread + ' trao đổi chưa đọc' : 'Có trao đổi giữa admin và chi nhánh'}"><i class="bi bi-chat-dots-fill"></i> ${o.comment_count}${o.comment_unread ? ' · ' + o.comment_unread + ' mới' : ''}</span>`);
         const notes = (o.submit_note ? `<div class="ns-note ns-note-n" title="${e(o.submit_note)}">“${e(o.submit_note)}”</div>` : '') +
             (o.rereview_note && (o.rereview_open || o.status === 'pending' || o.status === 'reviewing') ? `<div class="ns-note ns-note-n" title="${e(o.rereview_note)}">${store ? 'Bạn nhờ duyệt lại' : 'Nhờ duyệt lại'}: “${e(o.rereview_note)}”</div>` : '') +
             (o.review_note ? `<div class="ns-note">${store ? 'Admin' : 'Ghi chú của admin'}: “${e(o.review_note)}”</div>` : '');
@@ -4056,12 +4134,52 @@ const PO_DETAIL_MAX_FILES = 10;
             if (o.status !== 'pending') acts += btn('', 'bi-eye', 'Xem kết quả', `gdhOpenCompare(${o.id})`);
             if (o.kind === 'urgent') menu += `<button type="button" role="menuitem" onclick="gdhUrgentDetail(${o.id})">Thông tin khách</button>`;
         }
+        if (canDel) acts += `<button type="button" class="ns-btn" style="color:#dc2626;border-color:#fca5a5" title="Xoá vĩnh viễn đơn này" aria-label="Xoá vĩnh viễn" onclick="nsDeleteOrders([${o.id}])"><i class="bi bi-trash3"></i> Xoá</button>`;
         const more = menu ? `<span class="ns-mw"><button type="button" class="ns-btn ns-more" aria-label="Thêm thao tác" aria-haspopup="true" onclick="nsOcMenu(this,event)">⋯</button><div class="ns-menu" role="menu" hidden>${menu}</div></span>` : '';
         const clickable = ` onclick="nsRowClick(event,${o.id})" style="cursor:pointer" title="Bấm để xem đơn"`;      // admin + cửa hàng đều bấm vào thẻ để xem đơn
         return `<div class="ns-row ns-t-${key}${urgent ? ' ns-urgent' : ''}${mine ? ' ns-mine' : ''}"${clickable}><div class="ns-main"><div class="ns-title">${title}</div>` +
             (parts.length ? `<div class="ns-sub">${parts.join(' · ')}</div>` : '') + notes + `</div><div class="ns-stats">${stats}</div><div class="ns-act">${acts}${more}</div></div>`;
     }
     function _ocGdhCardHtml(o) { return _nsOrderCardHtml(o, 'admin'); }
+    // ---------- Admin: chọn nhiều đơn + XOÁ VĨNH VIỄN ----------
+    const _nsSel = new Set();
+    function _nsSelBar() {
+        let bar = document.getElementById('nsSelBar');
+        if (!bar) {
+            document.body.insertAdjacentHTML('beforeend', `<div id="nsSelBar" class="d-none" style="position:fixed;left:50%;bottom:18px;transform:translateX(-50%);z-index:1055;background:#0f172a;color:#fff;border-radius:14px;padding:10px 16px;box-shadow:0 10px 30px rgba(0,0,0,.3);align-items:center;gap:12px;max-width:94vw;flex-wrap:wrap"></div>`);
+            bar = document.getElementById('nsSelBar');
+        }
+        const n = _nsSel.size;
+        bar.classList.toggle('d-none', !n);
+        bar.style.display = n ? 'flex' : 'none';
+        bar.innerHTML = `<span><b>${n}</b> đơn đã chọn</span>` +
+            `<button type="button" class="btn btn-sm btn-outline-light" onclick="nsSelAll()">Chọn tất cả đang hiện</button>` +
+            `<button type="button" class="btn btn-sm btn-outline-light" onclick="nsSelClear()">Bỏ chọn</button>` +
+            `<button type="button" class="btn btn-sm btn-danger" onclick="nsDeleteOrders()"><i class="bi bi-trash3 me-1"></i>Xoá vĩnh viễn</button>`;
+    }
+    function nsSelToggle(id, on, ev) { if (ev) ev.stopPropagation(); if (on) _nsSel.add(id); else _nsSel.delete(id); _nsSelBar(); }
+    function nsSelAll() { document.querySelectorAll('.ns-selcb').forEach(cb => { cb.checked = true; _nsSel.add(Number(cb.dataset.id)); }); _nsSelBar(); }
+    function nsSelClear() { _nsSel.clear(); document.querySelectorAll('.ns-selcb').forEach(cb => { cb.checked = false; }); _nsSelBar(); }
+    async function nsDeleteOrders(ids) {
+        ids = (ids && ids.length) ? ids : Array.from(_nsSel);
+        if (!ids.length) return;
+        const msg = ids.length === 1
+            ? `XOÁ VĨNH VIỄN đơn #${ids[0]}?\n\nĐơn cùng kết quả duyệt, mã admin thêm và toàn bộ trao đổi sẽ bị xoá và KHÔNG khôi phục được. File Excel đã lưu trữ (nếu có) vẫn giữ nguyên.`
+            : `XOÁ VĨNH VIỄN ${ids.length} đơn đã chọn?\n\nCác đơn cùng kết quả duyệt, mã admin thêm và toàn bộ trao đổi sẽ bị xoá và KHÔNG khôi phục được. File Excel đã lưu trữ (nếu có) vẫn giữ nguyên.`;
+        if (!await nsConfirm(msg)) return;
+        let j;
+        try { j = await _gdhJson('/api/gom-don-hang/orders/delete', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ids})}); }
+        catch (err) { alert(err.message); return; }
+        ids.forEach(i => _nsSel.delete(i)); _nsSelBar();
+        const sk = j.skipped || [];
+        if (sk.length) alert(`Đã xoá ${j.deleted} đơn.\nKhông xoá được ${sk.length} đơn:\n` + sk.map(x => `- #${x.id}: ${x.reason}`).join('\n'));
+        const ocv = document.getElementById('ocGdhList');
+        if (ocv && ocv.offsetParent !== null) await ocGdhLoad();
+        const ov = document.getElementById('gdhOrdersView');
+        if (ov && !ov.classList.contains('d-none')) await gdhOrdersLoad();
+        gdhOrdersBadge();
+    }
+    window.nsSelToggle = nsSelToggle; window.nsSelAll = nsSelAll; window.nsSelClear = nsSelClear; window.nsDeleteOrders = nsDeleteOrders;
     async function _ocGdhRejBadge() {          // huy hiệu tab "Đã từ chối" = số đơn đang chờ chi nhánh sửa
         try {
             const j = await _gdhRejFetch(document.getElementById('ocGdhStore')?.value || '', true);

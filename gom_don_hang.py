@@ -309,6 +309,26 @@ def _ensure_tables(db):
                         added_at TIMESTAMP NOT NULL DEFAULT (NOW() AT TIME ZONE \'Asia/Ho_Chi_Minh\'),
                         PRIMARY KEY (batch_id, part_code)
                     )''')
+            # ---- TRAO ĐỔI (bình luận) GIỮA ADMIN VÀ CHI NHÁNH TRONG 1 ĐƠN ĐÃ ĐẨY ----
+            # side: 'admin' | 'store'. gdh_comment_reads: mỗi BÊN (không phải từng người) đã đọc tới bình luận số mấy -> huy hiệu "chưa đọc".
+            cur.execute('''
+                CREATE TABLE IF NOT EXISTS gdh_comments (
+                    id SERIAL PRIMARY KEY,
+                    batch_id INTEGER NOT NULL REFERENCES gdh_batches(id) ON DELETE CASCADE,
+                    side VARCHAR(10) NOT NULL,
+                    author TEXT NOT NULL,
+                    author_name TEXT,
+                    body TEXT NOT NULL,
+                    created_at TIMESTAMP NOT NULL DEFAULT (NOW() AT TIME ZONE \'Asia/Ho_Chi_Minh\')
+                )''')
+            cur.execute('CREATE INDEX IF NOT EXISTS idx_gdh_comments_batch ON gdh_comments (batch_id, id)')
+            cur.execute('''
+                CREATE TABLE IF NOT EXISTS gdh_comment_reads (
+                    batch_id INTEGER NOT NULL REFERENCES gdh_batches(id) ON DELETE CASCADE,
+                    side VARCHAR(10) NOT NULL,
+                    last_read_id INTEGER NOT NULL DEFAULT 0,
+                    PRIMARY KEY (batch_id, side)
+                )''')
             # GIỜ VIỆT NAM: các cột TIMESTAMP (không múi giờ) lưu đúng giờ Việt Nam bất kể múi giờ cấu hình của Postgres
             # (thường là UTC -> trước đây NOW() ghi lệch -7 giờ). Bảng cũ vẫn giữ DEFAULT NOW() cũ nên đặt lại ở đây.
             for _t, _c in (('gdh_batches', 'uploaded_at'), ('gdh_batch_events', 'at'), ('gdh_review_draft', 'updated_at'),
@@ -2198,6 +2218,151 @@ def gdh_mark_viewed():
     return jsonify({'success': True, 'status': st, 'changed': changed})
 
 
+# ----------------------------------------------------------------------------
+# TRAO ĐỔI (BÌNH LUẬN) GIỮA ADMIN VÀ CHI NHÁNH TRONG 1 ĐƠN - hỏi / thống nhất số lượng
+# ----------------------------------------------------------------------------
+COMMENT_MAX_LEN = 1000
+
+
+def _my_side():
+    return 'admin' if session.get('role') == 'admin' else 'store'
+
+
+def _comment_guard(cur, batch_id):
+    """(batch, None) hoặc (None, response): chỉ đơn ĐÃ ĐẨY (không phải nháp / không gian riêng của admin) mới có trao đổi."""
+    batch, err = _get_batch(cur, batch_id)
+    if err:
+        return None, err
+    if batch['owner'] or (batch.get('status') or 'draft') == 'draft':
+        return None, (jsonify({'error': 'Đơn chưa đẩy đi duyệt nên chưa có phần trao đổi.'}), 409)
+    return batch, None
+
+
+def _comments_json(cur, bid):
+    cur.execute('SELECT id, side, author, author_name, body, created_at FROM gdh_comments WHERE batch_id = %s ORDER BY id', (bid,))
+    me = str(session.get('user') or '')
+    return [{'id': r['id'], 'side': r['side'], 'name': r['author_name'] or _display_name(r['author']), 'body': r['body'],
+             'at': _fmt_dt(r['created_at']), 'mine': r['author'] == me} for r in cur.fetchall()]
+
+
+def _comment_mark_read(cur, bid, last_id):
+    cur.execute('''INSERT INTO gdh_comment_reads (batch_id, side, last_read_id) VALUES (%s, %s, %s)
+                   ON CONFLICT (batch_id, side) DO UPDATE SET last_read_id = GREATEST(gdh_comment_reads.last_read_id, EXCLUDED.last_read_id)''',
+                (bid, _my_side(), last_id))
+
+
+@gom_don_hang_bp.route('/api/gom-don-hang/comments', methods=['GET'])
+def gdh_comments():
+    """Danh sách bình luận của 1 đơn; mở xem = bên mình đã đọc tới bình luận mới nhất."""
+    db, cur = _ctx()
+    try:
+        batch, err = _comment_guard(cur, request.args.get('batch_id'))
+        if err:
+            return err
+        data = _comments_json(cur, batch['id'])
+        if data:
+            _comment_mark_read(cur, batch['id'], data[-1]['id'])
+            db.commit()
+    finally:
+        cur.close()
+    return jsonify({'success': True, 'comments': data, 'side': _my_side()})
+
+
+@gom_don_hang_bp.route('/api/gom-don-hang/comment-add', methods=['POST'])
+def gdh_comment_add():
+    """Gửi 1 bình luận vào đơn. Bên kia nhận thông báo (chi nhánh: chuông + đẩy; admin: đẩy)."""
+    payload = request.get_json(silent=True) or {}
+    body = str(payload.get('body') or '').strip()
+    if not body:
+        return jsonify({'error': 'Vui lòng nhập nội dung.'}), 400
+    if len(body) > COMMENT_MAX_LEN:
+        return jsonify({'error': f'Nội dung tối đa {COMMENT_MAX_LEN} ký tự.'}), 400
+    db, cur = _ctx()
+    try:
+        batch, err = _comment_guard(cur, payload.get('batch_id'))
+        if err:
+            return err
+        side = _my_side()
+        cur.execute('''INSERT INTO gdh_comments (batch_id, side, author, author_name, body, created_at)
+                       VALUES (%s, %s, %s, %s, %s, (NOW() AT TIME ZONE \'Asia/Ho_Chi_Minh\')) RETURNING id''',
+                    (batch['id'], side, str(session.get('user') or ''), _actor_name(), body))
+        new_id = cur.fetchone()['id']
+        _comment_mark_read(cur, batch['id'], new_id)          # người gửi coi như đã đọc tới bình luận của chính mình
+        short = body if len(body) <= 120 else body[:117] + '...'
+        who = _actor_name() or ''
+        if side == 'admin':
+            try:                                              # thông báo chuông cho chi nhánh; lỗi thông báo không làm mất bình luận
+                cur.execute('SAVEPOINT gdh_cmt_notif')
+                create_notification(cur, batch['store_code'], 'Admin trao đổi về đơn gôm',
+                                    f"{who}: {short}\nVào Gôm đơn hàng > Đơn đã đẩy > Xem kết quả để trả lời.", 'info', push=True)
+                cur.execute('RELEASE SAVEPOINT gdh_cmt_notif')
+            except Exception:
+                cur.execute('ROLLBACK TO SAVEPOINT gdh_cmt_notif')
+        db.commit()
+        if side == 'store':
+            _push('ALL', 'Chi nhánh trao đổi về đơn gôm', f"{batch['store_code']} - {who}: {short}", 'review')
+        data = _comments_json(cur, batch['id'])
+        audit_record('Bình luận đơn gôm', 'Gôm đơn hàng', target=f"đợt {batch['id']}",
+                     summary=f"Đợt {batch['id']} ({batch['store_code']}): {who} ({'admin' if side == 'admin' else 'chi nhánh'}) trao đổi: {short}",
+                     after={'comment_id': new_id})
+    finally:
+        cur.close()
+    return jsonify({'success': True, 'comments': data, 'side': side})
+
+
+@gom_don_hang_bp.route('/api/gom-don-hang/orders/delete', methods=['POST'])
+def gdh_orders_delete():
+    """Admin XOÁ VĨNH VIỄN các đơn đã đẩy (kèm kết quả duyệt, mã admin thêm, trao đổi, lịch sử...: xoá theo CASCADE).
+    Không xoá được đơn Đang duyệt (đang có admin xử lý) và đơn chưa đẩy. File Excel đã lưu trữ (gdh_archives) KHÔNG bị đụng tới.
+    Đơn khẩn từ danh sách khách hàng chưa Đã đặt: gỡ dấu 'đã gửi khẩn' để các dòng khách quay về Danh sách đặt hàng."""
+    if 'user' not in session or session.get('role') != 'admin':
+        return jsonify({'error': 'Chỉ admin được xoá đơn.'}), 403
+    payload = request.get_json(silent=True) or {}
+    try:
+        ids = sorted({int(x) for x in (payload.get('ids') or [])})
+    except (TypeError, ValueError):
+        return jsonify({'error': 'Danh sách đơn không hợp lệ.'}), 400
+    if not ids:
+        return jsonify({'error': 'Chưa chọn đơn nào.'}), 400
+    if len(ids) > 200:
+        return jsonify({'error': 'Mỗi lần chỉ xoá tối đa 200 đơn.'}), 400
+    db, cur = _ctx()
+    done, skipped = [], []
+    try:
+        cur.execute('SELECT * FROM gdh_batches WHERE id = ANY(%s) ORDER BY id FOR UPDATE', (ids,))
+        found = {b['id']: b for b in cur.fetchall()}
+        for i in ids:
+            b = found.get(i)
+            st = (b.get('status') or 'draft') if b else None
+            if not b:
+                skipped.append({'id': i, 'reason': 'Không tìm thấy đơn (có thể đã bị xoá hoặc đã lưu trữ).'})
+            elif b['owner'] or st == 'draft':
+                skipped.append({'id': i, 'reason': 'Đơn chưa đẩy đi duyệt.'})
+            elif st == 'reviewing':
+                skipped.append({'id': i, 'reason': f"Đơn đang do {_display_name(b.get('claimed_by')) or 'admin khác'} duyệt. "
+                                                   'Hãy duyệt xong hoặc trả đơn về hàng chờ rồi xoá.'})
+            else:
+                cur.execute("DELETE FROM gdh_batches WHERE id = %s AND owner = '' AND status = %s", (i, st))
+                if cur.rowcount == 1:
+                    done.append(b)
+                else:
+                    skipped.append({'id': i, 'reason': 'Trạng thái đơn vừa thay đổi, hãy tải lại danh sách.'})
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+    finally:
+        cur.close()
+    for b in done:
+        if (b.get('kind') or 'regular') == 'urgent' and (b.get('status') or '') != 'ordered':
+            _urgent_release_marks(b['id'])
+        audit_record('Xoá vĩnh viễn đơn gôm', 'Gôm đơn hàng', target=f"đợt {b['id']}",
+                     summary=f"Đợt {b['id']} ({b['store_code']}): admin XOÁ VĨNH VIỄN đơn (trạng thái {STATUS_LABELS.get(b.get('status'), b.get('status'))}, "
+                             f"đẩy bởi {b.get('submitted_by') or ''} lúc {_fmt_dt(b.get('submitted_at')) or ''})",
+                     before={'status': b.get('status'), 'kind': b.get('kind'), 'store': b['store_code']}, after={'status': 'deleted'})
+    return jsonify({'success': True, 'deleted': len(done), 'deleted_ids': [b['id'] for b in done], 'skipped': skipped})
+
+
 @gom_don_hang_bp.route('/api/gom-don-hang/compare', methods=['GET'])
 def gdh_compare():
     """Kết quả duyệt của 1 đơn: STT, mã hàng, tên hàng, SL gửi (SL cuối chi nhánh gửi), SL duyệt, ghi chú của admin (từng mã).
@@ -2291,6 +2456,15 @@ def gdh_orders():
             cur.execute('SELECT batch_id, COUNT(*) AS n FROM gdh_review_extra WHERE batch_id = ANY(%s) GROUP BY batch_id',
                         ([b['id'] for b in batches],))
             extras = {r['batch_id']: int(r['n']) for r in cur.fetchall()}
+        cmts = {}
+        if batches:
+            cur.execute('''SELECT c.batch_id, COUNT(*) AS total,
+                                  COUNT(*) FILTER (WHERE c.side <> %s AND c.id > COALESCE(r.last_read_id, 0)) AS unread
+                           FROM gdh_comments c
+                           LEFT JOIN gdh_comment_reads r ON r.batch_id = c.batch_id AND r.side = %s
+                           WHERE c.batch_id = ANY(%s) GROUP BY c.batch_id''',
+                        (_my_side(), _my_side(), [b['id'] for b in batches]))
+            cmts = {r['batch_id']: (int(r['total']), int(r['unread'])) for r in cur.fetchall()}
         csql, cparams = "SELECT status, COUNT(*) AS n FROM gdh_batches WHERE owner = '' AND status <> 'draft'", []
         if store:
             csql += ' AND store_code = %s'; cparams.append(store)
@@ -2302,7 +2476,9 @@ def gdh_orders():
                                 'urgent_parts': (types.get(b['id'], {}).get('Khẩn') or {}).get('parts', 0),
                                 'waiting_min': int(b['waiting_min']) if b.get('waiting_min') is not None else None,
                                 'result': results.get(b['id']),
-                                'extra_parts': extras.get(b['id'], 0)}) for b in batches]
+                                'extra_parts': extras.get(b['id'], 0),
+                                'comment_count': cmts.get(b['id'], (0, 0))[0],
+                                'comment_unread': cmts.get(b['id'], (0, 0))[1]}) for b in batches]
         if want in ('active', 'pending'):               # đơn Khẩn lên đầu, trong cùng nhóm thì đơn chờ lâu nhất lên trước
             data.sort(key=lambda o: (o['urgent_parts'] <= 0, -(o['waiting_min'] or 0)))
         arch_days, arch_pending = None, 0
