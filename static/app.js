@@ -368,6 +368,7 @@ const PO_DETAIL_MAX_FILES = 10;
         if (globalInventory.length === 0) loadInventory();
         renderTransferOverviewStats();
         if (typeof ovLoadOrders === 'function') ovLoadOrders();
+        if (typeof ovLoadKpi === 'function') ovLoadKpi();
     }
 
     // Đếm nhanh phiếu chuyển kho nội bộ theo trạng thái từ danh sách đã tải
@@ -10525,7 +10526,136 @@ async function ovLoadOrders() {
     } catch (e) { ovSet('ov-ord-sub', 'Không tải được số liệu đơn hàng. Bấm làm mới để thử lại.'); }
     _ovBusy = false;
 }
-function ovRefresh() { ovLoadOrders(); if (typeof renderTransferOverviewStats === 'function') renderTransferOverviewStats(); }
+function ovRefresh() { ovLoadOrders(); if (typeof ovLoadKpi === 'function') ovLoadKpi(); if (typeof renderTransferOverviewStats === 'function') renderTransferOverviewStats(); }
+
+// ===== TRANG TỔNG QUAN: KPI phụ tùng Honda =====
+// Chỉ ĐỌC lại 2 API sẵn có của tab Chỉ Tiêu (không thêm API, không ghi dữ liệu):
+//   admin  -> /api/chi-tieu/kpi/overview (mọi cửa hàng)   |   cửa hàng -> /api/chi-tieu/kpi/data (của chính mình)
+// Quy ước màu/đánh giá giữ đúng tab Chỉ Tiêu: % đạt >=100% xanh, >=60% vàng, dưới 60% đỏ; Nhận/Bán 95-105% = OK.
+let _ovkBusy = false, _ovkData = null, _ovkQ = '';
+const OVK_Q = [['1', 'Quý 1'], ['2', 'Quý 2'], ['3', 'Quý 3'], ['4', 'Quý 4'], ['all', 'Cả năm']];
+const OVK_SRC = {honda: 'Số Honda', mixed: 'Honda + HMS', hms: 'HMS đang dùng', none: 'Chưa có số'};
+function ovkFmt(n) { return (n == null || isNaN(n)) ? '–' : Math.round(n).toLocaleString('vi-VN'); }
+function ovkPct(n, d) { return (n == null || isNaN(n)) ? '–' : (n * 100).toLocaleString('vi-VN', {maximumFractionDigits: d == null ? 1 : d}) + '%'; }
+function ovkTier(p) { return (p == null || isNaN(p)) ? 'na' : p >= 1 ? 'ok' : p >= 0.6 ? 'mid' : 'low'; }
+function ovkMoney(n) {      // rút gọn cho ô lớn (số đầy đủ nằm trong title)
+    if (n == null || isNaN(n)) return '–';
+    const a = Math.abs(n);
+    if (a >= 1e9) return (n / 1e9).toLocaleString('vi-VN', {maximumFractionDigits: 2}) + ' tỷ';
+    if (a >= 1e6) return (n / 1e6).toLocaleString('vi-VN', {maximumFractionDigits: 1}) + ' tr';
+    return ovkFmt(n);
+}
+function ovkEval(ev) {
+    return ev ? `<span class="ovk-pill ${ev === 'OK' ? 'ok' : 'bad'}" title="Nhận/Bán trong khoảng 95–105% là OK, ngoài khoảng là NG">${ev}</span>` : '';
+}
+function ovkBar(p, big) {
+    const t = ovkTier(p), w = (p == null || isNaN(p)) ? 0 : Math.max(0, Math.min(100, p * 100));
+    return `<div class="ovk-prog${big ? ' big' : ''}"><div class="ovk-track"><i class="${t}" style="width:${w}%"></i></div><b class="${t}">${ovkPct(p)}</b></div>`;
+}
+function ovKpiGo(store) {   // mở tab Chỉ Tiêu > KPI Quý/Năm (đúng kỳ + đúng cửa hàng đang xem)
+    if (typeof window.ctGoKpi === 'function') window.ctGoKpi(store || '', _ovkQ);
+    megaNavClick('ct-tab', document.body);
+}
+function ovKpiPick(k) { _ovkQ = k; ovkRender(); }
+
+async function ovLoadKpi() {
+    if (!document.getElementById('ov-kpi-body') || _ovkBusy) return;
+    _ovkBusy = true;
+    try {
+        const res = await fetch(CURRENT_ROLE === 'admin' ? '/api/chi-tieu/kpi/overview' : '/api/chi-tieu/kpi/data');
+        const j = await res.json();
+        if (!res.ok || j.error) throw new Error(j.error || res.status);
+        _ovkData = j;
+        const valid = CURRENT_ROLE === 'admin' ? !!j.cur_q : !!(j.has && j.cur_q);
+        if (!_ovkQ || (valid && !OVK_Q.some(q => q[0] === _ovkQ))) _ovkQ = (valid && j.cur_q) || 'all';
+        ovkRender();
+    } catch (e) {
+        ovSet('ov-kpi-sub', 'Không tải được số liệu');
+        ovSet('ov-kpi-body', '<div class="ovk-empty">Không tải được KPI phụ tùng. Bấm nút làm mới ở góc trên để thử lại.</div>');
+    }
+    _ovkBusy = false;
+}
+
+function ovkRender() {
+    const j = _ovkData; if (!j) return;
+    const isAdmin = CURRENT_ROLE === 'admin';
+    const has = isAdmin ? (j.rows || []).some(r => r.has) : j.has;
+    const seg = document.getElementById('ov-kpi-seg');
+    if (!has) {
+        if (seg) seg.innerHTML = '';
+        ovSet('ov-kpi-sub', 'Chưa có file KPI Honda');
+        ovSet('ov-kpi-body', `<div class="ovk-empty"><i class="bi bi-file-earmark-excel d-block fs-3 mb-1"></i>Chưa có file KPI sau bán hàng của Honda. ${isAdmin ? 'Nạp file ở Chỉ Tiêu &gt; KPI Quý/Năm.' : 'Vui lòng báo admin nạp file.'}</div>`);
+        return;
+    }
+    const ranges = isAdmin ? (j.ranges || {}) : Object.keys(j.periods).reduce((o, k) => (o[k] = j.periods[k].range, o), {});
+    if (seg) seg.innerHTML = OVK_Q.filter(q => ranges[q[0]]).map(q =>
+        `<button type="button" class="${_ovkQ === q[0] ? 'on' : ''}" onclick="ovKpiPick('${q[0]}')" title="${ovEsc(ranges[q[0]])}">${q[1]}</button>`).join('');
+    ovSet('ov-kpi-sub', `Honda cập nhật đến <b>${ovEsc(j.upto_label)}</b> · ${ovEsc(ranges[_ovkQ] || '')} · tiếp theo ${ovEsc(j.next_label)} lấy từ HMS`);
+    ovSet('ov-kpi-body', isAdmin ? ovkAdminHtml(j) : ovkStoreHtml(j));
+}
+
+function ovkTile(label, val, sub, tone, extra, title) {
+    return `<div class="ovk-tile ${tone || ''}"><div class="ovk-l">${label}</div><div class="ovk-v"${title ? ` title="${ovEsc(title)}"` : ''}>${val}</div>${sub ? `<div class="ovk-s">${sub}</div>` : ''}${extra || ''}</div>`;
+}
+
+/* ---- admin: tổng hệ thống + xếp hạng từng cửa hàng ---- */
+function ovkAdminHtml(j) {
+    const k = _ovkQ, rows = j.rows || [], have = rows.filter(r => r.has && r.periods && r.periods[k]);
+    const T = {total: 0, target: 0, recv: 0}; let okN = 0;
+    have.forEach(r => { const p = r.periods[k]; T.total += p.total || 0; T.target += p.target || 0; T.recv += p.recv || 0; if (p.rate != null && p.rate >= 1) okN++; });
+    const rate = T.target ? T.total / T.target : null, ratio = T.total ? T.recv / T.total : null;
+    const rOk = ratio != null && ratio >= 0.95 && ratio <= 1.05, t = ovkTier(rate);
+    const tiles = '<div class="ovk-tiles">'
+        + ovkTile('Doanh thu thực tế', ovkMoney(T.total), 'Mục tiêu ' + ovkMoney(T.target), 'blue', '', ovkFmt(T.total) + ' / ' + ovkFmt(T.target))
+        + ovkTile('% đạt mục tiêu', `<span class="${t}">${ovkPct(rate)}</span>`, 'Toàn hệ thống', t, `<div class="ovk-bar"><i class="${t}" style="width:${Math.max(0, Math.min(100, (rate || 0) * 100))}%"></i></div>`)
+        + ovkTile('Nhận / Bán', ovkPct(ratio), `${ovkEval(ratio == null ? '' : rOk ? 'OK' : 'NG')} Chuẩn 95–105%`, rOk ? 'ok' : (ratio == null ? '' : 'low'))
+        + ovkTile('Cửa hàng đạt mục tiêu', `${okN}<small>/${have.length}</small>`, have.length - okN ? `${have.length - okN} cửa hàng chưa đạt` : 'Tất cả đã đạt', okN === have.length ? 'ok' : '')
+        + '</div>';
+    const sorted = rows.slice().sort((a, b) => {      // chậm tiến độ lên đầu; cửa hàng chưa có file xuống cuối
+        const ra = a.has && a.periods[k] ? a.periods[k].rate : null, rb = b.has && b.periods[k] ? b.periods[k].rate : null;
+        if (ra == null && rb == null) return String(a.store).localeCompare(String(b.store));
+        if (ra == null) return 1; if (rb == null) return -1; return ra - rb;
+    });
+    const list = sorted.map(r => {
+        if (!r.has || !r.periods[k]) return `<div class="ovk-row off"><b class="ovk-store">${ovEsc(r.store)}</b><span class="ovk-off">Chưa có file KPI Honda</span></div>`;
+        const p = r.periods[k], g1 = p.g1, g2 = p.g2, none = p.src === 'none';
+        if (none) return `<button type="button" class="ovk-row" onclick="ovKpiGo('${ovEsc(r.store)}')"><b class="ovk-store">${ovEsc(r.store)}</b><span class="ovk-off">${ovEsc(OVK_SRC.none)} cho kỳ này</span></button>`;
+        return `<button type="button" class="ovk-row" onclick="ovKpiGo('${ovEsc(r.store)}')" title="Mở KPI chi tiết của ${ovEsc(r.store)}">
+            <b class="ovk-store">${ovEsc(r.store)}</b>
+            <span class="ovk-c-bar">${ovkBar(p.rate)}</span>
+            <span class="ovk-c-money"><b>${ovkMoney(p.total)}</b><small>/ ${ovkMoney(p.target)}</small></span>
+            <span class="ovk-c-ratio" data-l="Nhận/Bán">${ovkPct(p.ratio, 0)} ${ovkEval(p.eval)}</span>
+            <span class="ovk-c-g" data-l="Hao mòn 1"><b class="${ovkTier(g1.rate)}">${ovkPct(g1.rate, 0)}</b></span>
+            <span class="ovk-c-g" data-l="Hao mòn 2"><b class="${ovkTier(g2.rate)}">${ovkPct(g2.rate, 0)}</b></span></button>`;
+    }).join('');
+    return tiles + `<div class="ovk-list"><div class="ovk-row ovk-hd"><span>Cửa hàng</span><span>% đạt mục tiêu</span><span>Doanh thu / Mục tiêu</span><span>Nhận/Bán</span><span class="c">Hao mòn 1</span><span class="c">Hao mòn 2</span></div>${list}</div>
+        <div class="ovk-note">Sắp xếp từ thấp đến cao: cửa hàng chậm tiến độ nằm trên cùng. Bấm một cửa hàng để xem chi tiết.</div>`;
+}
+
+/* ---- cửa hàng: KPI của chính mình ---- */
+function ovkStoreHtml(d) {
+    const k = d.periods[_ovkQ] ? _ovkQ : 'all', c = d.periods[k], none = c.src === 'none', t = ovkTier(c.rev.rate);
+    const pc = Math.max(0, Math.min(100, (c.rev.rate || 0) * 100));
+    const z = (html) => none ? '<span class="ovk-z">–</span>' : html;
+    const hero = `<div class="ovk-ring-card ${t}">
+        <div class="ovk-ring" style="--p:${pc}"><div><b>${z(ovkPct(c.rev.rate, 0))}</b><small>đạt mục tiêu</small></div></div>
+        <div class="ovk-ring-t"><div class="ovk-l">Doanh thu thực tế · ${ovEsc(c.label)}</div>
+            <div class="ovk-v" title="${ovEsc(ovkFmt(c.rev.total))}">${z(ovkMoney(c.rev.total))}</div>
+            <div class="ovk-s">Mục tiêu <b>${ovkMoney(c.rev.target)}</b>${c.rev.rate != null && c.rev.rate < 1 && !none ? ` · còn thiếu <b>${ovkMoney(Math.max(0, c.rev.target - c.rev.total))}</b>` : ''}</div>
+            <span class="ovk-src">${ovEsc(OVK_SRC[c.src] || c.src)} · ${ovEsc(c.range)}</span></div></div>`;
+    const grp = (name, g) => ovkTile(name, z(`<span class="${ovkTier(g.rate)}">${ovkPct(g.rate, 0)}</span>`), z(`Nhận/Bán ${ovkPct(g.ratio, 0)} ${ovkEval(g.eval)}`), '',
+        z(`<div class="ovk-bar"><i class="${ovkTier(g.rate)}" style="width:${Math.max(0, Math.min(100, (g.rate || 0) * 100))}%"></i></div>`));
+    const side = '<div class="ovk-side">'
+        + ovkTile('Nhận / Bán (tổng)', z(ovkPct(c.recv.ratio)), z(`${ovkEval(c.recv.eval)} Nhận ${ovkMoney(c.recv.total)}`), c.recv.eval === 'OK' ? 'ok' : (c.recv.eval === 'NG' ? 'low' : ''))
+        + ovkTile('Tổng nhận', z(ovkMoney(c.recv.total)), 'Chuẩn Nhận/Bán 95–105%', '')
+        + grp('Hao mòn nhóm 1', c.g1) + grp('Hao mòn nhóm 2', c.g2) + '</div>';
+    const q = OVK_Q.filter(x => d.periods[x[0]]).map(x => {
+        const p = d.periods[x[0]], tt = ovkTier(p.rev.rate), w = p.src === 'none' ? 0 : Math.max(0, Math.min(100, (p.rev.rate || 0) * 100));
+        return `<button type="button" class="ovk-q${x[0] === k ? ' on' : ''}" onclick="ovKpiPick('${x[0]}')"><span class="ovk-q-h">${x[1]}<small>${ovEsc(p.range)}</small></span>
+            <span class="ovk-q-bar"><i class="${tt}" style="width:${w}%"></i></span><b class="${p.src === 'none' ? 'na' : tt}">${p.src === 'none' ? '–' : ovkPct(p.rev.rate, 0)}</b></button>`;
+    }).join('');
+    return `<div class="ovk-store-grid">${hero}${side}</div><div class="ovk-qs">${q}</div>`;
+}
 
 // Vẽ thanh tỷ lệ từ chính các con số mà code cũ đã đổ vào (không phải sửa loadData/loadTransfers)
 function ovNum(id) { const el = document.getElementById(id); return el ? (parseInt((el.textContent || '').replace(/\D/g, ''), 10) || 0) : 0; }
@@ -10544,7 +10674,7 @@ function ovPaintBars() {
         ['ov-transfer-total','ov-transfer-pending','ov-transfer-approved','ov-transfer-rejected','ov-stat-total','ov-stat-debt-2','ov-stat-shipping','ov-stat-received']
             .forEach(id => { const el = document.getElementById(id); if (el) mo.observe(el, {childList: true, characterData: true, subtree: true}); });
         ovPaintBars();
-        setInterval(() => { const p = document.getElementById('overview-pane'); if (p && p.classList.contains('active') && !document.hidden) ovLoadOrders(); }, 60000);
+        setInterval(() => { const p = document.getElementById('overview-pane'); if (p && p.classList.contains('active') && !document.hidden) { ovLoadOrders(); if (typeof ovLoadKpi === 'function') ovLoadKpi(); } }, 60000);
     }
     if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init); else init();
 })();

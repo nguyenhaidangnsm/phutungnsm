@@ -85,7 +85,15 @@
     }
 
     window.ctTabOpened = async () => {
-        try { await init(); highlight(); await refresh(); startPolling(); } catch (e) { msg(e.message, false); }
+        try {
+            await init();
+            if (S.goto) {          // được mở từ trang Tổng Quan (ctGoKpi): vào thẳng KPI Quý/Năm
+                const g = S.goto; S.goto = null; S.view = 'kpi';
+                if (g.kq) S.kq = g.kq;
+                if (S.role === 'admin') { S.store = g.store || ''; $('ctStore').value = S.store; }
+            }
+            highlight(); await refresh(); startPolling();
+        } catch (e) { msg(e.message, false); }
     };
     function highlight() {
         document.querySelectorAll('#ctViews button').forEach(b => b.classList.toggle('active', b.dataset.v === S.view));
@@ -93,6 +101,7 @@
         $('ctMonthWrap').classList.toggle('d-none', S.view === 'ref' || S.view === 'kpi');
         $('ctExport').classList.toggle('d-none', !(S.view === 'overview' || S.view === 'detail'));
     }
+    window.ctGoKpi = (store, kq) => { S.goto = {store: store || '', kq: kq || ''}; };
     window.ctView = async (v) => {
         S.view = v; highlight();
         if (v === 'detail' && S.role === 'admin' && !S.store) {   // chi tiết cần 1 cửa hàng cụ thể

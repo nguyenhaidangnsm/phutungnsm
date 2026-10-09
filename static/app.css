@@ -1546,3 +1546,134 @@
 .oc-sess.on{background:var(--c-primary,#0d6efd);border-color:var(--c-primary,#0d6efd);color:#fff;opacity:1}
 .oc-sess.on .s{color:#dbeafe}
 .oc-sess:not(.on):hover{background:#eff6ff;border-color:#0d6efd}
+
+/* =====================================================================
+   TỔNG QUAN v2 - chỉ thêm giao diện cho #overview-pane (không đổi id/logic)
+   Thứ tự: 1) Đơn hàng  2) KPI phụ tùng Honda  3) Vận hành kho & đối soát  4) Dữ liệu hệ thống
+   ===================================================================== */
+#overview-pane { --ovk-ok: #198754; --ovk-mid: #d98a00; --ovk-low: #dc3545; --ovk-blue: #1d4ed8; }
+
+/* ---------- tiêu đề từng khu vực ---------- */
+.ov-head { padding-bottom: 12px; margin-bottom: 4px; border-bottom: 1px solid var(--c-e2e8f0); }
+.ov-sec { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin: 26px 0 12px; }
+.ov-head + .ov-sec { margin-top: 14px; }
+.ov-sec-ico { flex: none; width: 36px; height: 36px; border-radius: 10px; display: grid; place-items: center; font-size: 1.05rem; color: #fff; box-shadow: 0 4px 10px rgba(15,23,42,.14); }
+.ov-sec-ico.t-navy { background: linear-gradient(135deg, #0b2347, #14407f); }
+.ov-sec-ico.t-blue { background: linear-gradient(135deg, #1d4ed8, #3b82f6); }
+.ov-sec-ico.t-slate { background: linear-gradient(135deg, #334155, #64748b); }
+.ov-sec-ico.t-grey { background: linear-gradient(135deg, #64748b, #94a3b8); }
+.ov-sec-t { min-width: 0; }
+.ov-sec-t h6 { margin: 0; font-weight: 800; font-size: 1.05rem; color: var(--c-0f172a); letter-spacing: -.01em; }
+.ov-sec-t small { display: block; color: var(--c-64748b); font-size: .78rem; margin-top: 1px; }
+.ov-sec-act { margin-left: auto; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.ov-seg { display: inline-flex; gap: 2px; padding: 3px; background: var(--c-f1f5f9); border: 1px solid var(--c-e2e8f0); border-radius: 10px; }
+.ov-seg button { border: 0; background: transparent; border-radius: 7px; padding: 5px 12px; font-size: .78rem; font-weight: 600; color: var(--c-475569); cursor: pointer; white-space: nowrap; transition: background .15s, color .15s; }
+.ov-seg button:hover:not(.on) { color: var(--c-0f172a); }
+.ov-seg button.on { background: #fff; color: var(--ovk-blue); box-shadow: 0 1px 3px rgba(15,23,42,.16); }
+.ov-link { border: 1px solid var(--c-e2e8f0); background: #fff; color: var(--ovk-blue); font-weight: 700; font-size: .8rem; border-radius: 9px; padding: 6px 12px; cursor: pointer; }
+.ov-link:hover { background: var(--c-eff6ff); border-color: #bfdbfe; }
+.ov-seg button:focus-visible, .ov-link:focus-visible, .ovk-row:focus-visible, .ovk-q:focus-visible { outline: 3px solid #93c5fd; outline-offset: 2px; }
+
+/* ---------- khối Đơn hàng (hero + cảnh báo) ---------- */
+.ov-hero { position: relative; overflow: hidden; }
+.ov-hero::after { content: ''; position: absolute; right: -70px; top: -90px; width: 280px; height: 280px; border-radius: 50%; background: radial-gradient(circle, rgba(96,165,250,.30), transparent 70%); pointer-events: none; }
+.ov-hero > * { position: relative; z-index: 1; }
+.ov-alert { border-left: 4px solid var(--c-cbd5e1); box-shadow: 0 1px 2px rgba(15,23,42,.04); }
+.ov-alert:first-child { border-left-color: #dc3545; }
+.ov-alert:last-child { border-left-color: #f59e0b; }
+.ov-panel, .ov-mini { box-shadow: 0 1px 2px rgba(15,23,42,.04); }
+.ov-title { padding-bottom: 12px; border-bottom: 1px solid var(--c-eef2f7); }
+.ov-kpis > div + div { border-left: 1px solid var(--c-eef2f7); padding-left: 12px; }
+
+/* ---------- KPI phụ tùng ---------- */
+.ovk { background: #fff; border: 1px solid var(--c-e2e8f0); border-top: 3px solid var(--ovk-blue); border-radius: 16px; padding: 18px; box-shadow: 0 1px 2px rgba(15,23,42,.04); }
+.ovk .ok { color: var(--ovk-ok); } .ovk .mid { color: var(--ovk-mid); } .ovk .low { color: var(--ovk-low); } .ovk .na { color: var(--c-94a3b8); }
+.ovk-empty { text-align: center; color: var(--c-64748b); padding: 26px 8px; font-size: .9rem; }
+.ovk-z { color: var(--c-cbd5e1); }
+.ovk-l { font-size: .7rem; text-transform: uppercase; letter-spacing: .05em; font-weight: 700; color: var(--c-64748b); }
+.ovk-v { font-size: 1.7rem; font-weight: 800; line-height: 1.2; letter-spacing: -.02em; font-variant-numeric: tabular-nums; color: var(--c-0f172a); }
+.ovk-v small { font-size: 1rem; font-weight: 700; color: var(--c-94a3b8); }
+.ovk-s { font-size: .76rem; color: var(--c-64748b); margin-top: 2px; }
+.ovk-bar { height: 7px; border-radius: 4px; background: #e5e9ef; overflow: hidden; margin-top: 8px; }
+.ovk-bar i, .ovk-track i, .ovk-q-bar i { display: block; height: 100%; border-radius: 4px; background: #9aa5b4; transition: width .6s ease; }
+.ovk-bar i.ok, .ovk-track i.ok, .ovk-q-bar i.ok { background: #2f9e5b; }
+.ovk-bar i.mid, .ovk-track i.mid, .ovk-q-bar i.mid { background: #d49a2a; }
+.ovk-bar i.low, .ovk-track i.low, .ovk-q-bar i.low { background: #d64545; }
+.ovk-pill { display: inline-block; font-size: .68rem; font-weight: 800; padding: 1px 7px; border-radius: 6px; border: 1px solid transparent; vertical-align: middle; }
+.ovk-pill.ok { background: #ecf7f0; color: var(--ovk-ok); border-color: #b9dfc8; }
+.ovk-pill.bad { background: #fbeeee; color: var(--ovk-low); border-color: #efc4c4; }
+
+.ovk-tiles { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 16px; }
+.ovk-tile { border: 1px solid var(--c-e2e8f0); border-radius: 12px; padding: 12px 14px; background: linear-gradient(180deg, #fff, var(--c-f8fafc)); min-width: 0; }
+.ovk-tile.blue { border-left: 4px solid var(--ovk-blue); }
+.ovk-tile.ok { border-left: 4px solid #2f9e5b; } .ovk-tile.mid { border-left: 4px solid #d49a2a; } .ovk-tile.low { border-left: 4px solid #d64545; }
+
+/* bảng xếp hạng cửa hàng (admin) */
+.ovk-list { border: 1px solid var(--c-e2e8f0); border-radius: 12px; overflow: hidden; }
+.ovk-row { display: grid; grid-template-columns: 76px minmax(170px, 1.6fr) minmax(130px, 1fr) 118px 84px 84px; gap: 12px; align-items: center; width: 100%; text-align: left; padding: 10px 14px; background: #fff; border: 0; border-bottom: 1px solid var(--c-eef2f7); font-size: .86rem; color: var(--c-0f172a); }
+.ovk-row:last-child { border-bottom: 0; }
+button.ovk-row { cursor: pointer; transition: background .12s; }
+button.ovk-row:hover { background: var(--c-eff6ff); }
+.ovk-row:nth-child(even):not(.ovk-hd) { background: var(--c-f8fafc); }
+button.ovk-row:nth-child(even):hover { background: var(--c-eff6ff); }
+.ovk-hd { background: var(--c-f1f5f9) !important; font-size: .68rem; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; color: var(--c-64748b); padding-top: 8px; padding-bottom: 8px; }
+.ovk-hd .c, .ovk-c-g { text-align: center; }
+.ovk-store { font-weight: 800; font-size: .98rem; }
+.ovk-row.off { display: flex; gap: 14px; color: var(--c-94a3b8); }
+.ovk-off { color: var(--c-94a3b8); font-size: .82rem; grid-column: 2 / -1; }
+.ovk-prog { display: flex; align-items: center; gap: 10px; }
+.ovk-track { flex: 1; height: 9px; border-radius: 5px; background: #e5e9ef; overflow: hidden; min-width: 60px; }
+.ovk-prog b { min-width: 3.6rem; text-align: right; font-size: .88rem; font-variant-numeric: tabular-nums; }
+.ovk-c-money b { font-variant-numeric: tabular-nums; } .ovk-c-money small { color: var(--c-94a3b8); margin-left: 4px; }
+.ovk-c-ratio { font-variant-numeric: tabular-nums; font-weight: 600; }
+.ovk-c-g b { font-variant-numeric: tabular-nums; }
+.ovk-note { font-size: .75rem; color: var(--c-94a3b8); margin-top: 10px; }
+
+/* cửa hàng: vòng tiến độ + 4 ô + các quý */
+.ovk-store-grid { display: grid; grid-template-columns: minmax(300px, 5fr) 7fr; gap: 14px; }
+.ovk-ring-card { display: flex; align-items: center; gap: 18px; padding: 16px 18px; border: 1px solid var(--c-e2e8f0); border-radius: 14px; background: linear-gradient(135deg, var(--c-eff6ff), #fff 70%); }
+.ovk-ring { --c: #9aa5b4; flex: none; width: 118px; height: 118px; border-radius: 50%; display: grid; place-items: center; background: conic-gradient(var(--c) calc(var(--p) * 1%), #e5e9ef 0); }
+.ovk-ring-card.ok .ovk-ring { --c: #2f9e5b; } .ovk-ring-card.mid .ovk-ring { --c: #d49a2a; } .ovk-ring-card.low .ovk-ring { --c: #d64545; }
+.ovk-ring > div { width: 90px; height: 90px; border-radius: 50%; background: #fff; display: grid; place-content: center; text-align: center; box-shadow: inset 0 0 0 1px var(--c-eef2f7); }
+.ovk-ring b { font-size: 1.5rem; font-weight: 800; line-height: 1; font-variant-numeric: tabular-nums; }
+.ovk-ring small { font-size: .62rem; color: var(--c-64748b); margin-top: 3px; }
+.ovk-ring-card.ok .ovk-ring b { color: var(--ovk-ok); } .ovk-ring-card.mid .ovk-ring b { color: var(--ovk-mid); } .ovk-ring-card.low .ovk-ring b { color: var(--ovk-low); }
+.ovk-ring-t { min-width: 0; }
+.ovk-src { display: inline-block; margin-top: 8px; font-size: .7rem; font-weight: 600; color: var(--c-475569); background: #fff; border: 1px solid var(--c-e2e8f0); border-radius: 6px; padding: 2px 8px; }
+.ovk-side { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; }
+.ovk-qs { display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; margin-top: 14px; }
+.ovk-q { display: flex; flex-direction: column; gap: 6px; text-align: left; background: #fff; border: 1px solid var(--c-e2e8f0); border-radius: 12px; padding: 10px 12px; cursor: pointer; transition: border-color .15s, box-shadow .15s; }
+.ovk-q:hover { border-color: var(--c-cbd5e1); }
+.ovk-q.on { border-color: var(--ovk-blue); box-shadow: 0 0 0 1px var(--ovk-blue) inset; background: var(--c-eff6ff); }
+.ovk-q-h { font-weight: 700; font-size: .82rem; } .ovk-q-h small { display: block; font-weight: 500; font-size: .68rem; color: var(--c-64748b); }
+.ovk-q-bar { height: 6px; border-radius: 3px; background: #e5e9ef; overflow: hidden; }
+.ovk-q b { font-size: 1rem; font-variant-numeric: tabular-nums; }
+
+@media (max-width: 1199.98px) {
+    .ovk-store-grid { grid-template-columns: 1fr; }
+}
+@media (max-width: 991.98px) {
+    .ovk-tiles { grid-template-columns: repeat(2, 1fr); }
+    .ovk-row { grid-template-columns: 70px 1fr 1fr 100px; }
+    .ovk-hd span:nth-child(5), .ovk-hd span:nth-child(6), .ovk-row .ovk-c-g { display: none; }
+}
+@media (max-width: 767.98px) {
+    .ov-sec-act { margin-left: 0; width: 100%; }
+    .ov-seg { max-width: 100%; overflow-x: auto; }
+    .ov-seg button { padding: 5px 10px; }
+    .ovk { padding: 14px; }
+    .ovk-v { font-size: 1.4rem; }
+    .ovk-hd { display: none; }
+    .ovk-row { grid-template-columns: 62px 1fr; gap: 6px 10px; padding: 12px; }
+    .ovk-c-bar { grid-column: 2; }
+    .ovk-c-money { grid-column: 1 / 3; font-size: .8rem; }
+    .ovk-c-ratio { grid-column: 1 / 3; font-size: .8rem; }
+    .ovk-c-ratio::before { content: 'Nhận/Bán: '; color: var(--c-64748b); font-weight: 500; }
+    .ovk-side { grid-template-columns: repeat(2, 1fr); gap: 10px; }
+    .ovk-ring-card { flex-direction: row; padding: 14px; gap: 14px; }
+    .ovk-ring { width: 96px; height: 96px; } .ovk-ring > div { width: 74px; height: 74px; } .ovk-ring b { font-size: 1.25rem; }
+    .ovk-qs { grid-template-columns: repeat(2, 1fr); }
+    .ovk-q:last-child { grid-column: 1 / -1; }
+    .ov-kpis > div + div { border-left: 0; padding-left: 0; }
+}
+@media (prefers-reduced-motion: reduce) { .ovk-bar i, .ovk-track i, .ovk-q-bar i { transition: none; } }
