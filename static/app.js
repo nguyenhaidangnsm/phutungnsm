@@ -4110,7 +4110,7 @@ const PO_DETAIL_MAX_FILES = 10;
             stats = `<div class="ns-num">${F(sub.parts)} mã</div><div class="ns-meta"><span>SL ${F(sub.qty)}</span>${list && sub.amount != null ? `<span>${F(sub.amount)} đ</span>` : ''}${wait}</div>`;
         }
         const btn = (cls, icon, text, fn) => `<button type="button" class="ns-btn ${cls}" onclick="${fn}"><i class="bi ${icon}"></i> ${text}</button>`;
-        let acts = '', menu = '';
+        let acts = '', menu = '', showCust = false;
         const lockBtn = o => `<button type="button" class="ns-btn" disabled style="opacity:.8;cursor:not-allowed" title="Chỉ ${e(o.claimed_by_name || o.claimed_by || 'admin đó')} trả đơn về hàng chờ thì mới lấy được"><i class="bi bi-lock-fill"></i> ${e(o.claimed_by_name || o.claimed_by || 'Admin khác')} đang duyệt</button>`;
         const mi = (fn, text, cls) => `<button type="button" role="menuitem"${cls ? ' class="' + cls + '"' : ''} onclick="${fn}">${text}</button>`;
         if (list) {
@@ -4122,7 +4122,7 @@ const PO_DETAIL_MAX_FILES = 10;
             if (!isAd && (o.status === 'pending' || o.status === 'reviewing')) acts += btn('', 'bi-eye', 'Xem đơn', `gdhOpenCompare(${o.id})`);
             if (!isAd && o.can_rereview) acts += `<button type="button" class="ns-btn" title="Còn ${e(_gdhLeft(o.rereview_left_min))} (đến ${e(o.rereview_until)})" onclick="gdhRequestRereview(${o.id})"><i class="bi bi-arrow-repeat"></i> Nhờ duyệt lại</button>`;
             if (!isAd && done) acts += btn(o.status === 'ordered' ? '' : 'ns-ok', 'bi-download', o.status === 'ordered' ? 'Tải lại file đặt hàng' : 'Tải đơn về', `gdhDownloadOrder(${o.id})`);
-            if (o.kind === 'urgent') menu += mi(`gdhUrgentDetail(${o.id})`, 'Thông tin khách');
+            if (o.kind === 'urgent') showCust = true;
             if (isAd && (o.status === 'pending' || (o.status === 'reviewing' && o.claimed_by_me))) menu += mi(`gdhReject(${o.id}, this)`, 'Từ chối', 'ns-danger');
             if (!isAd && o.status === 'pending' && !o.rereview_open) menu += mi(`gdhRecall(${o.id})`, 'Thu hồi', 'ns-danger');
         } else if (store) {
@@ -4132,9 +4132,12 @@ const PO_DETAIL_MAX_FILES = 10;
             else if (mine) acts += btn('ns-pri', 'bi-pencil-square', 'Mở để duyệt', `ocGdhOpen(${o.id})`);
             else if (o.status === 'reviewing') acts += lockBtn(o);
             if (o.status !== 'pending') acts += btn('', 'bi-eye', 'Xem kết quả', `gdhOpenCompare(${o.id})`);
-            if (o.kind === 'urgent') menu += `<button type="button" role="menuitem" onclick="gdhUrgentDetail(${o.id})">Thông tin khách</button>`;
+            if (o.kind === 'urgent') showCust = true;
         }
-        if (canDel) acts += `<button type="button" class="ns-btn" style="color:#dc2626;border-color:#fca5a5" title="Xoá vĩnh viễn đơn này" aria-label="Xoá vĩnh viễn" onclick="nsDeleteOrders([${o.id}])"><i class="bi bi-trash3"></i> Xoá</button>`;
+        // "Thông tin khách" (đơn khẩn) là nút hiện sẵn; "Xoá đơn hàng" nằm trong menu ⋯ cho đỡ bấm nhầm
+        // (nsDeleteOrders luôn hỏi xác nhận trước khi xoá).
+        if (showCust) acts += btn('', 'bi-person-lines-fill', 'Thông tin khách', `gdhUrgentDetail(${o.id})`);
+        if (canDel) menu += mi(`nsDeleteOrders([${o.id}])`, '<i class="bi bi-trash3 me-1"></i>Xoá đơn hàng', 'ns-danger');
         const more = menu ? `<span class="ns-mw"><button type="button" class="ns-btn ns-more" aria-label="Thêm thao tác" aria-haspopup="true" onclick="nsOcMenu(this,event)">⋯</button><div class="ns-menu" role="menu" hidden>${menu}</div></span>` : '';
         const clickable = ` onclick="nsRowClick(event,${o.id})" style="cursor:pointer" title="Bấm để xem đơn"`;      // admin + cửa hàng đều bấm vào thẻ để xem đơn
         return `<div class="ns-row ns-t-${key}${urgent ? ' ns-urgent' : ''}${mine ? ' ns-mine' : ''}"${clickable}><div class="ns-main"><div class="ns-title">${title}</div>` +
