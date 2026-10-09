@@ -10611,11 +10611,7 @@ function ovkAdminHtml(j) {
         + ovkTile('Nhận / Bán', ovkPct(ratio), `${ovkEval(ratio == null ? '' : rOk ? 'OK' : 'NG')} Chuẩn 95–105%`, rOk ? 'ok' : (ratio == null ? '' : 'low'))
         + ovkTile('Cửa hàng đạt mục tiêu', `${okN}<small>/${have.length}</small>`, have.length - okN ? `${have.length - okN} cửa hàng chưa đạt` : 'Tất cả đã đạt', okN === have.length ? 'ok' : '')
         + '</div>';
-    const sorted = rows.slice().sort((a, b) => {      // chậm tiến độ lên đầu; cửa hàng chưa có file xuống cuối
-        const ra = a.has && a.periods[k] ? a.periods[k].rate : null, rb = b.has && b.periods[k] ? b.periods[k].rate : null;
-        if (ra == null && rb == null) return String(a.store).localeCompare(String(b.store));
-        if (ra == null) return 1; if (rb == null) return -1; return ra - rb;
-    });
+    const sorted = rows.slice().sort((a, b) => String(a.store).localeCompare(String(b.store), 'vi', {numeric: true}));      // theo thứ tự cửa hàng: NS1, NS2... NSM1
     const list = sorted.map(r => {
         if (!r.has || !r.periods[k]) return `<div class="ovk-row off"><b class="ovk-store">${ovEsc(r.store)}</b><span class="ovk-off">Chưa có file KPI Honda</span></div>`;
         const p = r.periods[k], g1 = p.g1, g2 = p.g2, none = p.src === 'none';
@@ -10629,7 +10625,7 @@ function ovkAdminHtml(j) {
             <span class="ovk-c-g" data-l="Hao mòn 2"><b class="${ovkTier(g2.rate)}">${ovkPct(g2.rate, 0)}</b></span></button>`;
     }).join('');
     return tiles + `<div class="ovk-list"><div class="ovk-row ovk-hd"><span>Cửa hàng</span><span>% đạt mục tiêu</span><span>Doanh thu / Mục tiêu</span><span>Nhận/Bán</span><span class="c">Hao mòn 1</span><span class="c">Hao mòn 2</span></div>${list}</div>
-        <div class="ovk-note">Sắp xếp từ thấp đến cao: cửa hàng chậm tiến độ nằm trên cùng. Bấm một cửa hàng để xem chi tiết.</div>`;
+        <div class="ovk-note">Sắp xếp theo thứ tự cửa hàng. Bấm một cửa hàng để xem chi tiết.</div>`;
 }
 
 /* ---- cửa hàng: KPI của chính mình ---- */
