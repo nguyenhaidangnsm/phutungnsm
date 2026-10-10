@@ -5370,6 +5370,90 @@ def get_locations():
     return resp
 
 
+@app.route('/api/admin/locations/export', methods=['GET'])
+def export_locations_excel():
+    """Admin xuất Excel bảng "Vị Trí Hàng Hóa" (dạng PIVOT: 1 dòng/mã hàng,
+    mỗi cửa hàng 1 cột, các vị trí của cùng 1 ô nối bằng " | "). Áp dụng
+    đúng bộ lọc đang xem trên màn hình: q (mã/tên hàng) và missing=1 (chỉ
+    mã hàng chưa có vị trí ở bất kỳ cửa hàng nào). Xuất TOÀN BỘ dòng khớp
+    bộ lọc, không bị giới hạn 200 dòng hiển thị như trên giao diện."""
+    if 'user' not in session or session['role'] != 'admin':
+        return jsonify({'error': 'Forbidden'}), 403
+
+    q = (request.args.get('q') or '').strip().lower()
+    q_code = re.sub(r'[\s-]+', '', q)
+    only_missing = (request.args.get('missing') or '').strip() in ('1', 'true')
+
+    db = get_db()
+    cursor = db.cursor()
+    try:
+        all_stores = sorted(_valid_store_codes(cursor))
+
+        cursor.execute('''
+            SELECT DISTINCT ON (part_code) part_code, part_name, unit
+            FROM inventory_items
+            ORDER BY part_code, id DESC
+        ''')
+        part_info = {r['part_code']: r for r in cursor.fetchall()}
+
+        cursor.execute('SELECT DISTINCT part_code FROM inventory_items WHERE is_pi2')
+        pi2_parts = {r['part_code'] for r in cursor.fetchall()}
+
+        cursor.execute('SELECT part_code, store_code, location_1, location_2, location_3 FROM part_locations')
+        loc_rows = cursor.fetchall()
+    finally:
+        cursor.close()
+
+    loc_map = {(r['part_code'], r['store_code']): r for r in loc_rows}
+    all_part_codes = set(part_info.keys()) | {r['part_code'] for r in loc_rows}
+
+    rows = []
+    for part_code in sorted(all_part_codes, key=lambda c: (c in pi2_parts, c)):
+        info = part_info.get(part_code)
+        part_name = (info['part_name'] if info else None) or ''
+        unit = (info['unit'] if info else None) or ''
+
+        if q:
+            code_norm = re.sub(r'[\s-]+', '', part_code.lower())
+            if q_code not in code_norm and q not in part_name.lower():
+                continue
+
+        row = {'Mã hàng': part_code, 'Tên hàng': part_name, 'ĐVT': unit}
+        has_any = False
+        for store in all_stores:
+            loc = loc_map.get((part_code, store))
+            locs = [loc[k] for k in ('location_1', 'location_2', 'location_3') if loc and loc[k]]
+            if locs:
+                has_any = True
+            row[store] = ' | '.join(locs)
+        if only_missing and has_any:
+            continue
+        rows.append(row)
+
+    columns = ['Mã hàng', 'Tên hàng', 'ĐVT'] + all_stores
+    df = pd.DataFrame(rows, columns=columns)
+
+    output = io.BytesIO()
+    with pd.ExcelWriter(output, engine='openpyxl') as writer:
+        df.to_excel(writer, index=False, sheet_name='Vị trí hàng hóa')
+        ws = writer.sheets['Vị trí hàng hóa']
+        ws.freeze_panes = 'A2'
+        ws.auto_filter.ref = ws.dimensions
+        widths = {'A': 20, 'B': 45, 'C': 8}
+        for idx in range(len(all_stores)):
+            widths[chr(ord('D') + idx)] = 22
+        for col, w in widths.items():
+            ws.column_dimensions[col].width = w
+    output.seek(0)
+
+    return send_file(
+        output,
+        as_attachment=True,
+        download_name=f'vi-tri-hang-hoa-{vn_now().strftime("%Y%m%d-%H%M")}.xlsx',
+        mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    )
+
+
 @app.route('/api/locations/save', methods=['POST'])
 def save_location():
     """Thêm/sửa (thủ công) tối đa 3 vị trí cho 1 mã hàng tại 1 cửa hàng.

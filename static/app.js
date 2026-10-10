@@ -6850,6 +6850,17 @@ async function saveLocationRow(btn, partCode) {
         renderLocationsTable(filtered);
     }
 
+    // Admin: xuất Excel bảng Vị Trí Hàng Hóa theo đúng bộ lọc đang xem
+    // (ô tìm kiếm + "Chỉ hiện mã hàng chưa có vị trí"); backend xuất toàn bộ
+    // dòng khớp lọc, không bị giới hạn LOCATION_RENDER_LIMIT.
+    function exportLocationsExcel() {
+        const params = new URLSearchParams();
+        const q = document.getElementById('location-search').value.trim();
+        if (q) params.set('q', q);
+        if (document.getElementById('location-missing-filter').checked) params.set('missing', '1');
+        window.location.href = '/api/admin/locations/export?' + params.toString();
+    }
+
     let _locationFilterDebounceTimer = null;
     function debouncedFilterLocations() {
         clearTimeout(_locationFilterDebounceTimer);
