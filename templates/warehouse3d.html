@@ -149,6 +149,25 @@
         </div>
       </div>
 
+      <div class="card mb-3 d-none" id="build-from-loc-card">
+        <div class="card-header py-2"><i class="bi bi-magic"></i> Dựng kệ từ vị trí hàng hóa</div>
+        <div class="card-body py-2">
+          <p class="small text-muted mb-2">Đọc vị trí hàng hóa của cửa hàng đang chọn (VD <b>B321</b> = Kệ B, Tầng 3, Ô 2, Ngăn 1; <b>LẦU 1 B321</b> = kệ B ở Lầu 1) rồi tự tạo lầu, kệ và gán mã hàng. Chỉ thêm mới, không xoá hay dời kệ đang có, không sửa vị trí hàng hóa.</p>
+          <label class="form-label small mb-0">Mã không ghi "LẦU n" thì nằm ở</label>
+          <select id="build-default-floor" class="form-select form-select-sm mb-2">
+            <option value="0">Tầng trệt</option>
+            <option value="1">Lầu 1</option>
+            <option value="2">Lầu 2</option>
+            <option value="3">Lầu 3</option>
+          </select>
+          <div class="d-flex gap-2">
+            <button id="build-preview-btn" type="button" class="btn btn-sm btn-outline-primary flex-fill">Xem trước</button>
+            <button id="build-apply-btn" type="button" class="btn btn-sm btn-primary flex-fill" disabled>Dựng sơ đồ</button>
+          </div>
+          <div id="build-report" class="small mt-2"></div>
+        </div>
+      </div>
+
       <div class="card mb-3">
         <div class="card-header py-2"><i class="bi bi-list-ul"></i> Danh sách kệ</div>
         <div id="shelf-list" class="list-group list-group-flush" style="max-height: 260px; overflow-y:auto;"></div>
@@ -1598,6 +1617,79 @@ document.getElementById('floor-add-btn').addEventListener('click', async () => {
     showToast(`Đã thêm "${data.floor.name}".`, 'success');
   } catch (err) { showToast(err.message, 'danger'); }
 });
+
+// ---------------------------------------------------------------------
+// DỰNG KỆ TỪ VỊ TRÍ HÀNG HÓA (admin) - xem trước rồi mới dựng
+// ---------------------------------------------------------------------
+(function setupBuildFromLocations() {
+  const card = document.getElementById('build-from-loc-card');
+  if (!card || state.role !== 'admin') return;
+  card.classList.remove('d-none');
+  const sel = document.getElementById('build-default-floor');
+  const previewBtn = document.getElementById('build-preview-btn');
+  const applyBtn = document.getElementById('build-apply-btn');
+  const out = document.getElementById('build-report');
+  let previewKey = null;   // cửa hàng + lầu mặc định của lần xem trước gần nhất
+
+  const keyNow = () => `${state.storeCode}|${sel.value}`;
+  sel.addEventListener('change', () => { applyBtn.disabled = true; previewKey = null; });
+
+  function render(d) {
+    const s = d.stats || {}, t = d.totals || {};
+    let html = `<div>Đọc được <b>${s.mapped}</b> / ${s.locations} vị trí` +
+      (s.skipped ? ` (bỏ qua ${s.skipped})` : '') + '.</div>';
+    if (s.slot_zero_as_1) html += `<div class="text-warning-emphasis">${s.slot_zero_as_1} vị trí có ngăn = 0 (VD B310) được đặt vào Ngăn 1.</div>`;
+    (d.floors || []).forEach(f => {
+      const news = f.shelves.filter(x => x.action === 'new').length;
+      const ext = f.shelves.filter(x => x.action === 'extend').length;
+      const bad = f.shelves.filter(x => x.action === 'conflict');
+      html += `<div class="mt-1"><b>${escapeHtml(f.name)}</b>${f.exists ? '' : ' (lầu mới)'}: ${news} kệ mới` +
+        (ext ? `, ${ext} kệ mở rộng` : '') + (bad.length ? `, <span class="text-danger">${bad.length} xung đột mã (${escapeHtml(bad.map(x => x.code).join(', '))})</span>` : '') + '</div>';
+    });
+    if (d.applied) {
+      html += `<div class="mt-1 text-success">Đã dựng: ${t.shelves_created || 0} kệ mới` +
+        (t.shelves_extended ? `, ${t.shelves_extended} kệ mở rộng` : '') +
+        (t.floors_created ? `, ${t.floors_created} lầu mới` : '') + '.</div>';
+    }
+    if ((d.skipped_top || []).length) {
+      html += '<details class="mt-1"><summary>Vị trí bị bỏ qua (nhiều nhất)</summary><div class="text-muted">' +
+        d.skipped_top.map(x => `${escapeHtml(x.text)} (${x.count})`).join(' · ') + '</div></details>';
+    }
+    out.innerHTML = html;
+  }
+
+  async function run(apply) {
+    const data = await apiSend(`/api/warehouse3d/${state.storeCode}/build-from-locations`, 'POST', {
+      apply, default_floor: parseInt(sel.value, 10) || 0,
+    });
+    render(data);
+    return data;
+  }
+
+  previewBtn.addEventListener('click', async () => {
+    previewBtn.disabled = true;
+    try {
+      const d = await run(false);
+      const any = (d.floors || []).some(f => f.shelves.some(x => x.action !== 'conflict'));
+      previewKey = keyNow();
+      applyBtn.disabled = !any;
+    } catch (err) { showToast(err.message, 'danger'); }
+    finally { previewBtn.disabled = false; }
+  });
+
+  applyBtn.addEventListener('click', async () => {
+    if (previewKey !== keyNow()) { showToast('Hãy bấm "Xem trước" lại trước khi dựng.', 'danger'); applyBtn.disabled = true; return; }
+    if (!await nsConfirm(`Dựng kệ cho ${state.storeCode} từ vị trí hàng hóa? Chỉ thêm mới, có thể chạy lại an toàn.`)) return;
+    applyBtn.disabled = true;
+    try {
+      await run(true);
+      state.selectedId = null;
+      await loadLayout();
+      frameFloorInView();
+      showToast('Đã dựng sơ đồ kho từ vị trí hàng hóa.', 'success');
+    } catch (err) { showToast(err.message, 'danger'); applyBtn.disabled = false; }
+  });
+})();
 
 document.getElementById('floor-delete-btn').addEventListener('click', async () => {
   const current = state.floors.find(f => f.id === state.floorId);

@@ -88,9 +88,10 @@ HƯỚNG DẪN ĐĂNG KÝ (2 chỗ cần thêm vào app.py, không cần sửa g
 import json
 import math
 
-from flask import Blueprint, request, jsonify, session, render_template, redirect, url_for
+from flask import Blueprint, request, jsonify, session, render_template, redirect, url_for, current_app
 
 from app import get_db, vn_now, format_vi_datetime, _valid_store_codes, _current_actor_name
+from wh3d_location_import import build_plan, run_import   # dựng kệ từ part_locations
 
 warehouse3d_bp = Blueprint('warehouse3d', __name__)
 
@@ -1321,3 +1322,48 @@ def wh3d_search_parts(store_code):
     rows = cursor.fetchall()
     cursor.close()
     return jsonify({'success': True, 'results': [dict(r) for r in rows]})
+
+
+# ---------------------------------------------------------------------------
+# API: DỰNG SƠ ĐỒ KHO TỪ "VỊ TRÍ HÀNG HÓA" (part_locations) - CHỈ ADMIN
+# apply=false -> xem trước (không ghi gì); apply=true -> ghi kệ/lầu/mã hàng.
+# KHÔNG ghi ngược part_locations (xem wh3d_location_import.py).
+# ---------------------------------------------------------------------------
+@warehouse3d_bp.route('/api/warehouse3d/<store_code>/build-from-locations', methods=['POST'])
+def wh3d_build_from_locations(store_code):
+    store_code = store_code.strip().upper()
+    db = get_db()
+    cursor = db.cursor()
+    ok, err = _check_store_access(cursor, store_code)
+    if not ok:
+        cursor.close()
+        return err
+    if session['role'] != 'admin':
+        cursor.close()
+        return jsonify({'error': 'Forbidden'}), 403
+
+    data = request.json or {}
+    apply = bool(data.get('apply'))
+    try:
+        default_floor = int(data.get('default_floor', 0))
+    except (TypeError, ValueError):
+        default_floor = 0
+    default_floor = max(0, min(default_floor, 20))   # 0 = Tầng trệt, n = Lầu n
+
+    try:
+        cursor.execute(
+            'SELECT part_code, location_1, location_2, location_3 FROM part_locations WHERE store_code = %s',
+            (store_code,)
+        )
+        rows = [(r['part_code'], r['location_1'], r['location_2'], r['location_3']) for r in cursor.fetchall()]
+        plan = build_plan(rows, default_floor)
+        report = run_import(cursor, store_code, plan, _current_actor_name(), vn_now(), apply=apply)
+        if apply:
+            db.commit()
+    except Exception:
+        db.rollback()
+        current_app.logger.exception('Dựng sơ đồ kho từ vị trí thất bại (%s)', store_code)
+        cursor.close()
+        return jsonify({'error': 'Không dựng được sơ đồ kho. Xem log máy chủ để biết chi tiết.'}), 500
+    cursor.close()
+    return jsonify({'success': True, 'applied': apply, 'default_floor': default_floor, **report})
