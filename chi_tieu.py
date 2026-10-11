@@ -306,6 +306,29 @@ def _parse_price(v, times1000=True):
     return x * 1000.0 if times1000 else x
 
 
+def _price_is_full_vnd(series):
+    """File xuất mới của HMS ghi giá bằng VND đầy đủ (vd 236000), file Excel cũ ghi theo nghìn đồng (vd 236).
+    Lấy trung vị các giá > 0: từ 1.000 trở lên thì coi là VND đầy đủ và KHÔNG nhân 1000."""
+    vals = []
+    for v in series.tolist():
+        if v is None or (isinstance(v, float) and np.isnan(v)):
+            continue
+        if isinstance(v, str):
+            t = re.sub(r'[^\d.,\-]', '', v.strip()).replace(',', '')
+            try:
+                x = float(t)
+            except ValueError:
+                continue
+        else:
+            try:
+                x = float(v)
+            except (TypeError, ValueError):
+                continue
+        if x > 0:
+            vals.append(x)
+    return bool(vals) and float(np.median(vals)) >= 1000
+
+
 def _parse_dates(series, month):
     """Trả về Series ngày (date) đã sửa lỗi đảo ngày/tháng.
     HMS xuất dd/mm/yyyy nhưng khi Excel hiểu theo kiểu Mỹ thì 04/10 thành 10/04 (ngày 10 tháng 4).
@@ -347,7 +370,7 @@ SPEC = {
     'otc':  dict(code=('ma phu tung',), qty=('so luong xac nhan',), price=('gia nhap',),
                  date=('ngay hoa don', 'ngay xuat', 'ngay gio duoc cap nhat'), times1000=True),
     'jc':   dict(code=('ma phu tung',), qty=('so luong xac nhan',), price=('gia nhap',),
-                 date=('ngay gio duoc cap nhat', 'ngay hoa don', 'ngay xuat'), times1000=True),
+                 date=('ngay gio duoc tao boi', 'ngay gio duoc cap nhat', 'ngay hoa don', 'ngay xuat'), times1000=True),
     'nhan': dict(code=('part',), qty=('qty',), price=('dnp unit price', 'dnp'),
                  date=('mrn date', 'transaction date'), times1000=True),
     'dat':  dict(code=('part number',), qty=('order quantity',), price=('dnp',),
@@ -374,10 +397,11 @@ def _parse_kind_file(kind, file_storage, month):
     miss = [n for n, c in (('Mã phụ tùng', c_code), ('Số lượng', c_qty), ('Giá nhập', c_price)) if c is None]
     if miss:
         raise ValueError('File thiếu cột: ' + ', '.join(miss) + '. Hãy chọn đúng file "' + KIND_LABEL[kind] + '" xuất từ HMS.')
+    times1000 = spec['times1000'] and not _price_is_full_vnd(df[c_price])
     out = pd.DataFrame({
         'part_code': df[c_code].map(_norm_code),
         'qty': pd.to_numeric(df[c_qty], errors='coerce').fillna(0.0),
-        'price': df[c_price].map(lambda v: _parse_price(v, spec['times1000'])),
+        'price': df[c_price].map(lambda v: _parse_price(v, times1000)),
     })
     skipped = 0
     if kind == 'dat':
